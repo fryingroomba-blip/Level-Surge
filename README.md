@@ -6,7 +6,9 @@ The G in **SURGE** is a skull. That is not a metaphor.
 
 ## Play
 
-Open `index.html` in a browser, or from this folder:
+The game is live at [https://fryingroomba-blip.github.io/Level-Surge/](https://fryingroomba-blip.github.io/Level-Surge/).
+
+To run a copy from this folder:
 
 ```bash
 python3 -m http.server 8765

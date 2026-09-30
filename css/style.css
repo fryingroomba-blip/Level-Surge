@@ -383,6 +383,12 @@ html, body {
   box-shadow: 0 4px 0 rgba(0, 0, 0, 0.35);
 }
 
+a.ghost-btn {
+  display: inline-block;
+  text-decoration: none;
+  text-align: center;
+}
+
 .ghost-btn:hover { transform: translateY(-1px); background: rgba(244, 234, 216, 0.06); }
 .ghost-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35); }
 

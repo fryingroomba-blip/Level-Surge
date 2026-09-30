@@ -1292,15 +1292,26 @@
 
   function drawJudges(ctx, s, W, H) {
     const scores = ["0.0", "0.0", "0.0"];
+    const px = u(W, H, 34);
     ctx.save();
     ctx.globalAlpha = s.judges;
+    font(ctx, px, true);
+    const sample = ctx.measureText("0.0");
+    const ascent = sample.actualBoundingBoxAscent || px * 0.92;
+    const descent = sample.actualBoundingBoxDescent || px * 0.28;
+    const boxW = sample.width + px * 1.35;
+    const boxH = ascent + descent + px * 0.85;
+    const gap = Math.max(14, px * 0.42);
+    const total = boxW * 3 + gap * 2;
+    const x0 = (W - total) / 2;
+    const y = H * 0.58;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
     scores.forEach((n, i) => {
-      const x = W * 0.22 + i * W * 0.2;
-      panel(ctx, x, H * 0.6, W * 0.16, 70);
-      font(ctx, W * 0.028, true);
+      const x = x0 + i * (boxW + gap);
+      panel(ctx, x, y, boxW, boxH);
       ctx.fillStyle = "#e31b1b";
-      ctx.textAlign = "center";
-      ctx.fillText(n, x + W * 0.08, H * 0.6 + 42);
+      ctx.fillText(n, x + boxW / 2, y + boxH / 2 + px * 0.04);
     });
     ctx.restore();
   }

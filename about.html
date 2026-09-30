@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LEVEL SURGE · ABOUT</title>
+  <link rel="icon" type="image/svg+xml" href="img/logo-g.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Rubik:wght@400;600;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/about.css?v=5" />
+</head>
+<body>
+  <canvas id="sky" aria-hidden="true"></canvas>
+  <div class="tape">Warning · the floor is lying · warning · the door is lying · warning · the floor is lying · warning · the door is lying</div>
+  <nav class="nav">
+    <a href="#shots">Looks</a>
+    <a href="#run">How it plays</a>
+    <a href="#controls">Controls</a>
+    <a href="#nullscape">Nullscape</a>
+    <a href="#worlds">Worlds</a>
+    <a href="#traps">Traps</a>
+    <a class="play" href="index.html">Play</a>
+  </nav>
+
+  <main class="wrap">
+    <header class="hero">
+      <p class="kicker">NOT A TROLL GAME.</p>
+      <h1 class="logo" aria-label="Level Surge">
+        <span>LEVEL</span>
+        <span class="logo-surge">
+          <span>SUR</span><span class="logo-g"><img src="img/logo-g.svg" alt="" /></span><span>E</span>
+        </span>
+      </h1>
+      <p class="tagline">Every jump is a trap. Every floor is a lie. The level itself wants you dead.</p>
+      <div class="actions">
+        <a class="big-btn" href="index.html">PLAY</a>
+        <a class="ghost-btn" href="#worlds">20 WORLDS</a>
+      </div>
+      <ul class="facts">
+        <li>Get to the real door</li>
+        <li>Rooms grow each world</li>
+        <li>Traps stack +2 / +3</li>
+      </ul>
+    </header>
+
+    <section id="shots">
+      <h2>IN THE ROOM</h2>
+      <p class="lead">The red thing, the door, and the teeth. These are frames from play. The wide one is the corridor with spikes above and below. The others are Nullscape and Frostbite.</p>
+      <figure class="shot">
+        <img src="img/shots/between.jpg" alt="The red character hanging in midair between a row of ceiling spikes and a row of floor spikes, with smoke trailing off its head." />
+        <figcaption>Spikes above, spikes below</figcaption>
+      </figure>
+      <div class="shot-row">
+        <figure class="shot">
+          <img src="img/shots/trust-me.jpg" alt="Dimension 1, Trust Me. Ceiling spikes have dropped over the character while red shards fill the air." />
+          <figcaption>D1 · Trust Me</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="img/shots/shiny.jpg" alt="Dimension 1, Shiny. Three gold coins hang over a long pit of spikes, with the exit door on a ledge to the right." />
+          <figcaption>D1 · Shiny</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="img/shots/frostbite.jpg" alt="Dimension 3, Frostbite, room No Railing. The character is in the air under red ceiling spikes, heading toward a door on a raised ledge." />
+          <figcaption>D3 · No Railing</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="run">
+      <h2>THE DEAL</h2>
+      <p class="lead">You are a small red thing with horns. The exit is a gold-and-red door. Touch the real one and the room is cleared. That is the only honest rule. Everything else is a delay.</p>
+      <div class="grid">
+        <article class="card">
+          <h3>One room at a time</h3>
+          <p>Walk, jump, and reach the door. Clear the room, then the next. Finish every room in a dimension and the next world wakes up.</p>
+        </article>
+        <article class="card">
+          <h3>The room is watching</h3>
+          <p>Traps wait on what you do: walk too far, jump too soon, stand still, sprint, or trust the wrong door. Some tells are dust. Some are teeth.</p>
+        </article>
+        <article class="card">
+          <h3>Death is a restart</h3>
+          <p>You die, the game roasts you, and you respawn in the same room. The death counter stays until you start a new run of that world.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="controls">
+      <h2>CONTROLS</h2>
+      <p class="lead">Keyboard on a computer. On a phone, on-screen buttons appear. Dash only exists from Dimension 3 onward.</p>
+      <table>
+        <thead>
+          <tr><th>Action</th><th>Keys</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Move</td><td><span class="key">Arrows</span> or <span class="key">A / D</span></td></tr>
+          <tr><td>Jump</td><td><span class="key">Space</span>, <span class="key">Up</span>, or <span class="key">W</span></td></tr>
+          <tr><td>Dash</td><td><span class="key">Shift</span> · Dimension 3 and later</td></tr>
+          <tr><td>Retry the room</td><td><span class="key">R</span></td></tr>
+          <tr><td>Pause</td><td><span class="key">Esc</span></td></tr>
+          <tr><td>Mute</td><td>Speaker button in the HUD</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="hud">
+      <h2>THE HUD</h2>
+      <p class="lead">The top bar is the only honest narrator, and even it lies about the trap count until something fires.</p>
+      <div class="grid">
+        <article class="card">
+          <h3>Dimension</h3>
+          <p>Something like D1 NULLSCAPE. Each world has its own sky, weather, and music.</p>
+        </article>
+        <article class="card">
+          <h3>Room</h3>
+          <p>A number, a name, and pips for how far you are through this world.</p>
+        </article>
+        <article class="card">
+          <h3>????</h3>
+          <p>The trap counter. It stays a question until traps actually go off.</p>
+        </article>
+        <article class="card">
+          <h3>Timer and deaths</h3>
+          <p>How long this run has lasted, and how many times the room has won.</p>
+        </article>
+        <article class="card">
+          <h3>SURGE combo</h3>
+          <p>Traps you survive in a short window stack a combo. Die and it drops.</p>
+        </article>
+        <article class="card">
+          <h3>Shards</h3>
+          <p>Gold coins that do not explode. Some rooms make greed fatal instead.</p>
+        </article>
+      </div>
+      <p class="note">Clearing a whole world prints a SURGE RATING. It is a huge number on purpose. It is theater, saved beside your best deaths and time for that dimension.</p>
+    </section>
+
+    <section id="nullscape">
+      <h2>NULLSCAPE</h2>
+      <p class="lead">Dimension 1 is handmade. Sixteen rooms, ten traps each. The void learned your name. Later worlds are generated from a seed, so they stay the same every time you enter them, but they are not these rooms.</p>
+      <div class="rooms" id="room-list"></div>
+    </section>
+
+    <section id="worlds">
+      <h2>TWENTY WORLDS</h2>
+      <p class="lead">Rooms equal 15 plus the dimension number, so Nullscape has 16 and Last Light has 35. Trap count starts at 10 and climbs by 2, then 3, then 2, then 3. From Dimension 2 on, the last room is a core and carries four extra traps. Clear a world to unlock the next. Progress lives in this browser under the save name level-surge-v3.</p>
+      <div class="worlds" id="world-list"></div>
+    </section>
+
+    <section id="traps">
+      <h2>WHAT A ROOM IS MADE OF</h2>
+      <p class="lead">Each room is a tile grid plus a list of traps. A trap waits for a condition, then does something. A delay means it hits a beat late. A quiet trap, like dust or a fake beam, does not count toward your combo.</p>
+      <table>
+        <thead>
+          <tr><th>Mark</th><th>What it pretends to be</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>#</code></td><td>Solid floor or wall</td></tr>
+          <tr><td><code>E</code></td><td>The real exit</td></tr>
+          <tr><td><code>F</code></td><td>A door that is not the exit</td></tr>
+          <tr><td><code>^ v</code></td><td>Spikes</td></tr>
+          <tr><td><code>=</code></td><td>Floor that crumbles under you</td></tr>
+          <tr><td><code>*</code></td><td>Looks solid. Is not.</td></tr>
+          <tr><td><code>i</code></td><td>Invisible solid</td></tr>
+          <tr><td><code>B</code></td><td>Bounce pad</td></tr>
+          <tr><td><code>o</code></td><td>Saw</td></tr>
+          <tr><td><code>C</code></td><td>Coin. A shard, unless the room wants you greedy.</td></tr>
+          <tr><td><code>!</code></td><td>Hidden teeth in the floor</td></tr>
+        </tbody>
+      </table>
+      <div class="grid">
+        <article class="card">
+          <h3>It waits for you</h3>
+          <p>Walk past a point, jump, jump too early, land, stand still, or touch the fake door.</p>
+        </article>
+        <article class="card">
+          <h3>Then it answers</h3>
+          <p>A hole, spikes, a late saw, a laser, flipped controls, a moved door, a shove, a falling brick.</p>
+        </article>
+        <article class="card">
+          <h3>Some of it is a lie</h3>
+          <p>Dust and a glow can mean nothing. A floor can look gone and still be there. Trust is the mechanic.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="sound">
+      <h2>SOUND</h2>
+      <p class="lead">There are no music files. The browser builds the track. Each dimension has its own tempo and root note. As traps fire in a room, the music gets denser. Mute it from the HUD if the room is already loud enough.</p>
+    </section>
+
+    <footer>
+      <p>The game itself is still <a href="index.html">index.html</a>. This page only explains it.</p>
+    </footer>
+  </main>
+
+  <script src="js/levels.js"></script>
+  <script src="js/worlds.js"></script>
+  <script src="js/about-sky.js"></script>
+  <script>
+    const BLURBS = {
+      "TRUST ME": "The floor opens because you believed it.",
+      "KEEP JUMPING": "The landing is optional, and then it is gone.",
+      "KNOCK KNOCK": "One of the doors is a joke.",
+      "WAIT FOR IT": "Patience, or the ceiling collects you.",
+      "SHINY": "The coins are a bad idea.",
+      "BACKWARDS": "Left and right trade places for a beat.",
+      "CHECKERED": "Some of the floor only looks solid.",
+      "BUZZ": "The saw decides it likes you.",
+      "YEET": "The bounce pad has opinions.",
+      "UP IS DOWN": "Gravity quits.",
+      "COME BACK": "Keep walking. The exit does not stay put.",
+      "FALL IN": "The hole is the kind part.",
+      "DON'T STOP": "Standing still is how the floor leaves.",
+      "PSYCH": "The long way back starts at the wrong door.",
+      "THROUGH": "The wall is a rumor.",
+      "LAST LAUGH": "Coins, lies, and whatever is left."
+    };
+
+    const rooms = document.getElementById("room-list");
+    (window.HAND_LEVELS || []).forEach((level, i) => {
+      const card = document.createElement("article");
+      card.className = "room";
+      card.innerHTML =
+        `<span class="num">${String(i + 1).padStart(2, "0")}</span>` +
+        `<strong>${level.name}</strong>` +
+        `<p>${BLURBS[level.name] || level.taunt}</p>`;
+      rooms.appendChild(card);
+    });
+
+    const pack = window.SURGE_WORLDS;
+    const worlds = document.getElementById("world-list");
+    if (pack) {
+      pack.DIMS.forEach((dim, i) => {
+        const d = i + 1;
+        const roomsN = pack.roomCount(d);
+        const traps = pack.trapCount(d);
+        const boss = d === 1 ? traps : traps + 4;
+        const accent = dim.accent || [227, 27, 27];
+        const card = document.createElement("article");
+        card.className = "world";
+        card.style.borderLeftColor = `rgb(${accent[0]},${accent[1]},${accent[2]})`;
+        card.innerHTML =
+          `<span class="idx">D${d} · ${dim.weather}</span>` +
+          `<strong>${dim.name}</strong>` +
+          `<p>${dim.lore}</p>` +
+          `<p class="meta">${roomsN} rooms · ${traps} traps${d > 1 ? ` · core ${boss}` : ""} · ${dim.bpm} bpm</p>`;
+        worlds.appendChild(card);
+      });
+    }
+  </script>
+</body>
+</html>

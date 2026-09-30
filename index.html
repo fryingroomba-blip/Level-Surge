@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>LEVEL SURGE</title>
+  <link rel="icon" type="image/svg+xml" href="img/logo-g.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Rubik:wght@400;600;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css?v=worlds2" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="game"></canvas>
+
+    <div id="hud" class="hidden">
+      <div class="hud-left">
+        <span class="hud-brand" aria-hidden="true">
+          LEVEL SUR<span class="hud-g"><img src="img/logo-g.svg" alt="" /></span>E
+        </span>
+        <span id="dim-name">D1 NULLSCAPE</span>
+        <span id="level-num">1 / 16</span>
+        <span id="level-name">TRUST ME</span>
+        <span id="room-pips" aria-hidden="true"></span>
+      </div>
+      <div class="hud-right">
+        <span id="trap-count">????</span>
+        <span id="shard-hud" class="hidden">✦ 0</span>
+        <span id="timer">0.0</span>
+        <span id="deaths">☠ 0</span>
+        <span id="combo-hud" class="hidden">SURGE x1</span>
+        <button id="pause-btn" type="button" aria-label="Pause">Ⅱ</button>
+        <button id="mute-btn" type="button" aria-label="Mute">🔊</button>
+      </div>
+    </div>
+
+    <div id="toast"></div>
+
+    <div id="title-screen" class="screen">
+      <div class="title-tape">WARNING · THE FLOOR IS LYING · WARNING · THE DOOR IS LYING</div>
+      <div class="title-frame">
+        <div class="title-ornament left" aria-hidden="true"></div>
+        <div class="title-ornament right" aria-hidden="true"></div>
+        <div class="title-mark">NOT A TROLL GAME.</div>
+        <h1 class="logo" aria-label="Level Surge">
+          <span class="logo-level">LEVEL</span>
+          <span class="logo-surge">
+            <span>SUR</span><span class="logo-g" aria-hidden="true"><img src="img/logo-g.svg" alt="" /></span><span>E</span>
+          </span>
+        </h1>
+        <p class="tagline">Every jump is a trap. Every floor is a lie.<br />The level itself wants you dead.</p>
+        <ul class="title-facts">
+          <li>20 dimensions</li>
+          <li>Rooms grow each world</li>
+          <li>Traps stack +2 / +3</li>
+        </ul>
+        <p id="records" class="records"></p>
+        <div class="title-actions">
+          <button id="play-btn" type="button" class="big-btn">PLAY</button>
+          <button id="levels-btn" type="button" class="ghost-btn">WORLDS</button>
+        </div>
+        <p class="hint">ARROWS / WASD to move · SPACE to jump · SHIFT to dash (D3+) · R to retry · ESC to pause</p>
+      </div>
+    </div>
+
+    <div id="levels-screen" class="screen hidden">
+      <div class="stamp small">WORLDS</div>
+      <p class="hint">Clear a dimension to wake the next.</p>
+      <div id="level-grid"></div>
+      <button id="levels-back" type="button" class="ghost-btn">BACK</button>
+    </div>
+
+    <div id="pause-screen" class="screen hidden">
+      <div class="stamp">PAUSED</div>
+      <p id="pause-name" class="hint"></p>
+      <div class="title-actions">
+        <button id="resume-btn" type="button" class="big-btn">RESUME</button>
+        <button id="retry-btn" type="button" class="ghost-btn">RETRY</button>
+        <button id="quit-btn" type="button" class="ghost-btn">QUIT</button>
+      </div>
+    </div>
+
+    <div id="clear-screen" class="screen hidden">
+      <div class="stamp">CLEARED</div>
+      <p id="clear-name"></p>
+      <p id="clear-stats" class="hint"></p>
+      <p class="hint">press any key</p>
+    </div>
+
+    <div id="win-screen" class="screen hidden">
+      <h1 class="logo small" aria-label="You win?">
+        <span class="logo-level">YOU WIN</span>
+        <span class="logo-surge"><span class="win-q">?</span></span>
+      </h1>
+      <p id="win-rating" class="surge-rating"></p>
+      <p id="win-stats"></p>
+      <p id="win-best" class="hint"></p>
+      <div class="title-actions">
+        <button id="again-btn" type="button" class="big-btn">REPLAY WORLD</button>
+        <button id="next-dim-btn" type="button" class="big-btn hidden">NEXT DIMENSION</button>
+      </div>
+    </div>
+
+    <div id="dim-card" class="hidden">
+      <div id="dim-card-num">DIMENSION 1</div>
+      <div id="dim-card-name">NULLSCAPE</div>
+      <p id="dim-card-lore">The void learned your name.</p>
+    </div>
+
+    <div id="mobile" class="hidden">
+      <button id="btn-left" type="button">◀</button>
+      <button id="btn-jump" type="button">JUMP</button>
+      <button id="btn-dash" type="button" class="hidden">DASH</button>
+      <button id="btn-right" type="button">▶</button>
+    </div>
+  </div>
+
+  <script src="js/levels.js?v=roastvar1"></script>
+  <script src="js/worlds.js?v=roastvar1"></script>
+  <script src="js/roast.js?v=roastq1"></script>
+  <script src="js/game.js?v=roastvar1"></script>
+</body>
+</html>

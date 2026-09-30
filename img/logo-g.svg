@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 128" fill="none">
+  <defs>
+    <linearGradient id="gBody" x1="8" y1="4" x2="92" y2="124">
+      <stop offset="0" stop-color="#ff4444"/>
+      <stop offset="0.5" stop-color="#e31b1b"/>
+      <stop offset="1" stop-color="#8a0c0c"/>
+    </linearGradient>
+    <linearGradient id="bone" x1="30" y1="26" x2="68" y2="78">
+      <stop offset="0" stop-color="#fff8ec"/>
+      <stop offset="1" stop-color="#d2c09a"/>
+    </linearGradient>
+  </defs>
+  <path fill="#2a0404" d="M22 12h48c16 0 26 10 26 26v18H78V40c0-8-6-14-16-14H28c-8 0-14 6-14 14v52c0 8 6 14 14 14h34c10 0 16-6 16-14V78h18v14c0 16-10 26-26 26H22C8 118 2 108 2 92V38C2 22 8 12 22 12z"/>
+  <path fill="url(#gBody)" d="M22 6h48c16 0 26 10 26 26v18H76V34c0-8-6-14-16-14H28c-8 0-14 6-14 14v52c0 8 6 14 14 14h34c10 0 16-6 16-14V72h20v20c0 16-10 26-26 26H22C8 112 2 102 2 86V32C2 16 8 6 22 6z"/>
+  <path fill="#ffb0b0" opacity=".28" d="M24 12h30c8 0 14 3 16 8-12 3-28 4-50 0 1-4 2-8 4-8z"/>
+  <rect x="62" y="62" width="30" height="16" rx="3" fill="url(#gBody)"/>
+  <rect x="62" y="62" width="30" height="4" fill="#ff9a9a" opacity=".4"/>
+  <g transform="translate(29 28)">
+    <ellipse cx="18" cy="24" rx="16.5" ry="21" fill="#210808"/>
+    <path fill="url(#bone)" d="M18 2c9.8 0 17 7.6 17 17.2 0 4.6-1.8 8.7-4.7 11.6l1.3 3.6c.5 1.5-.6 3-2.2 3H6.6c-1.6 0-2.7-1.5-2.2-3l1.3-3.6C2.8 27.9 1 23.8 1 19.2 1 9.6 8.2 2 18 2z"/>
+    <ellipse cx="18" cy="16" rx="12" ry="8" fill="#fffaf2" opacity=".38"/>
+    <ellipse cx="10.4" cy="21.2" rx="4.6" ry="5.5" fill="#120606"/>
+    <ellipse cx="25.6" cy="21.2" rx="4.6" ry="5.5" fill="#120606"/>
+    <ellipse cx="9.3" cy="19.4" rx="1.4" ry="1.7" fill="#e31b1b"/>
+    <ellipse cx="24.5" cy="19.4" rx="1.4" ry="1.7" fill="#e31b1b"/>
+    <path fill="#3a1410" d="M18 25.4 14.8 32.4h6.4z"/>
+    <path fill="#1a0808" d="M6.6 36.6h22.8c.8 0 1.2.9.7 1.5l-2.2 3.4H8.1l-2.2-3.4c-.5-.6-.1-1.5.7-1.5z"/>
+    <path fill="#fff6e4" d="M8.4 37.6h3.4v4.4H8.4zm7.1 0h3.4v4.4h-3.4zm7.1 0h3.4v4.4h-3.4z"/>
+    <path stroke="#c4a882" stroke-width="1.2" d="M8 16c3.2-7.4 16.4-9.4 20-2.2" opacity=".55"/>
+  </g>
+</svg>

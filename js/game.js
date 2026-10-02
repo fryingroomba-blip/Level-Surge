@@ -323,6 +323,7 @@
     play(name) {
       if (name === "jump") { this.beep(420, 0.09, "square", 0.05, 720); this.beep(210, 0.07, "triangle", 0.03); }
       if (name === "land") { this.beep(160, 0.05, "triangle", 0.04); this.noise(0.04, 0.05, 600); }
+      if (name === "step") this.noise(0.045, 0.04, 380);
       if (name === "die") { this.noise(0.32, 0.2, 700); this.beep(240, 0.38, "sawtooth", 0.09, 42); this.beep(90, 0.4, "triangle", 0.05); }
       if (name === "win") { this.beep(523, 0.1, "square", 0.07); setTimeout(() => this.beep(659, 0.1, "square", 0.07), 80); setTimeout(() => this.beep(784, 0.22, "square", 0.08), 160); setTimeout(() => this.beep(1046, 0.28, "triangle", 0.05), 280); }
       if (name === "crumble") this.noise(0.2, 0.16, 500);
@@ -688,16 +689,19 @@
     if (world.particles.length > 220) world.particles.splice(0, world.particles.length - 220);
   }
 
-  function dust(x, y, n) {
+  function dust(x, y, n, kick) {
+    kick = kick || 0;
     for (let i = 0; i < n; i++) {
       world.particles.push({
-        x: x + (Math.random() - 0.5) * 12,
+        x: x + (Math.random() - 0.5) * 8,
         y,
-        vx: (Math.random() - 0.5) * 2.2,
-        vy: -Math.random() * 1.4,
-        life: 0.25 + Math.random() * 0.25,
+        vx: (Math.random() - 0.5) * 1.2 - kick,
+        vy: -0.4 - Math.random() * 1.1,
+        grav: 0.08,
+        life: 0.28 + Math.random() * 0.22,
         color: "#c4b8a8",
         size: 2 + Math.random() * 2,
+        kind: "square",
       });
     }
   }
@@ -853,13 +857,17 @@
     return pickInsult(deathKind(cause));
   }
 
-  function fxTiles(x, y, w, h, ch) {
+  function fxTiles(x, y, w, h, ch, force) {
     const hazard = ch === "^" || ch === "v" || ch === "<" || ch === ">";
     const color = hazard ? "#ff4a4a" : "#c4b8a8";
     const n = hazard ? 9 : 6;
     for (let yy = 0; yy < (h || 1); yy++) {
       for (let xx = 0; xx < (w || 1); xx++) {
-        burst((x + xx) * TILE + 16, (y + yy) * TILE + 10, color, n, hazard ? 3.4 : 2.6);
+        const tx = x + xx;
+        const ty = y + yy;
+        if (ty < 0 || tx < 0 || ty >= world.rows || tx >= world.cols) continue;
+        if (!force && world.tiles[ty][tx] === ch) continue;
+        burst(tx * TILE + 16, ty * TILE + 10, color, n, hazard ? 3.4 : 2.6);
       }
     }
   }
@@ -942,7 +950,7 @@
         w: (a[3] || 4) * TILE, h: 6, life: a[4] || 0.2, fake: true,
       });
     }
-    if (type === "dust") fxTiles(a[1], a[2], a[3] || 1, a[4] || 1, ".");
+    if (type === "dust") fxTiles(a[1], a[2], a[3] || 1, a[4] || 1, ".", true);
     if (type === "flash") world.flash = a[1] || 0.08;
     if (type === "whisper") whisper(a[1]);
     if (type === "lie") world.hudText = a[1] || "????";
@@ -1007,10 +1015,17 @@
       }
     }
     for (const a of ev.do) runAction(a);
+    if (ev.once === false) ev.rearmAt = world.time + 3;
   }
 
   function tickEvents() {
     for (const ev of world.events) {
+      if (ev.rearmAt != null && world.time >= ev.rearmAt) {
+        ev.rearmAt = null;
+        ev.fired = false;
+        ev.armed = null;
+        ev.held = 0;
+      }
       if (ev.fired && ev.once !== false) continue;
       if (ev.armed != null) {
         if (world.time >= ev.armed) {
@@ -1105,7 +1120,7 @@
           const ty = Math.floor(edge / TILE);
           player.y = dir > 0 ? ty * TILE - player.h : (ty + 1) * TILE;
           if (dir * Math.sign(world.gravity) > 0) {
-            if (!player.onGround) {
+            if (!player.wasOnGround && (player.airTime || 0) > 0.08 && Math.abs(player.vy) > 2.2) {
               audio.play("land");
               player.justLanded = true;
               world.squash = 0.22;
@@ -1113,6 +1128,7 @@
               dust(player.x + player.w / 2, player.y + player.h, 6);
             }
             player.onGround = true;
+            player.airTime = 0;
             player.coyote = 0.09;
           }
           player.vy = 0;
@@ -1290,6 +1306,7 @@
   function tickPlayer() {
     if (player.dead || player.win) return;
     player.justLanded = false;
+    if (!player.onGround) player.airTime = (player.airTime || 0) + FIXED;
 
     let ix = 0;
     let jumpDown = false;
@@ -1297,8 +1314,8 @@
       ix = botIx;
       jumpDown = botJump;
     } else {
-      if (keys.has("ArrowLeft") || keys.has("a") || keys.has("A") || hold.left) ix -= 1;
-      if (keys.has("ArrowRight") || keys.has("d") || keys.has("D") || hold.right) ix += 1;
+    if (keys.has("ArrowLeft") || keys.has("a") || keys.has("A") || hold.left) ix -= 1;
+    if (keys.has("ArrowRight") || keys.has("d") || keys.has("D") || hold.right) ix += 1;
       jumpDown = keys.has(" ") || keys.has("ArrowUp") || keys.has("w") || keys.has("W") || hold.jump;
     }
     if (lockTimer > 0) { ix = 0; jumpDown = false; lockTimer -= FIXED; }
@@ -1309,6 +1326,7 @@
     if (ix) player.vx += ix * accel;
     else player.vx *= player.onGround ? 0.7 : 0.94;
     player.vx += world.wind;
+    if (!ix && player.onGround && Math.abs(player.vx) < 0.35) player.vx = 0;
 
     dashCool = Math.max(0, dashCool - FIXED);
     dashT = Math.max(0, dashT - FIXED);
@@ -1355,12 +1373,15 @@
     if (gSign > 0) player.vy = Math.min(player.vy, 13);
     else player.vy = Math.max(player.vy, -13);
 
+    player.wasOnGround = player.onGround;
     player.onGround = false;
+    const xBefore = player.x;
     moveAxis(player.vx, 0);
     moveAxis(0, player.vy);
+    const movedX = player.x - xBefore;
     if (player.x > world.maxX) world.maxX = player.x;
 
-    if (Math.abs(player.vx) > 2.2 || !player.onGround) {
+    if (Math.abs(movedX) > 2.4 || (!player.onGround && Math.abs(player.vy) > 2.5)) {
       world.afterimages.push({
         x: player.x, y: player.y, facing: player.facing, life: 0.16,
       });
@@ -1391,8 +1412,14 @@
       if (hz) { die(hz); return; }
     }
 
-    if (player.onGround && Math.abs(player.vx) > 2.6 && Math.random() < 0.18) {
-      dust(player.x + player.w / 2, player.y + player.h, 1);
+    player.stepCool = Math.max(0, (player.stepCool || 0) - FIXED);
+    if (ix && player.onGround && Math.abs(movedX) > 0.35) {
+      player.anim += Math.abs(movedX) * 0.22;
+      if (!player.justLanded && player.stepCool <= 0) {
+        player.stepCool = 0.16;
+        dust(player.x + player.w / 2, player.y + player.h, 2, Math.sign(ix) * 0.9);
+        if (!testMode) audio.play("step");
+      }
     }
 
     for (const saw of world.saws) {
@@ -1449,7 +1476,6 @@
     }
 
     if (player.y > world.rows * TILE + 40 || player.y < -80) die("VOID");
-    player.anim += Math.abs(player.vx) * 0.2;
   }
 
   function tickSaws() {
@@ -1493,7 +1519,7 @@
   function tickParticles() {
     for (let i = world.particles.length - 1; i >= 0; i--) {
       const p = world.particles[i];
-      p.vy += 0.25;
+      p.vy += p.grav != null ? p.grav : 0.25;
       p.x += p.vx;
       p.y += p.vy;
       p.life -= FIXED;
@@ -1544,13 +1570,13 @@
 
   function drawBrickFace(px, py, body, lip, crumbly) {
     ctx.fillStyle = body;
-    ctx.fillRect(px, py, TILE, TILE);
+      ctx.fillRect(px, py, TILE, TILE);
     ctx.fillStyle = lip;
     ctx.fillRect(px, py, TILE, crumbly ? 4 : 6);
     ctx.fillStyle = "rgba(255,255,255,0.1)";
     ctx.fillRect(px + 1, py + 1, TILE - 2, 2);
     ctx.fillStyle = "rgba(0,0,0,0.3)";
-    ctx.fillRect(px, py + TILE - 4, TILE, 4);
+      ctx.fillRect(px, py + TILE - 4, TILE, 4);
     ctx.fillRect(px + TILE - 3, py, 3, TILE);
     ctx.strokeStyle = "rgba(0,0,0,0.22)";
     ctx.lineWidth = 1;
@@ -1573,8 +1599,8 @@
 
   function drawSpikePair(px, py, dir) {
     const pulse = 1 + Math.sin(world.time * 10 + px) * 0.04;
-    for (let i = 0; i < 2; i++) {
-      const bx = px + i * 16;
+        for (let i = 0; i < 2; i++) {
+          const bx = px + i * 16;
       ctx.save();
       ctx.translate(bx + 8, py + 16);
       ctx.scale(pulse, pulse);
@@ -1591,8 +1617,8 @@
         ctx.moveTo(-1, 0); ctx.lineTo(TILE - 4, 8); ctx.lineTo(-1, 16);
       }
       ctx.fill();
-      ctx.fillStyle = "#ece8e1";
-      ctx.beginPath();
+          ctx.fillStyle = "#ece8e1";
+          ctx.beginPath();
       if (dir === "up") {
         ctx.moveTo(2, TILE); ctx.lineTo(8, 3); ctx.lineTo(14, TILE);
       } else if (dir === "down") {
@@ -1602,9 +1628,9 @@
       } else {
         ctx.moveTo(0, 2); ctx.lineTo(TILE - 3, 8); ctx.lineTo(0, 14);
       }
-      ctx.fill();
-      ctx.fillStyle = "#e31b1b";
-      ctx.beginPath();
+          ctx.fill();
+          ctx.fillStyle = "#e31b1b";
+          ctx.beginPath();
       if (dir === "up") {
         ctx.moveTo(6, 14); ctx.lineTo(8, 3); ctx.lineTo(10, 14);
       } else if (dir === "down") {
@@ -1612,7 +1638,7 @@
       } else {
         ctx.moveTo(8, 6); ctx.lineTo(3, 8); ctx.lineTo(8, 10);
       }
-      ctx.fill();
+          ctx.fill();
       ctx.restore();
     }
   }
@@ -1717,7 +1743,7 @@
           ctx.fillRect(frac(t * 9 + i) * VIEW_W, frac(t * 5 + i * 3) * VIEW_H, 40 + frac(i) * 80, 2);
         }
       }
-    } else {
+        } else {
       for (let i = 0; i < 34; i++) {
         const n = frac(i * 7.3);
         const speed = 22 + n * 50;
@@ -1761,7 +1787,7 @@
       const y = VIEW_H * (0.18 + b * 0.12) + Math.sin(t * 0.3 + b) * 10;
       ctx.beginPath();
       ctx.ellipse(VIEW_W * (0.35 + b * 0.18), y, VIEW_W * 0.42, 28 + pulse * 8, 0, 0, Math.PI * 2);
-      ctx.fill();
+        ctx.fill();
     }
 
     const cx = VIEW_W * 0.76;
@@ -2047,7 +2073,7 @@
     ctx.ellipse(16.4, 14, 4.2, 5.2, 0, 0, Math.PI * 2);
     ctx.fill();
     if (blink) {
-      ctx.fillStyle = "#140808";
+    ctx.fillStyle = "#140808";
       ctx.fillRect(6, 13.5, 6, 1.5);
       ctx.fillRect(13.5, 13.5, 6, 1.5);
     } else {
@@ -2068,7 +2094,7 @@
   function drawContactShadows() {
     const blob = (x, y, rx, ry, a) => {
       ctx.fillStyle = `rgba(0,0,0,${a})`;
-      ctx.beginPath();
+    ctx.beginPath();
       ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
       ctx.fill();
     };
@@ -2211,7 +2237,7 @@
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     if (world.reverse) {
       ctx.fillStyle = "rgba(80,120,255,0.07)";
-      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     }
     if (world.gravity < 0) {
       ctx.fillStyle = "rgba(160,40,180,0.06)";
@@ -2298,7 +2324,7 @@
     drawContactShadows();
     for (let y = 0; y < world.rows; y++) {
       for (let x = 0; x < world.cols; x++) drawTile(world.tiles[y][x], x, y);
-    }
+      }
     drawBlood();
     for (const p of world.platforms) {
       drawBrickFace(p.x, p.y, "#6a4030", "#e0b090", false);
@@ -2633,6 +2659,16 @@
     world.shake = 0;
     step();
     assert(world.shake !== 11, "delay does not fire instantly", fails);
+    const firedBefore = world.trapsFired;
+    world.time = 50;
+    world.events = [{ if: { time: 50 }, once: true, fired: false, do: [["shake", 1]] }];
+    step();
+    assert(world.trapsFired === firedBefore + 1, "trap fires", fails);
+    assert(world.events[0].rearmAt == null, "once trap does not rearm", fails);
+    world.time = 56;
+    step();
+    assert(world.events[0].fired === true, "once trap stays spent", fails);
+    assert(world.trapsFired === firedBefore + 1, "once trap does not fire again", fails);
     die("TEST");
     assert(player.dead === true, "die sets dead", fails);
     const prevDeaths = deaths;
@@ -2797,7 +2833,9 @@
     if (deadlyFloor) return { ix: 0, jump: false };
     let jump = false;
     const gap = (!isSolid(floor1) && floor1 !== "i") || floor1 === "^" || floor2 === "^" || (!isSolid(floor2) && floor2 !== "i");
+    const stepUp = isSolid(body1) || isSolid(tileAt(probe, player.y + player.h - 2));
     if (gap && !ceiling && !safeDrop) jump = true;
+    if (stepUp && !ceiling) jump = true;
     if ((floor1 === "^" || body1 === "^") && !ceiling) jump = true;
     if (world.rules.explodeCoins) {
       for (const c of world.coins) {

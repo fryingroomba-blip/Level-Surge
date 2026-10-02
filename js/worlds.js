@@ -52,146 +52,195 @@
     return +(base + d * 0.035 + r() * 0.08).toFixed(3);
   }
 
-  function makeMap(kind, r) {
-    const rows = [];
-    for (let i = 0; i < 8; i++) rows.push(sky());
-    if (kind === 0) {
-      rows.push(pad("S                             E"));
-      rows.push(floor(), floor(), floor());
-    } else if (kind === 1) {
-      rows.push(pad("S                            E"));
-      rows.push(pad("#####  ###    ====    #########"));
-      rows.push(pad("#####^^...    ^^^^    #########"));
-      rows.push(floor());
-    } else if (kind === 2) {
-      rows[5] = pad("E");
-      rows[6] = pad("####");
-      rows.push(pad("S                            F"));
-      rows.push(floor(), floor(), floor());
-    } else if (kind === 3) {
-      rows.push(pad("S                             E"));
-      rows.push(pad("####*###*###*###*###*###*#######"));
-      rows.push(pad(".....^^^...^^^...^^^...^^^^^^^^^"));
-      rows.push(floor());
-    } else if (kind === 4) {
-      rows[1] = pad("vvvvvvvv");
-      rows.push(pad("......................##########"));
-      rows.push(pad("S                     #       E"));
-      rows.push(pad("##########B############"));
-      rows.push(floor());
-    } else if (kind === 5) {
-      rows.push(pad("S                             E"));
-      rows.push(floor());
-      rows.push(pad("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"));
-      rows.push(floor());
-    } else if (kind === 6) {
-      rows[6] = pad(".............C");
-      rows[7] = pad("...........C...C");
-      rows.push(pad("S                             E"));
-      rows.push(pad("########iiiiiiiiiiiiiiiiii######"));
-      rows.push(pad("########^^^^^^^^^^^^^^^^^^......"));
-      rows.push(floor());
-    } else if (kind === 7) {
-      rows.push(pad("S         **********          E"));
-      rows.push(floor());
-      rows.push(pad("##########^^^^^^^^^^############"));
-      rows.push(floor());
-    } else {
-      rows.push(pad("S                          o  E"));
-      rows.push(floor(), floor(), floor());
+  const LAYOUTS = ["RIDGE", "GAPS", "CLIMB", "TRENCH", "SHELF", "STEPS", "POCKETS", "BRIDGE"];
+
+  function reachable(surface, spawnX, doorX) {
+    const W = surface.length;
+    const seen = new Set([spawnX]);
+    const q = [spawnX];
+    while (q.length) {
+      const x = q.pop();
+      if (x === doorX) return true;
+      for (let nx = 0; nx < W; nx++) {
+        if (surface[nx] < 0 || seen.has(nx)) continue;
+        const dist = Math.abs(nx - x);
+        if (dist < 1 || dist > 4) continue;
+        const dy = surface[x] - surface[nx];
+        if (dy > 3 || dy < -6) continue;
+        seen.add(nx);
+        q.push(nx);
+      }
     }
-    return rows;
+    return false;
   }
 
-  function buildEvents(d, kind, r, boss) {
+  function terrain(d, room, r) {
+    const W = 32;
+    const surface = new Array(W);
+    let y = 7 + (room % 3);
+    const pitChance = 0.08 + (room % 5) * 0.015;
+    for (let x = 0; x < W; x++) {
+      if (x > 4 && x < 27 && r() < pitChance) {
+        surface[x] = -1;
+        if (r() < 0.55 && x + 1 < 27) {
+          x += 1;
+          surface[x] = -1;
+        }
+        continue;
+      }
+      const roll = r();
+      const climb = room % 2 === 0 ? 0.22 : 0.14;
+      if (x > 0 && surface[x - 1] !== -1) {
+        if (roll < climb && y > 5) y -= 1;
+        else if (roll > 0.82 && y < 9) y += 1;
+      }
+      if ((d + room) % 6 === 2 && x > 18) y = Math.max(5, y - (x % 7 === 0 ? 1 : 0));
+      if ((d + room) % 6 === 4 && x > 8 && x < 16) y = Math.min(9, y + (x % 5 === 0 ? 1 : 0));
+      surface[x] = Math.max(5, Math.min(9, y));
+    }
+    for (let x = 0; x < W; x++) {
+      if (x < 3 || x > 28) surface[x] = surface[x] < 0 ? 9 : surface[x];
+    }
+    let run = 0;
+    for (let x = 0; x < W; x++) {
+      if (surface[x] < 0) {
+        run += 1;
+        if (run > 2) surface[x] = 9;
+      } else run = 0;
+    }
+    for (let x = 1; x < W; x++) {
+      if (surface[x] < 0 || surface[x - 1] < 0) continue;
+      const dy = surface[x] - surface[x - 1];
+      if (dy > 2) surface[x] = surface[x - 1] + 2;
+      if (dy < -2) surface[x] = surface[x - 1] - 2;
+    }
+    surface[1] = surface[1] < 0 ? 9 : surface[1];
+    surface[30] = surface[30] < 0 ? surface[29] < 0 ? 9 : surface[29] : surface[30];
+    if (!reachable(surface, 1, 30)) {
+      for (let x = 0; x < W; x++) if (surface[x] < 0) surface[x] = 9;
+      for (let x = 1; x < W; x++) {
+        const dy = surface[x] - surface[x - 1];
+        if (dy > 1) surface[x] = surface[x - 1] + 1;
+        if (dy < -1) surface[x] = surface[x - 1] - 1;
+      }
+    }
+    return surface;
+  }
+
+  function paintRoom(surface, d, room, r, boss) {
+    const H = 12;
+    const W = surface.length;
+    const g = Array.from({ length: H }, () => Array(W).fill("."));
+    for (let x = 0; x < W; x++) {
+      if (surface[x] < 0) {
+        g[10][x] = "^";
+        g[11][x] = "#";
+        continue;
+      }
+      for (let y = surface[x]; y < H; y++) g[y][x] = "#";
+    }
+    g[surface[1] - 1][1] = "S";
+    g[surface[30] - 1][30] = "E";
+    const lip = 2 + ((d + room) % 3);
+    for (let x = 0; x < W; x++) {
+      if (surface[x] >= 8 && r() < 0.22 && x % (3 + (room % 3)) === 0) g[lip][x] = "v";
+    }
+    if ((room + d) % 4 === 1) {
+      const bx = 8 + ((room * 3 + d) % 14);
+      if (surface[bx] >= 0 && g[surface[bx] - 1][bx] === ".") g[surface[bx]][bx] = "B";
+    }
+    if ((room + d) % 5 === 2) {
+      const cx = 6 + ((room * 2) % 12);
+      if (surface[cx] === 9) g[9][cx] = "=";
+    }
+    if (boss) {
+      g[4][12] = "#";
+      g[4][13] = "#";
+      g[4][14] = "#";
+      g[3][13] = "F";
+    }
+    g[surface[1] - 1][1] = "S";
+    g[surface[30] - 1][30] = "E";
+    return g.map((row) => row.join(""));
+  }
+
+  function landingNear(surface, col) {
+    for (let x = col - 3; x <= col + 3; x++) {
+      if (x !== col && x >= 0 && x < surface.length && surface[x] >= 0) return true;
+    }
+    return false;
+  }
+
+  function buildEvents(d, surface, r, boss) {
     const n = trapCount(d) + (boss ? 4 : 0);
     const sneak = 0.04 + d * 0.03;
     const events = [];
-    const jumpY = kind === 4 ? 3 : 5;
     events.push({
-      if: { jump: true, xLess: 6 + d * 0.15, air: true }, once: true, delay: sneakDelay(d, r, 0.04),
-      do: [["fill", 1, jumpY, 16, 1, "v"], ["shake", 4], ["sfx", "spike"]],
+      if: { jump: true, xLess: 3.2, air: true }, once: true, delay: sneakDelay(d, r, 0.04),
+      do: [["fill", 0, 2, 3, 1, "v"], ["shake", 3], ["sfx", "spike"]],
     });
-    const used = new Set(["jp"]);
-    while (events.length < n) {
+    let guard = 0;
+    while (events.length < n && guard++ < 500) {
       const roll = r();
-      const when = +(4.5 + r() * 22).toFixed(2);
-      const hx = Math.max(6, Math.min(28, (when + 1 + r() * 3) | 0));
-      if (roll < 0.12) {
+      const col = Math.max(5, Math.min(26, 5 + ((events.length * 3 + (r() * 5) | 0) % 21)));
+      const when = +(col + r() * 0.35).toFixed(2);
+      const fy = surface[col] >= 0 ? surface[col] : 9;
+      if (roll < 0.16) {
         events.push({
           if: { x: when }, once: true, quiet: true,
-          do: [["dust", hx, 9, 2 + (r() * 3) | 0], ["shake", 4], ["sfx", "crumble"]],
+          do: [["dust", col, fy, 2], ["shake", 3], ["sfx", "crumble"]],
         });
-      } else if (roll < 0.22) {
+      } else if (roll < 0.28) {
         events.push({
           if: { x: when }, once: true, quiet: true,
-          do: [["glow", hx, 5, 5, 0.22 + sneak]],
+          do: [["glow", col, Math.max(2, fy - 3), 4, 0.2 + sneak]],
         });
-      } else if (roll < 0.4) {
+      } else if (roll < 0.46 && surface[col] >= 0 && landingNear(surface, col) && col > 4 && col < 27) {
         events.push({
           if: { x: when }, once: true, delay: sneakDelay(d, r, 0.16 + sneak),
-          do: [["hole", hx, 9, 1 + (r() * 3) | 0, 1], ["spikes", hx, 10, 1 + (r() * 3) | 0], ["shake", 6], ["sfx", "crumble"]],
+          do: [["hole", col, fy, 1, 1], ["spikes", col, Math.min(11, fy + 1), 1], ["shake", 5], ["sfx", "crumble"]],
         });
-      } else if (roll < 0.52) {
+      } else if (roll < 0.58) {
         const dir = r() < 0.5 ? 1 : -1;
         events.push({
-          if: { x: when }, once: true, delay: sneakDelay(d, r, 0.35 + sneak),
-          do: [["saw", dir > 0 ? -1 : 32, 8, dir * (2.2 + r()), 0]],
-        });
-      } else if (roll < 0.62) {
-        events.push({
-          if: { x: when }, once: true, delay: sneakDelay(d, r, 0.1 + sneak),
-          do: [["laser", hx, 5, 4 + (r() * 4) | 0, 0.12 + sneak * 0.2], ["sfx", "spike"]],
+          if: { x: when }, once: true, delay: sneakDelay(d, r, 0.3 + sneak),
+          do: [["saw", dir > 0 ? -1 : 32, Math.max(4, fy - 2), dir * (1.8 + r() * 0.8), 0]],
         });
       } else if (roll < 0.7) {
         events.push({
-          if: { jumpAfter: when, air: true }, once: true, delay: sneakDelay(d, r, 0.05),
-          do: [["fill", hx, 5, 6 + (r() * 6) | 0, 1, "v"], ["sfx", "spike"]],
+          if: { x: when }, once: true, delay: sneakDelay(d, r, 0.12 + sneak),
+          do: [["laser", col, Math.max(3, fy - 4), 3, 0.1 + sneak * 0.15], ["sfx", "spike"]],
         });
-      } else if (roll < 0.78) {
+      } else if (roll < 0.8) {
         events.push({
-          if: { x: when }, once: true, delay: sneakDelay(d, r, 0.18),
-          do: [["reverse", true], ["flash", 0.04], ["sfx", "reverse"], ["queue", 0.28 + r() * 0.3, ["reverse", false]]],
-        });
-      } else if (roll < 0.84) {
-        events.push({
-          if: { x: when }, once: true, delay: sneakDelay(d, r, 0.12),
-          do: [["fill", Math.min(29, hx), 9, 1, 1, "^"], ["sfx", "spike"]],
+          if: { x: when }, once: true, delay: sneakDelay(d, r, 0.16),
+          do: [["reverse", true], ["flash", 0.04], ["sfx", "reverse"], ["queue", 0.2 + r() * 0.12, ["reverse", false]]],
         });
       } else if (roll < 0.9) {
         events.push({
-          if: { time: 8 + r() * 10 }, once: true, delay: 0.3 + sneak,
-          do: [["saw", r() < 0.5 ? -1 : 32, 8, r() < 0.5 ? 3 : -3, 0]],
-        });
-      } else if (roll < 0.95) {
-        events.push({
-          if: { x: when }, once: true, delay: sneakDelay(d, r, 0.2),
-          do: [["push", fr(r, 0.6, 1.6) * (r() < 0.3 ? -1 : 1), r() < 0.2 ? -2 : 0]],
+          if: { x: when }, once: true, delay: sneakDelay(d, r, 0.18),
+          do: [["push", fr(r, 0.4, 1.1) * (r() < 0.35 ? -1 : 1), 0]],
         });
       } else {
         events.push({
-          if: { x: when, vxLess: 0.7, ground: true }, once: true, delay: 0.05,
-          do: [["hole", hx, 9, 2, 1], ["spikes", hx, 10, 2], ["sfx", "crumble"]],
+          if: { time: 6 + r() * 8 }, once: true, delay: 0.25 + sneak,
+          do: [["saw", r() < 0.5 ? -1 : 32, Math.max(4, fy - 2), r() < 0.5 ? 2.4 : -2.4, 0]],
         });
       }
     }
-    if (kind === 2) {
+    if (boss) {
       events[events.length - 1] = {
-        if: { door: "fake" }, once: true, delay: 0.15 + sneak,
-        do: [["spikes", 14, 9, 3], ["saw", 8, 8, 2.4, 0], ["shake", 10], ["sfx", "spike"]],
+        if: { door: "fake" }, once: true, delay: 0.12 + sneak,
+        do: [["spikes", 12, 5, 2], ["saw", 6, 6, 2.2, 0], ["shake", 8], ["sfx", "spike"]],
       };
-    }
-    if (kind === 6) {
-      events.push({
-        if: { jumpAfter: 10, air: true }, once: true, delay: 0.08,
-        do: [["fill", 8, 5, 14, 1, "v"], ["sfx", "spike"]],
-      });
     }
     while (events.length > n) events.pop();
     while (events.length < n) {
+      const col = 8 + (events.length % 16);
+      const fy = surface[col] >= 0 ? surface[col] : 9;
       events.push({
-        if: { x: 10 + events.length }, once: true, quiet: true,
-        do: [["dust", 12, 9, 3], ["shake", 3]],
+        if: { x: col }, once: true, quiet: true,
+        do: [["dust", col, fy, 2], ["shake", 2]],
       });
     }
     return events.slice(0, n);
@@ -216,17 +265,20 @@
 
   function generateOne(d, i, boss) {
     const r = rng((d * 7919 + i * 104729 + 13) >>> 0);
-    const kind = boss ? 2 : ir(r, 0, 8);
     const dim = DIMS[d - 1] || DIMS[0];
+    const surface = terrain(d, i, r);
+    const layout = LAYOUTS[(d + i) % LAYOUTS.length];
     return {
-      name: boss ? dim.name + " CORE" : pick(r, NAMES) + (i > 8 ? " " + (i + 1) : ""),
+      name: boss ? dim.name + " CORE" : dim.name + " " + layout + " " + (i + 1),
       taunt: pick(r, TAUNTS),
-      map: makeMap(kind, r),
-      events: buildEvents(d, kind, r, boss),
-      explodeCoins: kind === 6,
-      crumbleIfStill: kind === 5 ? Math.max(0.18, 0.4 - d * 0.01) : 0,
+      map: paintRoom(surface, d, i, r, boss),
+      events: buildEvents(d, surface, r, boss),
+      explodeCoins: false,
+      crumbleIfStill: 0,
       dim: d,
       boss: !!boss,
+      layout,
+      surface,
     };
   }
 
@@ -243,7 +295,7 @@
   }
 
   root.SURGE_WORLDS = {
-    DIMS, roomCount, trapCount, generate, theme, chordsFor, count: 20,
+    DIMS, roomCount, trapCount, generate, theme, chordsFor, reachable, count: 20,
   };
   root.LEVELS = generate(1);
 })(typeof window !== "undefined" ? window : globalThis);

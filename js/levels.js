@@ -237,7 +237,10 @@
       taunt: "LEFT IS RIGHT NOW",
       sol: "R55 JR16 R40 JR18 R50 JR16 R50",
       map: [
-        sky(), sky(), sky(), sky(), sky(), sky(), sky(), sky(),
+        sky(),
+        pad("######........................"),
+        pad("######............######......"),
+        sky(), sky(), sky(), sky(), sky(),
         pad("S                             E"),
         pad("################################"),
         pad("################################"),
@@ -346,38 +349,37 @@
     {
       name: "UP IS DOWN",
       taunt: "GRAVITY QUIT",
-      sol: "R50 JR18 R40 JR18 R40 JR18 R60",
+      sol: "R48 JR22 R240",
       map: [
         pad("################################"),
         pad(".............................E"),
-        pad("............................####"),
-        sky(), sky(), sky(), sky(), sky(),
+        pad("##..........................##"),
+        sky(), sky(), sky(), sky(),
         pad("S"),
-        pad("################################"),
+        pad("########..######################"),
+        pad("########^^######################"),
         pad("################################"),
         pad("################################"),
       ],
       events: [
-        jumpPunish(8, 6),
-        sink(5.3, 7, 2, 0.18),
-        { if: { jump: true, xLess: 6, air: true }, once: true, delay: 0.08, do: [
-          ["saw", 2, 8, 2.0, 0],
+        { if: { jump: true, xLess: 3.5, air: true }, once: true, delay: 0.05, do: [
+          ["saw", -1, 7, 2.2, 0], ["sfx", "saw"],
         ]},
-        { if: { x: 9.2 }, once: true, delay: 0.28, do: [
-          ["gravity", -0.55], ["flash", 0.06], ["sfx", "reverse"],
+        fakeCrack(6.2, 4, 2),
+        { if: { x: 12.4 }, once: true, delay: 0.12, do: [
+          ["gravity", -0.55], ["flash", 0.08], ["sfx", "reverse"],
         ]},
-        sneakSaw(12.1, 4, 2, 2.25, 0.4),
-        slice(15.2, 16, 3),
-        flip(17.4, 0.28),
-        { if: { x: 21.3 }, once: true, delay: 0.2, do: [
-          ["fill", 24, 1, 1, 1, "^"], ["sfx", "spike"],
+        ghostBeam(8.4, 6, 5, 4),
+        sneakSaw(14.2, -1, 5, 2.4, 0.35),
+        flip(16.2, 0.22),
+        slice(18.5, 4, 4, 3, 0.2),
+        { if: { x: 20 }, once: true, delay: 0.12, do: [
+          ["fill", 6, 8, 3, 1, "^"], ["sfx", "spike"],
         ]},
-        { if: { x: 25.2 }, once: true, delay: 0.18, do: [
-          ["hole", 27, 0, 1, 1], ["sfx", "crumble"],
+        { if: { x: 23 }, once: true, quiet: true, do: [
+          ["dust", 20, 8, 2], ["shake", 3],
         ]},
-        { if: { time: 20.4 }, once: true, delay: 0.35, do: [
-          ["saw", -1, 2, 2.3, 0],
-        ]},
+        lateSaw(12, 32, 6, -2.2),
       ],
     },
     {
@@ -482,9 +484,12 @@
       taunt: "THE LONG WAY BACK",
       sol: "R55 JR18 R50 JR18 R80 W40 L160 W55 L30",
       map: [
-        sky(), sky(), sky(), sky(), sky(),
+        pad("vvvvvv......................"),
+        sky(),
+        pad("................######"),
+        sky(), sky(),
         pad("E"),
-        pad("####"),
+        pad("##########"),
         sky(),
         pad("S                            F"),
         pad("################################"),

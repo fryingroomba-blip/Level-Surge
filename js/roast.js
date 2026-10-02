@@ -1197,16 +1197,45 @@
       "PROGNOSIS: TRY LOOKING",
       s.insult,
     ];
-    const n = Math.floor(s.report * lines.length);
-    const x = W * 0.12;
-    const y = H * 0.58;
-    panel(ctx, x, y, W * 0.76, 28 + n * 22, 0.94);
+    const n = Math.max(0, Math.floor(s.report * lines.length));
+    if (!n) return;
+    const titlePx = u(W, H, 26);
+    const bodyPx = u(W, H, 20);
+    ctx.save();
+    const sized = [];
     for (let i = 0; i < n; i++) {
-      font(ctx, W * 0.015, i === 0);
-      ctx.fillStyle = i === 0 ? "#e31b1b" : "#f4ead8";
-      ctx.textAlign = "left";
-      ctx.fillText(lines[i], x + 18, y + 22 + i * 22);
+      const px = i === 0 ? titlePx : bodyPx;
+      font(ctx, px, true);
+      const m = ctx.measureText(lines[i] || "");
+      const h = (m.actualBoundingBoxAscent || px * 0.9) + (m.actualBoundingBoxDescent || px * 0.3);
+      sized.push({ text: lines[i], px, w: m.width, h });
     }
+    const gap = bodyPx * 0.7;
+    const padX = bodyPx * 3.3;
+    sized.forEach((l) => {
+      const row = l.h + l.px * 0.72;
+      l.boxH = row * 2.2;
+    });
+    let stack = sized.reduce((a, l) => a + l.boxH, 0) + gap * (sized.length - 1);
+    const maxStack = H * 0.9;
+    if (stack > maxStack) {
+      const scale = maxStack / stack;
+      sized.forEach((l) => { l.boxH *= scale; });
+      stack = maxStack;
+    }
+    const boxW = Math.min(W * 0.92, Math.max(...sized.map((l) => l.w)) + padX * 2);
+    const x = (W - boxW) / 2;
+    let y = Math.max(16, (H - stack) / 2);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    sized.forEach((l, i) => {
+      panel(ctx, x, y, boxW, l.boxH);
+      font(ctx, l.px, true);
+      ctx.fillStyle = i === 0 ? "#e31b1b" : "#f4ead8";
+      ctx.fillText(l.text, x + padX * 0.55, y + l.boxH / 2);
+      y += l.boxH + gap;
+    });
+    ctx.restore();
   }
 
   function drawSlots(ctx, s, W, H) {
@@ -1276,16 +1305,53 @@
   function drawScores(ctx, s, W, H) {
     ctx.save();
     ctx.globalAlpha = s.scorecard;
-    panel(ctx, W * 0.2, H * 0.55, W * 0.6, 120);
-    const rows = [["JUMP", "UNFORCED"], ["FORM", "F"], ["BRAIN", "ALSO F"]];
-    rows.forEach((r, i) => {
-      font(ctx, W * 0.02, true);
+    const pairs = [["JUMP", "UNFORCED"], ["FORM", "F"], ["BRAIN", "ALSO F"]];
+    const maxW = W * 0.94;
+    let px = u(W, H, 28);
+    const wordGap = () => px * 0.42;
+    const pairGap = () => px * 1.35;
+
+    function measure() {
+      font(ctx, px, true);
+      const widths = pairs.map((r) => {
+        const a = ctx.measureText(r[0]).width;
+        const b = ctx.measureText(r[1]).width;
+        return { a, b, w: a + wordGap() + b };
+      });
+      let w = 0;
+      widths.forEach((p, i) => { w += p.w + (i ? pairGap() : 0); });
+      const sample = ctx.measureText("UNFORCED");
+      const ascent = sample.actualBoundingBoxAscent || px * 0.8;
+      const descent = sample.actualBoundingBoxDescent || px * 0.22;
+      return { widths, w, h: ascent + descent };
+    }
+
+    let m = measure();
+    while (m.w + px * 2.2 > maxW && px > 11) {
+      px *= 0.92;
+      m = measure();
+    }
+
+    const padX = Math.max(18, px * 0.95);
+    const padY = Math.max(14, px * 0.62);
+    const boxW = Math.min(maxW, m.w + padX * 2);
+    const boxH = m.h + padY * 2;
+    const x = (W - boxW) / 2;
+    const y = H * 0.86 - boxH;
+    panel(ctx, x, y, boxW, boxH);
+
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+    const cy = y + boxH / 2 + px * 0.04;
+    let cursor = x + (boxW - m.w) / 2;
+    pairs.forEach((r, i) => {
+      const p = m.widths[i];
+      font(ctx, px, true);
       ctx.fillStyle = "#f4ead8";
-      ctx.textAlign = "left";
-      ctx.fillText(r[0], W * 0.26, H * 0.55 + 36 + i * 30);
-      ctx.textAlign = "right";
+      ctx.fillText(r[0], cursor, cy);
       ctx.fillStyle = "#e31b1b";
-      ctx.fillText(r[1], W * 0.74, H * 0.55 + 36 + i * 30);
+      ctx.fillText(r[1], cursor + p.a + wordGap(), cy);
+      cursor += p.w + pairGap();
     });
     ctx.restore();
   }
@@ -1299,9 +1365,9 @@
     const sample = ctx.measureText("0.0");
     const ascent = sample.actualBoundingBoxAscent || px * 0.92;
     const descent = sample.actualBoundingBoxDescent || px * 0.28;
-    const boxW = sample.width + px * 1.35;
-    const boxH = ascent + descent + px * 0.85;
-    const gap = Math.max(14, px * 0.42);
+    const boxW = sample.width + px * 1.35 * 2.2;
+    const boxH = ascent + descent + px * 0.85 * 2.2;
+    const gap = Math.max(22, px * 0.42 * 2.2);
     const total = boxW * 3 + gap * 2;
     const x0 = (W - total) / 2;
     const y = H * 0.58;
@@ -1518,7 +1584,7 @@
             s.squash = 0.75;
             s.circle = { r: 34 + Math.sin(t * 10) * 3, pulse: true };
             s.zoom = 2;
-            puff(api, s, "#e31b1b", 8, 3);
+            if (crossed(s, 6.28)) puff(api, s, "#e31b1b", 8, 3);
           }},
           { t: 8.2, cap: "", sub: "0.0 · 0.0 · 0.0", sfx: "trombone", go(s, api, u) {
             s.caption = s.insult;
@@ -1847,7 +1913,7 @@
           { t: 6, cap: "JACKPOT", sub: "OF CONSEQUENCES", sfx: "coin", go(s, api, u) {
             s.jackpot = u;
             s.skullCoins = 1;
-            puff(api, s, "#ffd24a", 6, 3);
+            if (crossed(s, 6.08)) puff(api, s, "#ffd24a", 6, 3);
           }},
           { t: 8.2, cap: "", sub: "SHINY WON.", sfx: "laugh", go(s, api, u) {
             s.caption = s.insult;
@@ -1873,7 +1939,7 @@
           }},
           { t: 8.3, cap: "", sub: "", sfx: "laugh", go(s, api, u) {
             s.caption = s.insult;
-            puff(api, s, "#ff7a3a", 10, 4);
+            if (crossed(s, 8.38)) puff(api, s, "#ff7a3a", 10, 4);
           }},
         ]);
       },
@@ -2190,7 +2256,7 @@
             s.caption = s.insult;
             s.credits = 0;
             s.hideCorpse = false;
-            puff(api, s, "#e31b1b", 12, 5);
+            if (crossed(s, 8.18)) puff(api, s, "#e31b1b", 12, 5);
           }},
         ]);
       },

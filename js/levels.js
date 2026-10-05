@@ -349,7 +349,7 @@
     {
       name: "UP IS DOWN",
       taunt: "GRAVITY QUIT",
-      sol: "R48 JR22 R240",
+      sol: "R48 JR22 R100 JR8 R90",
       map: [
         pad("################################"),
         pad(".............................E"),
@@ -370,16 +370,18 @@
           ["gravity", -0.55], ["flash", 0.08], ["sfx", "reverse"],
         ]},
         ghostBeam(8.4, 6, 5, 4),
-        sneakSaw(14.2, -1, 5, 2.4, 0.35),
+        { if: { x: 24.2 }, once: true, delay: 0.2, do: [
+          ["saw", 33, 1, -0.85, 0], ["sfx", "saw"],
+        ]},
         flip(16.2, 0.22),
         slice(18.5, 4, 4, 3, 0.2),
-        { if: { x: 20 }, once: true, delay: 0.12, do: [
-          ["fill", 6, 8, 3, 1, "^"], ["sfx", "spike"],
+        { if: { x: 20.2 }, once: true, delay: 0.06, do: [
+          ["fill", 22, 1, 2, 1, "v"], ["sfx", "spike"], ["shake", 4],
         ]},
         { if: { x: 23 }, once: true, quiet: true, do: [
-          ["dust", 20, 8, 2], ["shake", 3],
+          ["dust", 22, 2, 2], ["shake", 3],
         ]},
-        lateSaw(12, 32, 6, -2.2),
+        lateSaw(9, -1, 1, 1.55),
       ],
     },
     {

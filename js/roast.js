@@ -315,6 +315,7 @@
         s.y = s.y0 + 62;
         s.floorSpikes = easeOut(u);
         s.caption = "THE FLOOR ALSO SAID NO";
+        s.sub = "";
         if (crossed(s, 5.85)) { api.audio.play("spike"); puff(api, s, "#e31b1b", 16, 5); }
       } else {
         s.scorecard = inv(7.6, 10, t);
@@ -396,6 +397,7 @@
         s.scaleY = 1.5;
         s.rot += 0.2;
         s.caption = "";
+        s.sub = "";
         if (crossed(s, 5.3)) api.audio.play("coin");
       } else {
         const u = inv(7.8, 10, t);
@@ -1072,18 +1074,26 @@
       }
     }
 
-    if (s.caption && !s.fakeWin && !s.menu && !s.report && !s.slots && !s.tomb && !s.credits && !s.dvd) {
+    if (!s.fakeWin && !s.menu && !s.report && !s.slots && !s.tomb && !s.credits && !s.dvd && (s.caption || s.sub)) {
       const pop = easeOut(s.capIn == null ? 1 : s.capIn);
-      const size = u(W, H, s.caption.length > 22 ? 28 : s.caption.length > 16 ? 34 : 42);
-      ctx.save();
-      ctx.translate(W / 2, H * 0.15);
-      ctx.scale(lerp(1.18, 1, pop), lerp(1.18, 1, pop));
-      outlineStamp(ctx, s.caption, 0, 0, size, -0.04, "#f4ead8", pop);
-      ctx.restore();
-    }
-    if (s.sub && !s.fakeWin && !s.menu && !s.report && !s.slots && !s.tomb && !s.credits && !s.dvd) {
-      const pop = easeOut(Math.max(0, (s.capIn || 1) - 0.15));
-      stamp(ctx, s.sub, W / 2, H * 0.15 + u(W, H, 40), u(W, H, 16), 0.02, "#e31b1b", 0.95 * pop);
+      const cap = s.caption || "";
+      const sub = s.sub || "";
+      const capSize = cap ? u(W, H, cap.length > 22 ? 28 : cap.length > 16 ? 34 : 42) : 0;
+      const subSize = sub ? u(W, H, 16) : 0;
+      const gap = cap && sub ? Math.max(u(W, H, 16), capSize * 0.38 + subSize * 0.62) : 0;
+      let y = u(W, H, 20) + (cap ? capSize * 0.55 : subSize * 0.55);
+      if (cap) {
+        ctx.save();
+        ctx.translate(W / 2, y);
+        ctx.scale(lerp(1.1, 1, pop), lerp(1.1, 1, pop));
+        outlineStamp(ctx, cap, 0, 0, capSize, -0.03, "#f4ead8", pop);
+        ctx.restore();
+        y += capSize * 0.62 + gap;
+      }
+      if (sub) {
+        const sp = easeOut(Math.max(0, (s.capIn || 1) - 0.15));
+        stamp(ctx, sub, W / 2, y, subSize, 0.02, "#e31b1b", 0.95 * sp);
+      }
     }
 
     if (s.kind === "spike" && s.tip) {
@@ -1261,10 +1271,14 @@
 
   function drawCard(ctx, s, W, H, api) {
     const a = s.card;
-    const w = W * 0.46;
-    const h = H * 0.28;
+    const titlePx = u(W, H, 18);
+    const bodyPx = u(W, H, 15);
+    const titleStep = titlePx * 1.55;
+    const bodyStep = bodyPx * 1.7;
+    const w = Math.min(W * 0.86, Math.max(W * 0.5, titlePx * 22));
+    const h = titlePx * 1.35 + titleStep + bodyStep + bodyPx;
     const x = W / 2 - w / 2;
-    const y = H * 0.58;
+    const y = Math.max(H * 0.42, Math.min(H * 0.58, H - h - u(W, H, 16)));
     ctx.save();
     ctx.globalAlpha = a;
     ctx.translate(W / 2, y + h / 2);
@@ -1275,30 +1289,40 @@
     ctx.strokeStyle = "#ffd24a";
     ctx.lineWidth = 3;
     ctx.strokeRect(x + 6, y + 6, w - 12, h - 12);
-    font(ctx, W * 0.016, true);
+    font(ctx, titlePx, true);
     ctx.fillStyle = "#ffd24a";
     ctx.textAlign = "center";
-    ctx.fillText("BLADE APPRECIATION SOCIETY", W / 2, y + 32);
-    font(ctx, W * 0.014, false);
+    ctx.textBaseline = "middle";
+    let lineY = y + titlePx * 1.15;
+    ctx.fillText("BLADE APPRECIATION SOCIETY", W / 2, lineY);
+    font(ctx, bodyPx, false);
     ctx.fillStyle = "#f4ead8";
-    ctx.fillText(`MEMBER #${1000 + (api.deaths || 1)}`, W / 2, y + 58);
-    ctx.fillText("IT SPINS. YOU WALKED IN.", W / 2, y + 84);
+    lineY += titleStep;
+    ctx.fillText(`MEMBER #${1000 + (api.deaths || 1)}`, W / 2, lineY);
+    lineY += bodyStep;
+    ctx.fillText("IT SPINS. YOU WALKED IN.", W / 2, lineY);
     ctx.restore();
   }
 
   function drawMenu(ctx, s, W, H) {
     ctx.save();
     ctx.globalAlpha = s.menu;
-    panel(ctx, W * 0.18, H * 0.58, W * 0.64, 100);
-    font(ctx, W * 0.02, true);
+    const titlePx = u(W, H, 22);
+    const bodyPx = u(W, H, 16);
+    const row = Math.max(titlePx, bodyPx) * 1.65;
+    const boxH = row * 3 + bodyPx * 0.8;
+    const top = H * 0.56;
+    panel(ctx, W * 0.12, top, W * 0.76, boxH);
+    font(ctx, titlePx, true);
     ctx.fillStyle = "#ffd24a";
     ctx.textAlign = "center";
-    ctx.fillText("SPIKE TASTING MENU", W / 2, H * 0.58 + 28);
-    font(ctx, W * 0.016, false);
+    ctx.textBaseline = "middle";
+    ctx.fillText("SPIKE TASTING MENU", W / 2, top + row * 0.7);
+    font(ctx, bodyPx, false);
     ctx.fillStyle = "#f4ead8";
-    ctx.fillText("DEMON SKEWER  ·  ★☆☆☆☆  ·  CHEF'S PITY", W / 2, H * 0.58 + 56);
+    ctx.fillText("DEMON SKEWER  ·  ★☆☆☆☆  ·  CHEF'S PITY", W / 2, top + row * 1.75);
     ctx.fillStyle = "#e31b1b";
-    ctx.fillText("CUSTOMER DID NOT LOOK", W / 2, H * 0.58 + 80);
+    ctx.fillText("CUSTOMER DID NOT LOOK", W / 2, top + row * 2.8);
     ctx.restore();
   }
 

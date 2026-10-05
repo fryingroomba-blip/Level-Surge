@@ -92,6 +92,25 @@ if (WORLDS) {
     const wantFirst = d === 1 ? 10 : t;
     checkLevel(sample, `D${d} ${sample.name}`, wantFirst);
     checkLevel(last, `D${d} ${last.name}`, d === 1 ? 10 : t + 4);
+    if (d > 1) {
+      lvls.forEach((lvl) => {
+        if (!lvl.surface) return;
+        const floor = lvl.surface.slice();
+        (lvl.events || []).forEach((ev) => {
+          (ev.do || []).forEach((a) => {
+            if (a[0] === "hole" && a[1] >= 0 && a[1] < floor.length) floor[a[1]] = -1;
+          });
+        });
+        if (floor[1] < 0 || floor[30] < 0) errors.push(`D${d} ${lvl.name}: hole ate spawn or door`);
+        let run = 0;
+        let max = 0;
+        floor.forEach((cell) => {
+          if (cell < 0) { run += 1; if (run > max) max = run; }
+          else run = 0;
+        });
+        if (max > 3) errors.push(`D${d} ${lvl.name}: open gap ${max} is wider than a jump`);
+      });
+    }
     const th = WORLDS.theme(d);
     if (!th || !th.name || !th.sky || !th.weather) errors.push(`D${d} missing theme`);
   }

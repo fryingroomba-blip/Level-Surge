@@ -45,12 +45,6 @@
     };
   }
   function pick(r, arr) { return arr[(r() * arr.length) | 0]; }
-  function ir(r, a, b) { return a + ((r() * (b - a + 1)) | 0); }
-  function fr(r, a, b) { return a + r() * (b - a); }
-
-  function sneakDelay(d, r, base) {
-    return +(base + d * 0.035 + r() * 0.08).toFixed(3);
-  }
 
   const LAYOUTS = ["RIDGE", "GAPS", "CLIMB", "TRENCH", "SHELF", "STEPS", "POCKETS", "BRIDGE"];
 
@@ -108,6 +102,13 @@
         if (run > 2) surface[x] = 9;
       } else run = 0;
     }
+    for (let x = 1; x < W - 1; x++) {
+      if (surface[x] < 0 || surface[x - 1] >= 0) continue;
+      let end = x;
+      while (end < W && surface[end] >= 0) end += 1;
+      if (end - x >= 2 || end >= W || surface[end] >= 0) continue;
+      surface[end] = surface[x];
+    }
     for (let x = 1; x < W; x++) {
       if (surface[x] < 0 || surface[x - 1] < 0) continue;
       const dy = surface[x] - surface[x - 1];
@@ -124,6 +125,9 @@
         if (dy < -1) surface[x] = surface[x - 1] - 1;
       }
     }
+    let runway = 8;
+    for (let x = 7; x < 14; x++) if (surface[x] >= 0) { runway = surface[x]; break; }
+    for (let x = 0; x <= 6; x++) surface[x] = runway;
     return surface;
   }
 
@@ -143,7 +147,12 @@
     g[surface[30] - 1][30] = "E";
     const lip = 2 + ((d + room) % 3);
     for (let x = 0; x < W; x++) {
-      if (surface[x] >= 8 && r() < 0.22 && x % (3 + (room % 3)) === 0) g[lip][x] = "v";
+      const nearGap = (x > 0 && surface[x - 1] < 0) || (x + 1 < W && surface[x + 1] < 0)
+        || (x > 1 && surface[x - 2] < 0) || (x + 2 < W && surface[x + 2] < 0);
+      const headroom = surface[x] - lip;
+      if (!nearGap && surface[x] >= 8 && headroom >= 4 && r() < 0.16 && x % (3 + (room % 3)) === 0) {
+        g[lip][x] = "v";
+      }
     }
     if ((room + d) % 4 === 1) {
       const bx = 8 + ((room * 3 + d) % 14);
@@ -154,94 +163,185 @@
       if (surface[cx] === 9) g[9][cx] = "=";
     }
     if (boss) {
-      g[4][12] = "#";
-      g[4][13] = "#";
-      g[4][14] = "#";
-      g[3][13] = "F";
+      const fy = surface[13] >= 0 ? surface[13] : 8;
+      const py = Math.max(2, fy - 3);
+      g[py][12] = "#";
+      g[py][13] = "#";
+      g[py][14] = "#";
+      if (py > 0) g[py - 1][13] = "F";
     }
     g[surface[1] - 1][1] = "S";
     g[surface[30] - 1][30] = "E";
     return g.map((row) => row.join(""));
   }
 
-  function landingNear(surface, col) {
-    for (let x = col - 3; x <= col + 3; x++) {
-      if (x !== col && x >= 0 && x < surface.length && surface[x] >= 0) return true;
-    }
-    return false;
-  }
-
-  function buildEvents(d, surface, r, boss) {
+  function buildEvents(d, surface, boss, room) {
     const n = trapCount(d) + (boss ? 4 : 0);
-    const sneak = 0.04 + d * 0.03;
     const events = [];
+    const realAt = [];
+    const late = d >= 12;
+    const mid = d >= 8;
+    const gap = late ? 7 : 8;
+    const budget = late ? 4 : 3;
+    const caps = { gate: late ? 2 : 2, hole: 2, laser: 2, saw: late ? 2 : 1, reverse: d >= 6 ? 1 : 0 };
+    const used = { gate: 0, hole: 0, laser: 0, saw: 0, reverse: 0 };
+    const order = ["gate", "hole", "laser", "saw", "gate", "hole", "laser", "reverse"];
+    const bounceX = (room + d) % 4 === 1 ? 8 + ((room * 3 + d) % 14) : -1;
+    const crumbleX = (room + d) % 5 === 2 ? 6 + ((room * 2) % 12) : -1;
+
+    function span(x, dir) {
+      let count = 0;
+      for (let i = x + dir; i >= 0 && i < surface.length; i += dir) {
+        if (surface[i] < 0) break;
+        count += 1;
+      }
+      return count;
+    }
+
+    function gapWidth(x) {
+      let L = x;
+      let R = x;
+      while (L > 0 && (L === x || surface[L] < 0)) L -= 1;
+      while (R < surface.length - 1 && (R === x || surface[R] < 0)) R += 1;
+      const start = surface[L] >= 0 && L !== x ? L + 1 : L;
+      const end = surface[R] >= 0 && R !== x ? R - 1 : R;
+      return end - start + 1;
+    }
+
+    function nearPit(x, dist) {
+      for (let i = -dist; i <= dist; i++) {
+        const k = x + i;
+        if (k >= 0 && k < surface.length && surface[k] < 0) return true;
+      }
+      return false;
+    }
+
+    function busy(x) {
+      for (let i = 0; i < realAt.length; i++) {
+        if (Math.abs(realAt[i] - x) < gap) return true;
+      }
+      return false;
+    }
+
+    function flat(x) {
+      return surface[x - 1] === surface[x] && surface[x + 1] === surface[x];
+    }
+
+    function allows(x, type) {
+      if (x < 8 || x > 25 || surface[x] < 0) return false;
+      if (x === bounceX || x === crumbleX || busy(x)) return false;
+      if (nearPit(x, type === "saw" || type === "laser" ? 3 : 4)) return false;
+      if (used[type] >= caps[type]) return false;
+      const L = span(x, -1);
+      const R = span(x, 1);
+      if (type === "gate") return flat(x) && L >= 2 && R >= 2;
+      if (type === "hole") return gapWidth(x) <= 3 && L >= 2 && R >= 2;
+      if (type === "laser") return flat(x) && L >= 2 && R >= 2;
+      if (type === "saw") return surface[x] >= 5 && L + R >= 4;
+      if (type === "reverse") return flat(x) && L >= 5 && R >= 5;
+      return false;
+    }
+
+    function commit(x, type) {
+      if (events.length >= n || !allows(x, type)) return false;
+      const y = surface[x];
+      if (type === "gate") {
+        events.push({
+          if: { x: +(x - (late ? 1.85 : 2.15)).toFixed(2) }, once: true,
+          do: [
+            ["fill", x, y, 1, 1, "^"], ["sfx", "spike"], ["shake", 3],
+            ["queue", late ? 0.42 : 0.55, ["fill", x, y, 1, 1, "#"]],
+          ],
+        });
+      } else if (type === "hole") {
+        events.push({
+          if: { x: +(x - (late ? 1.9 : 2.15)).toFixed(2) }, once: true,
+          do: [["hole", x, y, 1, 1], ["spikes", x, Math.min(11, y + 1), 1], ["shake", 5], ["sfx", "crumble"]],
+        });
+      } else if (type === "laser") {
+        events.push({
+          if: { x: +(x - 2.55).toFixed(2) }, once: true,
+          do: [["laser", x - 1, y - 1, 3, late ? 0.3 : 0.4], ["sfx", "spike"]],
+        });
+      } else if (type === "saw") {
+        events.push({
+          if: { x: +(x - 1.7).toFixed(2) }, once: true,
+          do: [["saw", Math.min(29, x + 4), y - 1, late ? -2.5 : -2.05, 0]],
+        });
+      } else if (type === "reverse") {
+        events.push({
+          if: { x: +(x - 0.2).toFixed(2) }, once: true,
+          do: [
+            ["reverse", true], ["flash", 0.05], ["sfx", "reverse"],
+            ["queue", late ? 0.2 : 0.16, ["reverse", false]],
+          ],
+        });
+      } else return false;
+      realAt.push(x);
+      used[type] += 1;
+      return true;
+    }
+
+    const head = surface[1] >= 0 ? surface[1] : 8;
     events.push({
-      if: { jump: true, xLess: 3.2, air: true }, once: true, delay: sneakDelay(d, r, 0.04),
-      do: [["fill", 0, 2, 3, 1, "v"], ["shake", 3], ["sfx", "spike"]],
+      if: { jump: true, xLess: 4.2, air: true }, once: true, delay: 0.05,
+      do: [["fill", 2, Math.max(2, head - 3), 4, 1, "v"], ["shake", 4], ["sfx", "spike"]],
     });
+
+    let cursor = (room + d) % order.length;
+    for (let c = 8; c <= 25 && realAt.length < budget && events.length < n; c++) {
+      for (let k = 0; k < order.length; k++) {
+        const type = order[(cursor + k) % order.length];
+        if (!commit(c, type)) continue;
+        cursor = (cursor + k + 1) % order.length;
+        break;
+      }
+    }
+
+    const tells = [];
+    const marked = realAt;
+    for (let i = 0; i < marked.length; i++) {
+      const t = marked[i] - 1;
+      if (t >= 4 && t <= 28) tells.push(t);
+    }
+    for (let x = 5; x <= 28; x++) tells.push(x);
+    if (!tells.length) tells.push(8);
+    let ti = 0;
     let guard = 0;
-    while (events.length < n && guard++ < 500) {
-      const roll = r();
-      const col = Math.max(5, Math.min(26, 5 + ((events.length * 3 + (r() * 5) | 0) % 21)));
-      const when = +(col + r() * 0.35).toFixed(2);
-      const fy = surface[col] >= 0 ? surface[col] : 9;
-      if (roll < 0.16) {
+    while (events.length < n && guard++ < 300) {
+      const x = tells[ti % tells.length];
+      ti += 1;
+      const y = surface[x] >= 0 ? surface[x] : 9;
+      if ((x + events.length + d) % 3 === 0) {
         events.push({
-          if: { x: when }, once: true, quiet: true,
-          do: [["dust", col, fy, 2], ["shake", 3], ["sfx", "crumble"]],
-        });
-      } else if (roll < 0.28) {
-        events.push({
-          if: { x: when }, once: true, quiet: true,
-          do: [["glow", col, Math.max(2, fy - 3), 4, 0.2 + sneak]],
-        });
-      } else if (roll < 0.46 && surface[col] >= 0 && landingNear(surface, col) && col > 4 && col < 27) {
-        events.push({
-          if: { x: when }, once: true, delay: sneakDelay(d, r, 0.16 + sneak),
-          do: [["hole", col, fy, 1, 1], ["spikes", col, Math.min(11, fy + 1), 1], ["shake", 5], ["sfx", "crumble"]],
-        });
-      } else if (roll < 0.58) {
-        const dir = r() < 0.5 ? 1 : -1;
-        events.push({
-          if: { x: when }, once: true, delay: sneakDelay(d, r, 0.3 + sneak),
-          do: [["saw", dir > 0 ? -1 : 32, Math.max(4, fy - 2), dir * (1.8 + r() * 0.8), 0]],
-        });
-      } else if (roll < 0.7) {
-        events.push({
-          if: { x: when }, once: true, delay: sneakDelay(d, r, 0.12 + sneak),
-          do: [["laser", col, Math.max(3, fy - 4), 3, 0.1 + sneak * 0.15], ["sfx", "spike"]],
-        });
-      } else if (roll < 0.8) {
-        events.push({
-          if: { x: when }, once: true, delay: sneakDelay(d, r, 0.16),
-          do: [["reverse", true], ["flash", 0.04], ["sfx", "reverse"], ["queue", 0.2 + r() * 0.12, ["reverse", false]]],
-        });
-      } else if (roll < 0.9) {
-        events.push({
-          if: { x: when }, once: true, delay: sneakDelay(d, r, 0.18),
-          do: [["push", fr(r, 0.4, 1.1) * (r() < 0.35 ? -1 : 1), 0]],
+          if: { x: +x.toFixed(2) }, once: true, quiet: true,
+          do: [["glow", Math.max(1, x - 1), Math.max(2, y - 3), 3, 0.22]],
         });
       } else {
         events.push({
-          if: { time: 6 + r() * 8 }, once: true, delay: 0.25 + sneak,
-          do: [["saw", r() < 0.5 ? -1 : 32, Math.max(4, fy - 2), r() < 0.5 ? 2.4 : -2.4, 0]],
+          if: { x: +x.toFixed(2) }, once: true, quiet: true,
+          do: [["dust", x, y, 2], ["shake", 2], ["sfx", "crumble"]],
         });
       }
     }
-    if (boss) {
-      events[events.length - 1] = {
-        if: { door: "fake" }, once: true, delay: 0.12 + sneak,
-        do: [["spikes", 12, 5, 2], ["saw", 6, 6, 2.2, 0], ["shake", 8], ["sfx", "spike"]],
+
+    if (boss && events.length) {
+      let idx = events.length - 1;
+      for (let i = events.length - 1; i >= 0; i--) {
+        if (events[i].quiet) { idx = i; break; }
+      }
+      const fy = surface[13] >= 0 ? surface[13] : 8;
+      const py = Math.max(2, fy - 3);
+      events[idx] = {
+        if: { door: "fake" }, once: true, delay: 0.1,
+        do: [
+          ["fill", 12, py, 3, 1, "^"],
+          ["saw", 8, py, 1.6, 0],
+          ["shake", 7],
+          ["sfx", "spike"],
+          ["queue", 0.48, ["fill", 12, py, 3, 1, "#"]],
+        ],
       };
-    }
-    while (events.length > n) events.pop();
-    while (events.length < n) {
-      const col = 8 + (events.length % 16);
-      const fy = surface[col] >= 0 ? surface[col] : 9;
-      events.push({
-        if: { x: col }, once: true, quiet: true,
-        do: [["dust", col, fy, 2], ["shake", 2]],
-      });
     }
     return events.slice(0, n);
   }
@@ -272,7 +372,7 @@
       name: boss ? dim.name + " CORE" : dim.name + " " + layout + " " + (i + 1),
       taunt: pick(r, TAUNTS),
       map: paintRoom(surface, d, i, r, boss),
-      events: buildEvents(d, surface, r, boss),
+      events: buildEvents(d, surface, boss, i),
       explodeCoins: false,
       crumbleIfStill: 0,
       dim: d,

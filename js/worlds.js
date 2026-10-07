@@ -72,7 +72,7 @@
     const W = 32;
     const surface = new Array(W);
     let y = 7 + (room % 3);
-    const pitChance = 0.08 + (room % 5) * 0.015;
+    const pitChance = 0.06 + (room % 5) * 0.012 + (d >= 14 ? 0.04 : d >= 7 ? 0.02 : 0);
     for (let x = 0; x < W; x++) {
       if (x > 4 && x < 27 && r() < pitChance) {
         surface[x] = -1;
@@ -112,8 +112,8 @@
     for (let x = 1; x < W; x++) {
       if (surface[x] < 0 || surface[x - 1] < 0) continue;
       const dy = surface[x] - surface[x - 1];
-      if (dy > 2) surface[x] = surface[x - 1] + 2;
-      if (dy < -2) surface[x] = surface[x - 1] - 2;
+      if (dy > 1) surface[x] = surface[x - 1] + 1;
+      if (dy < -1) surface[x] = surface[x - 1] - 1;
     }
     surface[1] = surface[1] < 0 ? 9 : surface[1];
     surface[30] = surface[30] < 0 ? surface[29] < 0 ? 9 : surface[29] : surface[30];
@@ -128,6 +128,20 @@
     let runway = 8;
     for (let x = 7; x < 14; x++) if (surface[x] >= 0) { runway = surface[x]; break; }
     for (let x = 0; x <= 6; x++) surface[x] = runway;
+    for (let x = 1; x < W - 1; x++) {
+      if (surface[x] >= 0 || surface[x - 1] < 0) continue;
+      let end = x;
+      while (end < W && surface[end] < 0) end += 1;
+      const before = surface[x - 1];
+      const before2 = surface[x - 2];
+      const after = end < W ? surface[end] : -1;
+      const after2 = end + 1 < W ? surface[end + 1] : after;
+      const approach = before >= 0 && before2 === before;
+      const landing = after >= 0 && after2 === after && Math.abs(after - before) <= 1;
+      if (!approach || !landing) {
+        for (let i = x; i < end; i++) surface[i] = before;
+      }
+    }
     return surface;
   }
 
@@ -150,7 +164,7 @@
       const nearGap = (x > 0 && surface[x - 1] < 0) || (x + 1 < W && surface[x + 1] < 0)
         || (x > 1 && surface[x - 2] < 0) || (x + 2 < W && surface[x + 2] < 0);
       const headroom = surface[x] - lip;
-      if (!nearGap && surface[x] >= 8 && headroom >= 4 && r() < 0.16 && x % (3 + (room % 3)) === 0) {
+      if (!nearGap && surface[x] >= 8 && headroom >= 6 && r() < 0.16 && x % (3 + (room % 3)) === 0) {
         g[lip][x] = "v";
       }
     }
@@ -180,10 +194,11 @@
     const events = [];
     const realAt = [];
     const late = d >= 12;
-    const mid = d >= 8;
-    const gap = late ? 7 : 8;
-    const budget = late ? 4 : 3;
-    const caps = { gate: late ? 2 : 2, hole: 2, laser: 2, saw: late ? 2 : 1, reverse: d >= 6 ? 1 : 0 };
+    const mid = d >= 6;
+    const gapLong = 8;
+    const gapShort = late ? 6 : 7;
+    const budget = late ? 7 : mid ? 6 : 5;
+    const caps = { gate: late ? 3 : 2, hole: late ? 3 : 2, laser: 2, saw: late ? 2 : mid ? 2 : 1, reverse: d >= 8 ? 1 : 0 };
     const used = { gate: 0, hole: 0, laser: 0, saw: 0, reverse: 0 };
     const order = ["gate", "hole", "laser", "saw", "gate", "hole", "laser", "reverse"];
     const bounceX = (room + d) % 4 === 1 ? 8 + ((room * 3 + d) % 14) : -1;
@@ -216,9 +231,13 @@
       return false;
     }
 
-    function busy(x) {
+    function busy(x, type) {
+      const long = type === "hole" || type === "laser" || type === "saw";
       for (let i = 0; i < realAt.length; i++) {
-        if (Math.abs(realAt[i] - x) < gap) return true;
+        const prev = realAt[i];
+        const prevLong = prev.t === "hole" || prev.t === "laser" || prev.t === "saw";
+        const need = long || prevLong ? gapLong : gapShort;
+        if (Math.abs(prev.x - x) < need) return true;
       }
       return false;
     }
@@ -229,14 +248,14 @@
 
     function allows(x, type) {
       if (x < 8 || x > 25 || surface[x] < 0) return false;
-      if (x === bounceX || x === crumbleX || busy(x)) return false;
-      if (nearPit(x, type === "saw" || type === "laser" ? 3 : 4)) return false;
+      if (x === bounceX || x === crumbleX || busy(x, type)) return false;
+      if (nearPit(x, type === "hole" || type === "laser" || type === "saw" ? 5 : 4)) return false;
       if (used[type] >= caps[type]) return false;
       const L = span(x, -1);
       const R = span(x, 1);
       if (type === "gate") return flat(x) && L >= 2 && R >= 2;
-      if (type === "hole") return gapWidth(x) <= 3 && L >= 2 && R >= 2;
-      if (type === "laser") return flat(x) && L >= 2 && R >= 2;
+      if (type === "hole") return gapWidth(x) <= 2 && L >= 2 && R >= 3;
+      if (type === "laser") return flat(x) && L >= 4 && R >= 4;
       if (type === "saw") return surface[x] >= 5 && L + R >= 4;
       if (type === "reverse") return flat(x) && L >= 5 && R >= 5;
       return false;
@@ -246,38 +265,42 @@
       if (events.length >= n || !allows(x, type)) return false;
       const y = surface[x];
       if (type === "gate") {
+        const wide = mid && x < 24 && surface[x + 1] === y && span(x, 1) >= 4;
+        const w = wide ? 2 : 1;
+        const lead = late ? 2.05 : 2.3;
+        const up = wide ? (late ? 0.5 : 0.56) : (late ? 0.48 : 0.58);
         events.push({
-          if: { x: +(x - (late ? 1.85 : 2.15)).toFixed(2) }, once: true,
+          if: { x: +(x - lead).toFixed(2) }, once: true,
           do: [
-            ["fill", x, y, 1, 1, "^"], ["sfx", "spike"], ["shake", 3],
-            ["queue", late ? 0.42 : 0.55, ["fill", x, y, 1, 1, "#"]],
+            ["fill", x, y, w, 1, "^"], ["sfx", "spike"], ["shake", 3],
+            ["queue", up, ["fill", x, y, w, 1, "#"]],
           ],
         });
       } else if (type === "hole") {
         events.push({
-          if: { x: +(x - (late ? 1.9 : 2.15)).toFixed(2) }, once: true,
+          if: { x: +(x - (late ? 2.05 : 2.25)).toFixed(2) }, once: true,
           do: [["hole", x, y, 1, 1], ["spikes", x, Math.min(11, y + 1), 1], ["shake", 5], ["sfx", "crumble"]],
         });
       } else if (type === "laser") {
         events.push({
-          if: { x: +(x - 2.55).toFixed(2) }, once: true,
-          do: [["laser", x - 1, y - 1, 3, late ? 0.3 : 0.4], ["sfx", "spike"]],
+          if: { x: +(x - 3.1).toFixed(2) }, once: true,
+          do: [["laser", x - 1, y - 1, 3, late ? 0.42 : 0.36], ["sfx", "spike"]],
         });
       } else if (type === "saw") {
         events.push({
-          if: { x: +(x - 1.7).toFixed(2) }, once: true,
-          do: [["saw", Math.min(29, x + 4), y - 1, late ? -2.5 : -2.05, 0]],
+          if: { x: +(x - 2.15).toFixed(2) }, once: true,
+          do: [["saw", Math.min(29, x + 5), y - 1, late ? -2.35 : -2.0, 0]],
         });
       } else if (type === "reverse") {
         events.push({
           if: { x: +(x - 0.2).toFixed(2) }, once: true,
           do: [
             ["reverse", true], ["flash", 0.05], ["sfx", "reverse"],
-            ["queue", late ? 0.2 : 0.16, ["reverse", false]],
+            ["queue", late ? 0.24 : 0.18, ["reverse", false]],
           ],
         });
       } else return false;
-      realAt.push(x);
+      realAt.push({ x, t: type });
       used[type] += 1;
       return true;
     }
@@ -301,7 +324,7 @@
     const tells = [];
     const marked = realAt;
     for (let i = 0; i < marked.length; i++) {
-      const t = marked[i] - 1;
+      const t = marked[i].x - 1;
       if (t >= 4 && t <= 28) tells.push(t);
     }
     for (let x = 5; x <= 28; x++) tells.push(x);

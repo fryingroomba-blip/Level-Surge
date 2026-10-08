@@ -48,6 +48,14 @@
 
   const LAYOUTS = ["RIDGE", "GAPS", "CLIMB", "TRENCH", "SHELF", "STEPS", "POCKETS", "BRIDGE"];
 
+  function canStep(surface, from, to) {
+    if (surface[from] < 0 || surface[to] < 0) return false;
+    const dist = Math.abs(to - from);
+    if (dist < 1 || dist > 4) return false;
+    const dy = surface[from] - surface[to];
+    return dy <= 3 && dy >= -6;
+  }
+
   function reachable(surface, spawnX, doorX) {
     const W = surface.length;
     const seen = new Set([spawnX]);
@@ -56,16 +64,96 @@
       const x = q.pop();
       if (x === doorX) return true;
       for (let nx = 0; nx < W; nx++) {
-        if (surface[nx] < 0 || seen.has(nx)) continue;
-        const dist = Math.abs(nx - x);
-        if (dist < 1 || dist > 4) continue;
-        const dy = surface[x] - surface[nx];
-        if (dy > 3 || dy < -6) continue;
+        if (seen.has(nx) || !canStep(surface, x, nx)) continue;
         seen.add(nx);
         q.push(nx);
       }
     }
     return false;
+  }
+
+  // Rank tiles by how hard they are to avoid on a spawn→door clear.
+  // Near-pit tiles score low on purpose: buildEvents refuses them so jumps stay clearable.
+  function pathHeat(surface, spawnX, doorX) {
+    const W = surface.length;
+    const heat = new Array(W).fill(0);
+    const parent = new Array(W).fill(-1);
+    const dist = new Array(W).fill(Infinity);
+    dist[spawnX] = 0;
+    const q = [spawnX];
+    for (let qi = 0; qi < q.length; qi++) {
+      const x = q[qi];
+      for (let nx = 0; nx < W; nx++) {
+        if (!canStep(surface, x, nx)) continue;
+        const nd = dist[x] + 1;
+        if (nd < dist[nx]) {
+          dist[nx] = nd;
+          parent[nx] = x;
+          q.push(nx);
+        }
+      }
+    }
+    if (!Number.isFinite(dist[doorX])) {
+      for (let x = 0; x < W; x++) if (surface[x] >= 0) heat[x] = 1;
+      return heat;
+    }
+
+    // Backward reachability from the door through the jump graph.
+    const toDoor = new Array(W).fill(false);
+    const bq = [doorX];
+    toDoor[doorX] = true;
+    for (let bi = 0; bi < bq.length; bi++) {
+      const x = bq[bi];
+      for (let nx = 0; nx < W; nx++) {
+        if (toDoor[nx] || !canStep(surface, nx, x)) continue;
+        toDoor[nx] = true;
+        bq.push(nx);
+      }
+    }
+
+    // Primary shortest path (player's default rightward line).
+    const onShort = new Array(W).fill(false);
+    for (let cur = doorX; cur >= 0; cur = parent[cur]) {
+      onShort[cur] = true;
+      if (cur === spawnX) break;
+    }
+
+    function distToPit(x) {
+      let best = 99;
+      for (let i = 0; i < W; i++) {
+        if (surface[i] < 0) best = Math.min(best, Math.abs(i - x));
+      }
+      return best;
+    }
+
+    for (let x = 0; x < W; x++) {
+      if (surface[x] < 0 || !toDoor[x] || !Number.isFinite(dist[x])) continue;
+      heat[x] += 3;
+      if (onShort[x]) heat[x] += 6;
+      // Mid-run corridor (neither spawn scramble nor door hush)
+      const t = dist[x] / Math.max(1, dist[doorX]);
+      if (t > 0.2 && t < 0.85) heat[x] += 3;
+
+      const dPit = distToPit(x);
+      // Approach runway just outside the trap exclusion ring — player commits here.
+      if (dPit >= 5 && dPit <= 7) heat[x] += 5;
+      else if (dPit < 5) heat[x] -= 4;
+
+      let runL = 0, runR = 0;
+      for (let i = x - 1; i >= 0 && surface[i] >= 0; i--) runL += 1;
+      for (let i = x + 1; i < W && surface[i] >= 0; i++) runR += 1;
+      if (runL + runR <= 5) heat[x] += 2;
+      if (x > 0 && x < W - 1 && surface[x - 1] === surface[x] && surface[x + 1] === surface[x]) {
+        heat[x] += 2;
+      }
+    }
+
+    heat[spawnX] = 0;
+    heat[doorX] = 0;
+    if (spawnX + 1 < W) heat[spawnX + 1] = Math.min(heat[spawnX + 1], 0);
+    if (spawnX + 2 < W) heat[spawnX + 2] = Math.min(heat[spawnX + 2], 1);
+    if (doorX - 1 >= 0) heat[doorX - 1] = Math.min(heat[doorX - 1], 1);
+    return heat;
   }
 
   function terrain(d, room, r) {
@@ -311,8 +399,17 @@
       do: [["fill", 2, Math.max(2, head - 3), 4, 1, "v"], ["shake", 4], ["sfx", "spike"]],
     });
 
+    const heat = pathHeat(surface, 1, 30);
+    const hot = [];
+    for (let c = 8; c <= 25; c++) {
+      if (surface[c] < 0 || heat[c] <= 0) continue;
+      hot.push(c);
+    }
+    hot.sort((a, b) => heat[b] - heat[a] || a - b);
+
     let cursor = (room + d) % order.length;
-    for (let c = 8; c <= 25 && realAt.length < budget && events.length < n; c++) {
+    for (let hi = 0; hi < hot.length && realAt.length < budget && events.length < n; hi++) {
+      const c = hot[hi];
       for (let k = 0; k < order.length; k++) {
         const type = order[(cursor + k) % order.length];
         if (!commit(c, type)) continue;
@@ -320,14 +417,31 @@
         break;
       }
     }
-
-    const tells = [];
-    const marked = realAt;
-    for (let i = 0; i < marked.length; i++) {
-      const t = marked[i].x - 1;
-      if (t >= 4 && t <= 28) tells.push(t);
+    // If the hottest tiles were too crowded / illegal, walk heat-descending leftovers.
+    if (realAt.length < budget) {
+      for (let c = 8; c <= 25 && realAt.length < budget && events.length < n; c++) {
+        if (hot.indexOf(c) >= 0) continue;
+        for (let k = 0; k < order.length; k++) {
+          const type = order[(cursor + k) % order.length];
+          if (!commit(c, type)) continue;
+          cursor = (cursor + k + 1) % order.length;
+          break;
+        }
+      }
     }
-    for (let x = 5; x <= 28; x++) tells.push(x);
+
+    // Fake tells ride the same route so bait sits where the player already looks.
+    const tells = [];
+    const seenTell = new Set();
+    function pushTell(x) {
+      if (x < 4 || x > 28 || seenTell.has(x)) return;
+      seenTell.add(x);
+      tells.push(x);
+    }
+    for (let i = 0; i < realAt.length; i++) pushTell(realAt[i].x - 1);
+    const bait = hot.slice().sort((a, b) => heat[b] - heat[a]);
+    for (let i = 0; i < bait.length; i++) pushTell(bait[i]);
+    for (let x = 5; x <= 28; x++) pushTell(x);
     if (!tells.length) tells.push(8);
     let ti = 0;
     let guard = 0;
@@ -418,7 +532,7 @@
   }
 
   root.SURGE_WORLDS = {
-    DIMS, roomCount, trapCount, generate, theme, chordsFor, reachable, count: 20,
+    DIMS, roomCount, trapCount, generate, theme, chordsFor, reachable, pathHeat, count: 20,
   };
   root.LEVELS = generate(1);
 })(typeof window !== "undefined" ? window : globalThis);

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Rubik:wght@400;600;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/style.css?v=about1" />
+  <link rel="stylesheet" href="css/style.css?v=creator1" />
 </head>
 <body>
   <div id="app">
@@ -53,12 +53,13 @@
         <ul class="title-facts">
           <li>20 dimensions</li>
           <li>Rooms grow each world</li>
-          <li>Traps stack +2 / +3</li>
+          <li>Traps stack +2 / +3 · 2 signatures / world</li>
         </ul>
         <p id="records" class="records"></p>
         <div class="title-actions">
           <button id="play-btn" type="button" class="big-btn">PLAY</button>
           <button id="levels-btn" type="button" class="ghost-btn">WORLDS</button>
+          <button id="creator-btn" type="button" class="ghost-btn">CREATOR</button>
           <a class="ghost-btn" href="about.html">ABOUT</a>
         </div>
         <p class="hint">ARROWS / WASD to move · SPACE to jump · SHIFT to dash (D3+) · R to retry · ESC to pause</p>
@@ -70,6 +71,42 @@
       <p class="hint">Clear a dimension to wake the next.</p>
       <div id="level-grid"></div>
       <button id="levels-back" type="button" class="ghost-btn">BACK</button>
+    </div>
+
+    <div id="creator-screen" class="screen creator-screen hidden">
+      <div class="creator-shell">
+        <header class="creator-top">
+          <div class="stamp small">CREATOR</div>
+          <p class="hint creator-tag">Paint the lie. Place the teeth. Test it on yourself.</p>
+          <div class="creator-meta">
+            <label>NAME <input id="creator-name" type="text" maxlength="24" value="UNNAMED" spellcheck="false" /></label>
+            <label>TAUNT <input id="creator-taunt" type="text" maxlength="32" value="YOU BUILT THIS" spellcheck="false" /></label>
+          </div>
+        </header>
+        <div class="creator-body">
+          <aside class="creator-tools">
+            <div class="creator-label">TILES</div>
+            <div id="creator-brushes" class="creator-brushes"></div>
+            <div class="creator-label">TRAPS</div>
+            <div id="creator-trap-kinds" class="creator-trap-kinds"></div>
+            <p class="creator-tip">Click a column on the map to drop the selected trap. Click a trap in the list to remove it.</p>
+            <div class="creator-label">ROOMS</div>
+            <div id="creator-library" class="creator-library"></div>
+          </aside>
+          <div class="creator-stage">
+            <canvas id="creator-map" width="640" height="240" aria-label="Room map"></canvas>
+            <div id="creator-trap-list" class="creator-trap-list"></div>
+          </div>
+        </div>
+        <div class="creator-actions title-actions">
+          <button id="creator-test" type="button" class="big-btn">TEST</button>
+          <button id="creator-save" type="button" class="ghost-btn">SAVE</button>
+          <button id="creator-new" type="button" class="ghost-btn">NEW</button>
+          <button id="creator-export" type="button" class="ghost-btn">COPY JSON</button>
+          <button id="creator-back" type="button" class="ghost-btn">BACK</button>
+        </div>
+        <p id="creator-status" class="hint"></p>
+      </div>
     </div>
 
     <div id="pause-screen" class="screen hidden">
@@ -118,8 +155,9 @@
   </div>
 
   <script src="js/levels.js?v=rooms5"></script>
-  <script src="js/worlds.js?v=path1"></script>
+  <script src="js/worlds.js?v=sig2"></script>
   <script src="js/roast.js?v=space2"></script>
-  <script src="js/game.js?v=steps4"></script>
+  <script src="js/game.js?v=creator1"></script>
+  <script src="js/creator.js?v=1"></script>
 </body>
 </html>

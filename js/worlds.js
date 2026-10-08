@@ -37,6 +37,412 @@
     for (let i = 2; i <= d; i++) n += (i % 2 === 0 ? 2 : 3);
     return n;
   }
+
+  // Two signature trap types per dimension. Families reuse placement rules;
+  // build() owns the unique answer each world brings.
+  const DIM_SIG = [
+    [ // 1 NULLSCAPE
+      { id: "voidPull", family: "wind", label: "VOID PULL" },
+      { id: "nullGate", family: "gate", label: "NULL GATE" },
+    ],
+    [ // 2 ASHWELL
+      { id: "emberDrop", family: "drop", label: "EMBER DROP" },
+      { id: "cinderTeeth", family: "gate", label: "CINDER TEETH" },
+    ],
+    [ // 3 FROSTBITE
+      { id: "iceLock", family: "lock", label: "ICE LOCK" },
+      { id: "frostBite", family: "side", label: "FROST BITE" },
+    ],
+    [ // 4 BLOOMVOID
+      { id: "sporeGust", family: "push", label: "SPORE GUST" },
+      { id: "petalSaw", family: "saw", label: "PETAL SAW" },
+    ],
+    [ // 5 IRON CLOCK
+      { id: "tickGate", family: "gate", label: "TICK GATE" },
+      { id: "rewind", family: "reverse", label: "REWIND" },
+    ],
+    [ // 6 TOXIC GUT
+      { id: "acidSink", family: "hole", label: "ACID SINK" },
+      { id: "gutWind", family: "wind", label: "GUT WIND" },
+    ],
+    [ // 7 MIRROR SEA
+      { id: "hardFlip", family: "reverse", label: "HARD FLIP" },
+      { id: "mirageBeam", family: "laser", label: "MIRAGE BEAM" },
+    ],
+    [ // 8 CINDER RAIL
+      { id: "railSaw", family: "saw", label: "RAIL SAW" },
+      { id: "sparkZap", family: "laser", label: "SPARK ZAP" },
+    ],
+    [ // 9 STATIC GOD
+      { id: "staticLock", family: "lock", label: "STATIC LOCK" },
+      { id: "signalBeam", family: "laser", label: "SIGNAL BEAM" },
+    ],
+    [ // 10 BONE ORBIT
+      { id: "orbitKick", family: "gravity", label: "ORBIT KICK" },
+      { id: "boneSaw", family: "saw", label: "BONE SAW" },
+    ],
+    [ // 11 DEEP GLASS
+      { id: "glassCrack", family: "hole", label: "GLASS CRACK" },
+      { id: "clearBeam", family: "laser", label: "CLEAR BEAM" },
+    ],
+    [ // 12 HUNGER MOON
+      { id: "biteGate", family: "gate", label: "BITE GATE" },
+      { id: "lureSaw", family: "saw", label: "LURE SAW" },
+    ],
+    [ // 13 VIOLET WIRE
+      { id: "wireZap", family: "laser", label: "WIRE ZAP" },
+      { id: "circuitPull", family: "push", label: "CIRCUIT PULL" },
+    ],
+    [ // 14 SALT CATHEDRAL
+      { id: "pillarDrop", family: "drop", label: "PILLAR DROP" },
+      { id: "worshipGap", family: "hole", label: "WORSHIP GAP" },
+    ],
+    [ // 15 REDSHIFT
+      { id: "stretchBeam", family: "laser", label: "STRETCH BEAM" },
+      { id: "recoil", family: "push", label: "RECOIL" },
+    ],
+    [ // 16 GHOSTGRID
+      { id: "phantomFloor", family: "gate", label: "PHANTOM FLOOR" },
+      { id: "phaseLock", family: "lock", label: "PHASE LOCK" },
+    ],
+    [ // 17 NIGHT NEEDLE
+      { id: "needleRain", family: "ceiling", label: "NEEDLE RAIN" },
+      { id: "pinGate", family: "gate", label: "PIN GATE" },
+    ],
+    [ // 18 SOLAR GRAVE
+      { id: "sunBurst", family: "laser", label: "SUN BURST" },
+      { id: "burnFloor", family: "gate", label: "BURN FLOOR" },
+    ],
+    [ // 19 THE FOLD
+      { id: "foldNudge", family: "teleport", label: "FOLD NUDGE" },
+      { id: "echoSaw", family: "saw", label: "ECHO SAW" },
+    ],
+    [ // 20 LAST LIGHT
+      { id: "lastGate", family: "gate", label: "LAST GATE" },
+      { id: "voidChase", family: "saw", label: "VOID CHASE" },
+    ],
+  ];
+
+  function signatureTraps(d) {
+    return (DIM_SIG[Math.max(0, Math.min(DIM_SIG.length - 1, d - 1))] || []).map((t) => ({
+      id: t.id, label: t.label, family: t.family,
+    }));
+  }
+
+  function buildSig(id, x, y, late) {
+    const lead = late ? 2.05 : 2.25;
+    const up = late ? 0.5 : 0.58;
+    if (id === "voidPull") {
+      return {
+        if: { x: +(x - 0.4).toFixed(2) }, once: true,
+        do: [["wind", -0.55], ["shake", 3], ["sfx", "reverse"], ["queue", late ? 0.55 : 0.7, ["wind", 0]]],
+      };
+    }
+    if (id === "nullGate") {
+      return {
+        if: { x: +(x - lead).toFixed(2) }, once: true,
+        do: [
+          ["fill", x, y, 1, 1, "^"], ["fill", x, Math.max(2, y - 3), 1, 1, "v"],
+          ["sfx", "spike"], ["shake", 4],
+          ["queue", up, ["fill", x, y, 1, 1, "#"], ["fill", x, Math.max(2, y - 3), 1, 1, "."]],
+        ],
+      };
+    }
+    if (id === "emberDrop") {
+      return {
+        if: { x: +(x - 1.6).toFixed(2) }, once: true,
+        do: [["drop", x, Math.max(1, y - 5)], ["sfx", "crumble"], ["shake", 5]],
+      };
+    }
+    if (id === "cinderTeeth") {
+      return {
+        if: { x: +(x - lead).toFixed(2) }, once: true,
+        do: [
+          ["fill", x, y, 2, 1, "^"], ["sfx", "spike"], ["shake", 4],
+          ["queue", late ? 0.42 : 0.52, ["fill", x, y, 2, 1, "#"]],
+        ],
+      };
+    }
+    if (id === "iceLock") {
+      return {
+        if: { x: +x.toFixed(2) }, once: true,
+        do: [["lock", late ? 0.38 : 0.48], ["flash", 0.05], ["sfx", "land"], ["shake", 3]],
+      };
+    }
+    if (id === "frostBite") {
+      return {
+        if: { x: +(x - 1.4).toFixed(2) }, once: true,
+        do: [
+          ["fill", x, y - 1, 1, 1, ">"], ["fill", x + 1, y - 1, 1, 1, "<"],
+          ["sfx", "spike"], ["shake", 4],
+          ["queue", late ? 0.55 : 0.7, ["fill", x, y - 1, 1, 1, "."], ["fill", x + 1, y - 1, 1, 1, "."]],
+        ],
+      };
+    }
+    if (id === "sporeGust") {
+      return {
+        if: { x: +x.toFixed(2) }, once: true,
+        do: [["push", late ? -0.95 : -0.75, -1.1], ["glow", x - 1, y - 2, 3, 0.2], ["sfx", "jump"], ["shake", 3]],
+      };
+    }
+    if (id === "petalSaw") {
+      return {
+        if: { x: +(x - 2.0).toFixed(2) }, once: true,
+        do: [["saw", Math.min(30, x + 4), y - 1, late ? -1.7 : -1.45, 0], ["sfx", "saw"]],
+      };
+    }
+    if (id === "tickGate") {
+      return {
+        if: { x: +(x - lead - 0.35).toFixed(2) }, once: true, delay: late ? 0.28 : 0.36,
+        do: [
+          ["fill", x, y, 1, 1, "^"], ["sfx", "spike"], ["shake", 3],
+          ["queue", up, ["fill", x, y, 1, 1, "#"]],
+        ],
+      };
+    }
+    if (id === "rewind") {
+      return {
+        if: { x: +(x - 0.15).toFixed(2) }, once: true,
+        do: [
+          ["reverse", true], ["flash", 0.04], ["sfx", "reverse"],
+          ["queue", late ? 0.32 : 0.26, ["reverse", false]],
+        ],
+      };
+    }
+    if (id === "acidSink") {
+      return {
+        if: { x: +(x - lead).toFixed(2) }, once: true,
+        do: [
+          ["hole", x, y, 1, 1], ["spikes", x, Math.min(11, y + 1), 1],
+          ["shake", 6], ["sfx", "crumble"],
+          ["queue", late ? 0.85 : 1.05, ["fill", x, y, 1, 1, "#"], ["fill", x, Math.min(11, y + 1), 1, 1, "#"]],
+        ],
+      };
+    }
+    if (id === "gutWind") {
+      return {
+        if: { x: +(x - 0.3).toFixed(2) }, once: true,
+        do: [["wind", 0.7], ["shake", 3], ["sfx", "reverse"], ["queue", late ? 0.5 : 0.65, ["wind", 0]]],
+      };
+    }
+    if (id === "hardFlip") {
+      return {
+        if: { x: +(x - 0.2).toFixed(2) }, once: true,
+        do: [
+          ["reverse", true], ["flash", 0.06], ["sfx", "reverse"], ["lie", "LEFT?"],
+          ["queue", late ? 0.4 : 0.34, ["reverse", false], ["lie", ""]],
+        ],
+      };
+    }
+    if (id === "mirageBeam") {
+      return {
+        if: { x: +(x - 2.8).toFixed(2) }, once: true,
+        do: [
+          ["glow", x - 1, y - 1, 3, 0.28], ["sfx", "near"],
+          ["queue", 0.22, ["laser", x - 1, y - 1, 3, late ? 0.34 : 0.28], ["sfx", "spike"]],
+        ],
+      };
+    }
+    if (id === "railSaw") {
+      return {
+        if: { x: +(x - 2.2).toFixed(2) }, once: true,
+        do: [["saw", Math.max(0, x - 5), y - 1, late ? 2.45 : 2.15, 0], ["sfx", "saw"]],
+      };
+    }
+    if (id === "sparkZap") {
+      return {
+        if: { x: +(x - 2.6).toFixed(2) }, once: true,
+        do: [["laser", x - 1, y - 1, 2, late ? 0.28 : 0.22], ["flash", 0.05], ["sfx", "spike"]],
+      };
+    }
+    if (id === "staticLock") {
+      return {
+        if: { x: +x.toFixed(2) }, once: true,
+        do: [["lock", late ? 0.42 : 0.52], ["flash", 0.08], ["sfx", "glitch"], ["shake", 5], ["lie", "NO"]],
+      };
+    }
+    if (id === "signalBeam") {
+      return {
+        if: { x: +(x - 3.0).toFixed(2) }, once: true,
+        do: [
+          ["laser", x - 2, y - 1, 4, late ? 0.3 : 0.24], ["sfx", "spike"],
+          ["queue", 0.18, ["laser", x - 1, y - 2, 3, 0.16]],
+        ],
+      };
+    }
+    if (id === "orbitKick") {
+      return {
+        if: { x: +(x - 0.2).toFixed(2) }, once: true,
+        do: [
+          ["gravity", -0.55], ["flash", 0.06], ["sfx", "reverse"],
+          ["queue", late ? 0.45 : 0.55, ["gravity", 0.55]],
+        ],
+      };
+    }
+    if (id === "boneSaw") {
+      return {
+        if: { x: +(x - 1.8).toFixed(2) }, once: true,
+        do: [["saw", Math.min(30, x + 3), Math.max(2, y - 3), late ? -2.1 : -1.85, 0.35], ["sfx", "saw"]],
+      };
+    }
+    if (id === "glassCrack") {
+      return {
+        if: { x: +(x - 1.5).toFixed(2) }, once: true,
+        do: [
+          ["dust", x, y, 2], ["shake", 4], ["sfx", "crumble"],
+          ["queue", 0.2, ["hole", x, y, 1, 1], ["spikes", x, Math.min(11, y + 1), 1]],
+        ],
+      };
+    }
+    if (id === "clearBeam") {
+      return {
+        if: { x: +(x - 3.0).toFixed(2) }, once: true,
+        do: [["laser", x - 1, y - 1, 3, late ? 0.4 : 0.34], ["sfx", "spike"]],
+      };
+    }
+    if (id === "biteGate") {
+      return {
+        if: { x: +(x - lead).toFixed(2) }, once: true,
+        do: [
+          ["fill", x, y, 2, 1, "^"], ["sfx", "spike"], ["shake", 5],
+          ["queue", late ? 0.4 : 0.48, ["fill", x, y, 2, 1, "#"]],
+        ],
+      };
+    }
+    if (id === "lureSaw") {
+      return {
+        if: { x: +(x - 2.0).toFixed(2) }, once: true,
+        do: [
+          ["saw", Math.min(29, x + 6), y - 1, late ? -2.55 : -2.2, 0], ["sfx", "saw"],
+          ["queue", 0.55, ["chase", 0]],
+        ],
+      };
+    }
+    if (id === "wireZap") {
+      return {
+        if: { x: +(x - 2.4).toFixed(2) }, once: true,
+        do: [
+          ["laser", x, y - 1, 1, late ? 0.36 : 0.3], ["sfx", "spike"],
+          ["queue", 0.14, ["laser", x + 1, y - 1, 1, 0.22]],
+        ],
+      };
+    }
+    if (id === "circuitPull") {
+      return {
+        if: { x: +x.toFixed(2) }, once: true,
+        do: [["push", late ? 1.15 : 0.95, 0], ["flash", 0.04], ["sfx", "dash"], ["shake", 3]],
+      };
+    }
+    if (id === "pillarDrop") {
+      return {
+        if: { x: +(x - 1.4).toFixed(2) }, once: true,
+        do: [["drop", x, Math.max(0, y - 6)], ["sfx", "crumble"], ["shake", 6]],
+      };
+    }
+    if (id === "worshipGap") {
+      return {
+        if: { x: +(x - lead).toFixed(2) }, once: true,
+        do: [["hole", x, y, 1, 1], ["spikes", x, Math.min(11, y + 1), 1], ["shake", 5], ["sfx", "crumble"]],
+      };
+    }
+    if (id === "stretchBeam") {
+      return {
+        if: { x: +(x - 3.4).toFixed(2) }, once: true,
+        do: [["laser", x - 2, y - 1, 5, late ? 0.32 : 0.26], ["sfx", "spike"]],
+      };
+    }
+    if (id === "recoil") {
+      return {
+        if: { x: +x.toFixed(2) }, once: true,
+        do: [["push", late ? -1.25 : -1.05, 0], ["shake", 4], ["sfx", "land"]],
+      };
+    }
+    if (id === "phantomFloor") {
+      return {
+        if: { x: +(x - lead).toFixed(2) }, once: true,
+        do: [
+          ["fill", x, y, 1, 1, "."], ["shake", 3], ["sfx", "crumble"],
+          ["queue", late ? 0.55 : 0.7, ["fill", x, y, 1, 1, "#"]],
+        ],
+      };
+    }
+    if (id === "phaseLock") {
+      return {
+        if: { x: +x.toFixed(2) }, once: true,
+        do: [["lock", late ? 0.35 : 0.45], ["glow", x - 1, y - 2, 3, 0.18], ["sfx", "glitch"]],
+      };
+    }
+    if (id === "needleRain") {
+      return {
+        if: { x: +(x - 1.2).toFixed(2) }, once: true,
+        do: [
+          ["fill", x - 1, Math.max(2, y - 4), 3, 1, "v"], ["sfx", "spike"], ["shake", 5],
+          ["queue", late ? 0.55 : 0.7, ["fill", x - 1, Math.max(2, y - 4), 3, 1, "."]],
+        ],
+      };
+    }
+    if (id === "pinGate") {
+      return {
+        if: { x: +(x - lead).toFixed(2) }, once: true,
+        do: [
+          ["fill", x, y, 1, 1, "^"], ["sfx", "spike"], ["shake", 3],
+          ["queue", up * 0.85, ["fill", x, y, 1, 1, "#"]],
+        ],
+      };
+    }
+    if (id === "sunBurst") {
+      return {
+        if: { x: +(x - 2.5).toFixed(2) }, once: true,
+        do: [["flash", 0.1], ["laser", x - 1, y - 1, 3, late ? 0.28 : 0.22], ["sfx", "spike"], ["shake", 4]],
+      };
+    }
+    if (id === "burnFloor") {
+      return {
+        if: { x: +(x - lead).toFixed(2) }, once: true,
+        do: [
+          ["fill", x, y, 2, 1, "^"], ["sfx", "spike"], ["shake", 4],
+          ["queue", late ? 0.45 : 0.55, ["fill", x, y, 2, 1, "#"]],
+        ],
+      };
+    }
+    if (id === "foldNudge") {
+      return {
+        if: { x: +(x - 0.1).toFixed(2) }, once: true,
+        do: [
+          ["teleport", Math.max(8, x - 2), y - 1], ["flash", 0.06], ["sfx", "dash"], ["shake", 4],
+        ],
+      };
+    }
+    if (id === "echoSaw") {
+      return {
+        if: { x: +(x - 2.1).toFixed(2) }, once: true,
+        do: [
+          ["saw", Math.min(30, x + 5), y - 1, late ? -2.2 : -1.9, 0], ["sfx", "saw"],
+          ["queue", 0.35, ["saw", Math.max(0, x - 4), y - 1, late ? 2.0 : 1.75, 0]],
+        ],
+      };
+    }
+    if (id === "lastGate") {
+      return {
+        if: { x: +(x - lead).toFixed(2) }, once: true,
+        do: [
+          ["fill", x, y, 1, 1, "^"], ["fill", x + 1, y, 1, 1, "^"],
+          ["sfx", "spike"], ["shake", 5],
+          ["queue", late ? 0.38 : 0.46, ["fill", x, y, 2, 1, "#"]],
+        ],
+      };
+    }
+    if (id === "voidChase") {
+      return {
+        if: { x: +(x - 2.3).toFixed(2) }, once: true,
+        do: [
+          ["saw", Math.min(30, x + 6), y - 1, late ? -2.6 : -2.3, 0], ["sfx", "saw"],
+          ["queue", 0.4, ["chase", 0]],
+        ],
+      };
+    }
+    return null;
+  }
   function rng(seed) {
     let s = seed >>> 0;
     return () => {
@@ -286,11 +692,39 @@
     const gapLong = 8;
     const gapShort = late ? 6 : 7;
     const budget = late ? 7 : mid ? 6 : 5;
-    const caps = { gate: late ? 3 : 2, hole: late ? 3 : 2, laser: 2, saw: late ? 2 : mid ? 2 : 1, reverse: d >= 8 ? 1 : 0 };
-    const used = { gate: 0, hole: 0, laser: 0, saw: 0, reverse: 0 };
-    const order = ["gate", "hole", "laser", "saw", "gate", "hole", "laser", "reverse"];
+    const sigs = DIM_SIG[Math.max(0, Math.min(DIM_SIG.length - 1, d - 1))] || [];
+    const caps = {
+      gate: late ? 3 : 2,
+      hole: late ? 3 : 2,
+      laser: 1,
+      saw: late ? 2 : mid ? 2 : 1,
+      reverse: d >= 8 ? 1 : 0,
+      push: mid ? 1 : 0,
+      drop: 1,
+      lock: 1,
+      wind: 1,
+      side: 1,
+      ceiling: 1,
+      gravity: d >= 5 ? 1 : 0,
+      teleport: d >= 10 ? 1 : 0,
+      sig: 2,
+    };
+    const used = {
+      gate: 0, hole: 0, laser: 0, saw: 0, reverse: 0, push: 0,
+      drop: 0, lock: 0, wind: 0, side: 0, ceiling: 0, gravity: 0, teleport: 0, sig: 0,
+    };
+    const roster = [
+      ["gate", "hole", "saw", "gate", "hole", "reverse", "push"],
+      ["hole", "gate", "saw", "hole", "gate", "laser", "push"],
+      ["saw", "gate", "hole", "saw", "gate", "reverse", "laser"],
+      ["gate", "saw", "hole", "push", "gate", "hole", "reverse"],
+      ["hole", "saw", "gate", "hole", "saw", "gate", "laser"],
+      ["gate", "hole", "push", "gate", "saw", "hole", "reverse"],
+    ];
+    const order = roster[(room + d) % roster.length];
     const bounceX = (room + d) % 4 === 1 ? 8 + ((room * 3 + d) % 14) : -1;
     const crumbleX = (room + d) % 5 === 2 ? 6 + ((room * 2) % 12) : -1;
+    const LONG = { hole: 1, laser: 1, saw: 1, drop: 1, ceiling: 1, side: 1, teleport: 1 };
 
     function span(x, dir) {
       let count = 0;
@@ -320,10 +754,10 @@
     }
 
     function busy(x, type) {
-      const long = type === "hole" || type === "laser" || type === "saw";
+      const long = !!LONG[type];
       for (let i = 0; i < realAt.length; i++) {
         const prev = realAt[i];
-        const prevLong = prev.t === "hole" || prev.t === "laser" || prev.t === "saw";
+        const prevLong = !!LONG[prev.t];
         const need = long || prevLong ? gapLong : gapShort;
         if (Math.abs(prev.x - x) < need) return true;
       }
@@ -334,19 +768,34 @@
       return surface[x - 1] === surface[x] && surface[x + 1] === surface[x];
     }
 
-    function allows(x, type) {
+    function allowsFamily(x, family, forSig) {
       if (x < 8 || x > 25 || surface[x] < 0) return false;
-      if (x === bounceX || x === crumbleX || busy(x, type)) return false;
-      if (nearPit(x, type === "hole" || type === "laser" || type === "saw" ? 5 : 4)) return false;
-      if (used[type] >= caps[type]) return false;
+      if (x === bounceX || x === crumbleX || busy(x, family)) return false;
+      if (nearPit(x, LONG[family] ? 5 : 4)) return false;
+      // Signature traps always get at least one slot of their family.
+      const max = forSig ? Math.max(1, caps[family] || 0) : (caps[family] || 0);
+      if (used[family] >= max) return false;
       const L = span(x, -1);
       const R = span(x, 1);
-      if (type === "gate") return flat(x) && L >= 2 && R >= 2;
-      if (type === "hole") return gapWidth(x) <= 2 && L >= 2 && R >= 3;
-      if (type === "laser") return flat(x) && L >= 4 && R >= 4;
-      if (type === "saw") return surface[x] >= 5 && L + R >= 4;
-      if (type === "reverse") return flat(x) && L >= 5 && R >= 5;
+      const y = surface[x];
+      if (family === "gate") return flat(x) && L >= 2 && R >= 2;
+      if (family === "hole") return gapWidth(x) <= 2 && L >= 2 && R >= 3;
+      if (family === "laser") return flat(x) && L >= 4 && R >= 4;
+      if (family === "saw") return y >= 5 && L + R >= 4;
+      if (family === "reverse") return flat(x) && L >= 5 && R >= 5;
+      if (family === "push") return Math.max(L, R) >= 3;
+      if (family === "drop") return flat(x) && y >= 6 && L >= 2 && R >= 2;
+      if (family === "lock") return flat(x) && L >= 3 && R >= 3;
+      if (family === "wind") return flat(x) && L + R >= 6;
+      if (family === "side") return flat(x) && x <= 24 && surface[x + 1] === y && L >= 2 && R >= 2;
+      if (family === "ceiling") return y >= 6 && L >= 2 && R >= 2;
+      if (family === "gravity") return flat(x) && L >= 4 && R >= 4;
+      if (family === "teleport") return flat(x) && L >= 3 && R >= 2 && x >= 10;
       return false;
+    }
+
+    function allows(x, type) {
+      return allowsFamily(x, type, false);
     }
 
     function commit(x, type) {
@@ -387,9 +836,28 @@
             ["queue", late ? 0.24 : 0.18, ["reverse", false]],
           ],
         });
+      } else if (type === "push") {
+        const dir = span(x, 1) >= span(x, -1) ? 1 : -1;
+        events.push({
+          if: { x: +x.toFixed(2) }, once: true,
+          do: [["push", +(0.55 * dir).toFixed(2), 0], ["shake", 2]],
+        });
       } else return false;
       realAt.push({ x, t: type });
       used[type] += 1;
+      return true;
+    }
+
+    function commitSig(x, sig) {
+      if (events.length >= n || used.sig >= caps.sig) return false;
+      if (!allowsFamily(x, sig.family, true)) return false;
+      const y = surface[x];
+      const ev = buildSig(sig.id, x, y, late);
+      if (!ev) return false;
+      events.push(ev);
+      realAt.push({ x, t: sig.family, id: sig.id });
+      used[sig.family] += 1;
+      used.sig += 1;
       return true;
     }
 
@@ -406,6 +874,20 @@
       hot.push(c);
     }
     hot.sort((a, b) => heat[b] - heat[a] || a - b);
+
+    // Place this world's two signature traps first so they actually show up.
+    for (let si = 0; si < sigs.length && used.sig < 2 && events.length < n; si++) {
+      const sig = sigs[(si + room) % sigs.length];
+      let placed = false;
+      for (let hi = 0; hi < hot.length; hi++) {
+        if (commitSig(hot[hi], sig)) { placed = true; break; }
+      }
+      if (!placed) {
+        for (let c = 8; c <= 25; c++) {
+          if (commitSig(c, sig)) break;
+        }
+      }
+    }
 
     let cursor = (room + d) % order.length;
     for (let hi = 0; hi < hot.length && realAt.length < budget && events.length < n; hi++) {
@@ -449,10 +931,21 @@
       const x = tells[ti % tells.length];
       ti += 1;
       const y = surface[x] >= 0 ? surface[x] : 9;
-      if ((x + events.length + d) % 3 === 0) {
+      const flavor = (x + events.length + d + room) % 11;
+      if (flavor === 0) {
         events.push({
           if: { x: +x.toFixed(2) }, once: true, quiet: true,
-          do: [["glow", Math.max(1, x - 1), Math.max(2, y - 3), 3, 0.22]],
+          do: [["glow", Math.max(1, x - 1), Math.max(2, y - 3), 2, 0.16]],
+        });
+      } else if (flavor === 1) {
+        events.push({
+          if: { x: +x.toFixed(2) }, once: true, quiet: true,
+          do: [["flash", 0.05], ["shake", 2]],
+        });
+      } else if (flavor === 2) {
+        events.push({
+          if: { x: +x.toFixed(2) }, once: true, quiet: true,
+          do: [["lie", ["????", "SAFE", "JUMP", "WAIT"][(x + events.length + d) % 4]]],
         });
       } else {
         events.push({
@@ -532,7 +1025,7 @@
   }
 
   root.SURGE_WORLDS = {
-    DIMS, roomCount, trapCount, generate, theme, chordsFor, reachable, pathHeat, count: 20,
+    DIMS, roomCount, trapCount, signatureTraps, generate, theme, chordsFor, reachable, pathHeat, count: 20,
   };
   root.LEVELS = generate(1);
 })(typeof window !== "undefined" ? window : globalThis);

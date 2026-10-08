@@ -215,7 +215,7 @@
 
     <section id="worlds">
       <h2>TWENTY WORLDS</h2>
-      <p class="lead">From Dimension 2 on, the last room is a core: four extra traps, and a fake door. Trap count starts at 10 and climbs by 2, then 3, then 2, then 3.</p>
+      <p class="lead">From Dimension 2 on, the last room is a core: four extra traps, and a fake door. Trap count starts at 10 and climbs by 2, then 3, then 2, then 3. Each world also brings two signature trap types you will not see anywhere else.</p>
       <div class="worlds" id="world-a"></div>
       <div class="row2">
         <figure class="shot">
@@ -500,7 +500,9 @@
         who.append(name, lore);
         const meta = document.createElement("span");
         meta.className = "meta";
-        meta.textContent = `${roomsN} rooms · ${traps} traps${d > 1 ? ` · core ${boss}` : ""} · ${dim.weather} · ${dim.bpm} bpm`;
+        const sigs = (pack.signatureTraps && pack.signatureTraps(d)) || [];
+        const sigLine = sigs.length ? ` · ${sigs.map((t) => t.label).join(" / ")}` : "";
+        meta.textContent = `${roomsN} rooms · ${traps} traps${d > 1 ? ` · core ${boss}` : ""}${sigLine} · ${dim.weather} · ${dim.bpm} bpm`;
         card.append(pip, idx, who, meta);
         bins[Math.floor(i / 5)].appendChild(card);
       });

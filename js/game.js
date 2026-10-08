@@ -393,6 +393,8 @@
   let lockTimer = 0;
   let slowmo = 1;
   let testMode = false;
+  let creatorReturn = null;
+  let creatorPlay = false;
   let botIx = 0;
   let botJump = false;
   let useBot = false;
@@ -573,8 +575,11 @@
     if (levelNumEl) levelNumEl.textContent = `${i + 1} / ${window.LEVELS.length}`;
     if (levelNameEl) levelNameEl.textContent = def.name;
     if (dimNameEl) {
-      const th = currentTheme();
-      dimNameEl.textContent = `D${dimIndex} ${th.name}`;
+      if (creatorPlay) dimNameEl.textContent = "CREATOR";
+      else {
+        const th = currentTheme();
+        dimNameEl.textContent = `D${dimIndex} ${th.name}`;
+      }
     }
     updatePips();
     if (deathsEl) deathsEl.textContent = `☠ ${deaths}`;
@@ -1167,6 +1172,11 @@
     audio.play("die");
     updateHud();
     updateComboHud();
+    if (creatorPlay) {
+      say(world.deathReason);
+      deathTimer = 0.85;
+      return;
+    }
     if (testMode) return;
     startDeathRoast(deathKind(msg));
   }
@@ -1227,6 +1237,18 @@
     burst(player.x + 12, player.y + 10, "#fff6d8", 12, 3);
     audio.play("win");
     if (!testMode) audio.play("stinger");
+    if (creatorReturn) {
+      const cb = creatorReturn;
+      creatorReturn = null;
+      creatorPlay = false;
+      testMode = false;
+      setTimeout(() => {
+        leavePlayUi();
+        mode = "creator";
+        cb({ reason: "clear", deaths, time: world.time });
+      }, 480);
+      return;
+    }
     if (testMode) return;
     mode = "clear";
     document.getElementById("clear-name").textContent = world.name;
@@ -2453,7 +2475,7 @@
     mode = "play";
   }
 
-  function quitToTitle() {
+  function leavePlayUi() {
     if (pauseScreen) pauseScreen.classList.add("hidden");
     if (levelsScreen) levelsScreen.classList.add("hidden");
     if (dimCard) dimCard.classList.add("hidden");
@@ -2461,9 +2483,49 @@
     clearScreen.classList.add("hidden");
     hud.classList.add("hidden");
     mobile.classList.add("hidden");
+    deathShow = null;
+    deathTimer = 0;
+  }
+
+  function quitToTitle() {
+    if (creatorReturn) {
+      const cb = creatorReturn;
+      creatorReturn = null;
+      creatorPlay = false;
+      testMode = false;
+      leavePlayUi();
+      mode = "creator";
+      cb({ reason: "quit" });
+      return;
+    }
+    leavePlayUi();
     mode = "title";
     titleScreen.classList.remove("hidden");
     refreshRecords();
+  }
+
+  function playCustom(levels, opts) {
+    opts = opts || {};
+    const pack = Array.isArray(levels) ? levels.slice() : [levels];
+    if (!pack.length) return false;
+    creatorReturn = typeof opts.onExit === "function" ? opts.onExit : null;
+    creatorPlay = !!creatorReturn;
+    testMode = opts.testMode !== false;
+    window.LEVELS = pack;
+    dimIndex = Math.max(1, Math.min(20, opts.dim || 1));
+    audio.unlock();
+    audio.setTheme(dimIndex);
+    audio.restartMusic();
+    shardsGot = 0;
+    deathGhost = null;
+    dimIntro = 0;
+    if (dimCard) dimCard.classList.add("hidden");
+    if (dashBtn) dashBtn.classList.toggle("hidden", dimIndex < 3);
+    titleScreen.classList.add("hidden");
+    const creatorScreen = document.getElementById("creator-screen");
+    if (creatorScreen) creatorScreen.classList.add("hidden");
+    startGame(opts.from || 0);
+    return true;
   }
 
   function refreshRecords() {
@@ -2541,6 +2603,8 @@
     muteBtn.textContent = audio.muted ? "🔇" : "🔊";
   };
 
+  function setMode(m) { mode = m; }
+
   window.addEventListener("pointerdown", () => audio.unlock());
   window.addEventListener("keydown", (e) => {
     audio.unlock();
@@ -2550,6 +2614,9 @@
       return;
     }
     keys.add(e.key);
+    if (mode === "creator") {
+      return;
+    }
     if (mode === "title" && (e.key === "Enter" || e.key === " ")) {
       const s = loadSave();
       enterDimension(s.lastDim || 1, s.lastRoom || 0);
@@ -3029,7 +3096,9 @@
     hold, keys, player, world, loadLevel, startGame, enterDimension, step, die, winLevel,
     runAction, matchEvent, tileAt, isSolid, setTiles, parseSol, deathKind,
     unitTests, smokeAllLevels, playtestLevel, playtestAll, playSolLevel, playSolAll,
-    searchSol, searchSolAll, runSelfTest,
+    searchSol, searchSolAll, runSelfTest, playCustom, quitToTitle, setMode,
+    get mode() { return mode; },
+    get creatorPlay() { return creatorPlay; },
   };
 
   refreshRecords();

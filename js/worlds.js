@@ -130,8 +130,8 @@
   }
 
   function buildSig(id, x, y, late) {
-    const lead = late ? 2.05 : 2.25;
-    const up = late ? 0.5 : 0.58;
+    const lead = late ? 1.55 : 1.85;
+    const up = late ? 0.72 : 0.85;
     if (id === "voidPull") {
       return {
         if: { x: +(x - 0.4).toFixed(2) }, once: true,
@@ -188,7 +188,7 @@
     if (id === "petalSaw") {
       return {
         if: { x: +(x - 2.0).toFixed(2) }, once: true,
-        do: [["saw", Math.min(30, x + 4), y - 1, late ? -1.7 : -1.45, 0], ["sfx", "saw"]],
+        do: [["saw", Math.min(30, x + 4), y - 1, late ? -2.4 : -2.1, 0], ["sfx", "saw"]],
       };
     }
     if (id === "tickGate") {
@@ -246,7 +246,7 @@
     if (id === "railSaw") {
       return {
         if: { x: +(x - 2.2).toFixed(2) }, once: true,
-        do: [["saw", Math.max(0, x - 5), y - 1, late ? 2.45 : 2.15, 0], ["sfx", "saw"]],
+        do: [["saw", Math.max(0, x - 5), y - 1, late ? 2.9 : 2.55, 0], ["sfx", "saw"]],
       };
     }
     if (id === "sparkZap") {
@@ -313,8 +313,8 @@
       return {
         if: { x: +(x - 2.0).toFixed(2) }, once: true,
         do: [
-          ["saw", Math.min(29, x + 6), y - 1, late ? -2.55 : -2.2, 0], ["sfx", "saw"],
-          ["queue", 0.55, ["chase", 0]],
+          ["saw", Math.min(29, x + 6), y - 1, late ? -2.9 : -2.55, 0], ["sfx", "saw"],
+          ["queue", 0.35, ["chase", 0]],
         ],
       };
     }
@@ -436,8 +436,8 @@
       return {
         if: { x: +(x - 2.3).toFixed(2) }, once: true,
         do: [
-          ["saw", Math.min(30, x + 6), y - 1, late ? -2.6 : -2.3, 0], ["sfx", "saw"],
-          ["queue", 0.4, ["chase", 0]],
+          ["saw", Math.min(30, x + 6), y - 1, late ? -3.0 : -2.7, 0], ["sfx", "saw"],
+          ["queue", 0.28, ["chase", 0]],
         ],
       };
     }
@@ -689,24 +689,26 @@
     const realAt = [];
     const late = d >= 12;
     const mid = d >= 6;
-    const gapLong = 8;
-    const gapShort = late ? 6 : 7;
-    const budget = late ? 7 : mid ? 6 : 5;
+    // Tight packing: short threats can sit nearly adjacent; long ones keep a small buffer.
+    const gapLong = late ? 2 : 3;
+    const gapShort = late ? 1 : 2;
+    // Spend most of the trap budget on real hits, not quiet dust/glow.
+    const budget = Math.min(n - 1, (late ? 14 : mid ? 12 : 9) + Math.floor(d / 2));
     const sigs = DIM_SIG[Math.max(0, Math.min(DIM_SIG.length - 1, d - 1))] || [];
     const caps = {
-      gate: late ? 3 : 2,
-      hole: late ? 3 : 2,
-      laser: 1,
-      saw: late ? 2 : mid ? 2 : 1,
-      reverse: d >= 8 ? 1 : 0,
-      push: mid ? 1 : 0,
-      drop: 1,
-      lock: 1,
-      wind: 1,
-      side: 1,
-      ceiling: 1,
-      gravity: d >= 5 ? 1 : 0,
-      teleport: d >= 10 ? 1 : 0,
+      gate: late ? 6 : mid ? 5 : 4,
+      hole: late ? 5 : mid ? 4 : 3,
+      laser: late ? 4 : mid ? 3 : 2,
+      saw: late ? 5 : mid ? 4 : 3,
+      reverse: d >= 6 ? 2 : 0,
+      push: mid ? 3 : 2,
+      drop: late ? 3 : 2,
+      lock: late ? 3 : 2,
+      wind: late ? 3 : 2,
+      side: late ? 3 : 2,
+      ceiling: late ? 3 : 2,
+      gravity: d >= 5 ? 2 : 0,
+      teleport: d >= 10 ? 2 : 0,
       sig: 2,
     };
     const used = {
@@ -758,7 +760,8 @@
       for (let i = 0; i < realAt.length; i++) {
         const prev = realAt[i];
         const prevLong = !!LONG[prev.t];
-        const need = long || prevLong ? gapLong : gapShort;
+        // Only long↔long threats need the bigger gap. Everything else packs tight.
+        const need = long && prevLong ? gapLong : gapShort;
         if (Math.abs(prev.x - x) < need) return true;
       }
       return false;
@@ -770,27 +773,28 @@
 
     function allowsFamily(x, family, forSig) {
       if (x < 8 || x > 25 || surface[x] < 0) return false;
-      if (x === bounceX || x === crumbleX || busy(x, family)) return false;
-      if (nearPit(x, LONG[family] ? 5 : 4)) return false;
+      if (busy(x, family)) return false;
+      if (nearPit(x, LONG[family] ? 2 : 1)) return false;
       // Signature traps always get at least one slot of their family.
       const max = forSig ? Math.max(1, caps[family] || 0) : (caps[family] || 0);
       if (used[family] >= max) return false;
       const L = span(x, -1);
       const R = span(x, 1);
       const y = surface[x];
-      if (family === "gate") return flat(x) && L >= 2 && R >= 2;
-      if (family === "hole") return gapWidth(x) <= 2 && L >= 2 && R >= 3;
-      if (family === "laser") return flat(x) && L >= 4 && R >= 4;
-      if (family === "saw") return y >= 5 && L + R >= 4;
-      if (family === "reverse") return flat(x) && L >= 5 && R >= 5;
-      if (family === "push") return Math.max(L, R) >= 3;
-      if (family === "drop") return flat(x) && y >= 6 && L >= 2 && R >= 2;
-      if (family === "lock") return flat(x) && L >= 3 && R >= 3;
-      if (family === "wind") return flat(x) && L + R >= 6;
-      if (family === "side") return flat(x) && x <= 24 && surface[x + 1] === y && L >= 2 && R >= 2;
-      if (family === "ceiling") return y >= 6 && L >= 2 && R >= 2;
-      if (family === "gravity") return flat(x) && L >= 4 && R >= 4;
-      if (family === "teleport") return flat(x) && L >= 3 && R >= 2 && x >= 10;
+      const nearFlat = Math.abs((surface[x - 1] ?? y) - y) <= 1 && Math.abs((surface[x + 1] ?? y) - y) <= 1;
+      if (family === "gate") return L >= 1 && R >= 1 && nearFlat;
+      if (family === "hole") return gapWidth(x) <= 4 && L >= 1 && R >= 1;
+      if (family === "laser") return L >= 1 && R >= 1 && nearFlat;
+      if (family === "saw") return y >= 3 && L + R >= 2;
+      if (family === "reverse") return L >= 2 && R >= 2;
+      if (family === "push") return Math.max(L, R) >= 1;
+      if (family === "drop") return y >= 4 && L >= 1 && R >= 1;
+      if (family === "lock") return L >= 1 && R >= 1;
+      if (family === "wind") return L + R >= 3;
+      if (family === "side") return x <= 24 && surface[x + 1] >= 0 && L >= 1 && R >= 1;
+      if (family === "ceiling") return y >= 4 && L >= 1 && R >= 1;
+      if (family === "gravity") return L >= 2 && R >= 2;
+      if (family === "teleport") return L >= 1 && R >= 1 && x >= 10;
       return false;
     }
 
@@ -804,43 +808,91 @@
       if (type === "gate") {
         const wide = mid && x < 24 && surface[x + 1] === y && span(x, 1) >= 4;
         const w = wide ? 2 : 1;
-        const lead = late ? 2.05 : 2.3;
-        const up = wide ? (late ? 0.5 : 0.56) : (late ? 0.48 : 0.58);
+        const lead = late ? 1.35 : 1.65;
+        const up = wide ? (late ? 0.58 : 0.7) : (late ? 0.52 : 0.65);
         events.push({
           if: { x: +(x - lead).toFixed(2) }, once: true,
           do: [
-            ["fill", x, y, w, 1, "^"], ["sfx", "spike"], ["shake", 3],
+            ["fill", x, y, w, 1, "^"], ["sfx", "spike"], ["shake", 4],
             ["queue", up, ["fill", x, y, w, 1, "#"]],
           ],
         });
       } else if (type === "hole") {
         events.push({
-          if: { x: +(x - (late ? 2.05 : 2.25)).toFixed(2) }, once: true,
-          do: [["hole", x, y, 1, 1], ["spikes", x, Math.min(11, y + 1), 1], ["shake", 5], ["sfx", "crumble"]],
+          if: { x: +(x - (late ? 1.35 : 1.65)).toFixed(2) }, once: true,
+          do: [["hole", x, y, 1, 1], ["spikes", x, Math.min(11, y + 1), 1], ["shake", 6], ["sfx", "crumble"]],
         });
       } else if (type === "laser") {
         events.push({
-          if: { x: +(x - 3.1).toFixed(2) }, once: true,
-          do: [["laser", x - 1, y - 1, 3, late ? 0.42 : 0.36], ["sfx", "spike"]],
+          if: { x: +(x - 2.1).toFixed(2) }, once: true,
+          do: [["laser", x - 1, y - 1, 3, late ? 0.62 : 0.52], ["sfx", "spike"]],
         });
       } else if (type === "saw") {
         events.push({
-          if: { x: +(x - 2.15).toFixed(2) }, once: true,
-          do: [["saw", Math.min(29, x + 5), y - 1, late ? -2.35 : -2.0, 0]],
+          if: { x: +(x - 1.45).toFixed(2) }, once: true,
+          do: [["saw", Math.min(29, x + 5), y - 1, late ? -3.1 : -2.7, 0], ["sfx", "saw"]],
         });
       } else if (type === "reverse") {
         events.push({
-          if: { x: +(x - 0.2).toFixed(2) }, once: true,
+          if: { x: +(x - 0.15).toFixed(2) }, once: true,
           do: [
             ["reverse", true], ["flash", 0.05], ["sfx", "reverse"],
-            ["queue", late ? 0.24 : 0.18, ["reverse", false]],
+            ["queue", late ? 0.42 : 0.32, ["reverse", false]],
           ],
         });
       } else if (type === "push") {
         const dir = span(x, 1) >= span(x, -1) ? 1 : -1;
         events.push({
           if: { x: +x.toFixed(2) }, once: true,
-          do: [["push", +(0.55 * dir).toFixed(2), 0], ["shake", 2]],
+          do: [["push", +(1.05 * dir).toFixed(2), 0], ["shake", 3]],
+        });
+      } else if (type === "drop") {
+        events.push({
+          if: { x: +(x - 1.4).toFixed(2) }, once: true,
+          do: [["drop", x, Math.max(1, y - 5)], ["sfx", "crumble"], ["shake", 5]],
+        });
+      } else if (type === "lock") {
+        events.push({
+          if: { x: +x.toFixed(2) }, once: true,
+          do: [["lock", late ? 0.42 : 0.52], ["flash", 0.05], ["sfx", "land"], ["shake", 3]],
+        });
+      } else if (type === "wind") {
+        const dir = x > 16 ? -1 : 1;
+        events.push({
+          if: { x: +(x - 0.3).toFixed(2) }, once: true,
+          do: [["wind", +(0.75 * dir).toFixed(2)], ["shake", 3], ["sfx", "reverse"],
+            ["queue", late ? 0.5 : 0.65, ["wind", 0]]],
+        });
+      } else if (type === "side") {
+        events.push({
+          if: { x: +(x - 1.3).toFixed(2) }, once: true,
+          do: [
+            ["fill", x, y - 1, 1, 1, ">"], ["fill", Math.min(30, x + 1), y - 1, 1, 1, "<"],
+            ["sfx", "spike"], ["shake", 4],
+            ["queue", late ? 0.5 : 0.65,
+              ["fill", x, y - 1, 1, 1, "."], ["fill", Math.min(30, x + 1), y - 1, 1, 1, "."]],
+          ],
+        });
+      } else if (type === "ceiling") {
+        events.push({
+          if: { x: +(x - 1.2).toFixed(2) }, once: true,
+          do: [
+            ["fill", x, Math.max(2, y - 3), 2, 1, "v"], ["sfx", "spike"], ["shake", 4],
+            ["queue", late ? 0.55 : 0.7, ["fill", x, Math.max(2, y - 3), 2, 1, "."]],
+          ],
+        });
+      } else if (type === "gravity") {
+        events.push({
+          if: { x: +(x - 0.2).toFixed(2) }, once: true,
+          do: [
+            ["gravity", -0.55], ["flash", 0.05], ["sfx", "reverse"],
+            ["queue", late ? 0.45 : 0.55, ["gravity", 0.55]],
+          ],
+        });
+      } else if (type === "teleport") {
+        events.push({
+          if: { x: +(x - 0.5).toFixed(2) }, once: true,
+          do: [["teleport", Math.max(8, x - 3), y - 1], ["flash", 0.06], ["sfx", "dash"], ["shake", 4]],
         });
       } else return false;
       realAt.push({ x, t: type });
@@ -899,14 +951,69 @@
         break;
       }
     }
-    // If the hottest tiles were too crowded / illegal, walk heat-descending leftovers.
+    // Second pass: retry every column so spacing still packs after the first hits land.
     if (realAt.length < budget) {
       for (let c = 8; c <= 25 && realAt.length < budget && events.length < n; c++) {
-        if (hot.indexOf(c) >= 0) continue;
         for (let k = 0; k < order.length; k++) {
           const type = order[(cursor + k) % order.length];
           if (!commit(c, type)) continue;
           cursor = (cursor + k + 1) % order.length;
+          break;
+        }
+      }
+    }
+    // Last resort: force any armed trap family onto leftover legal tiles.
+    if (realAt.length < budget) {
+      const force = ["gate", "saw", "hole", "laser", "push", "drop", "lock", "wind", "side", "ceiling", "reverse", "gravity", "teleport"];
+      for (let c = 8; c <= 25 && realAt.length < budget && events.length < n; c++) {
+        for (let fi = 0; fi < force.length; fi++) {
+          if (commit(c, force[fi])) break;
+        }
+      }
+    }
+    // Still short? Ignore near-pit / flat rules — only spacing + caps.
+    if (realAt.length < budget) {
+      const force = ["gate", "push", "saw", "lock", "wind", "hole"];
+      for (let c = 8; c <= 25 && realAt.length < budget && events.length < n; c++) {
+        if (surface[c] < 0 || busy(c, "gate")) continue;
+        for (let fi = 0; fi < force.length; fi++) {
+          const type = force[fi];
+          if ((caps[type] || 0) <= used[type]) continue;
+          const y = surface[c];
+          if (type === "gate") {
+            events.push({
+              if: { x: +(c - 1.4).toFixed(2) }, once: true,
+              do: [["fill", c, y, 1, 1, "^"], ["sfx", "spike"], ["shake", 4],
+                ["queue", late ? 0.55 : 0.7, ["fill", c, y, 1, 1, "#"]]],
+            });
+          } else if (type === "push") {
+            events.push({
+              if: { x: +c.toFixed(2) }, once: true,
+              do: [["push", 1.0, 0], ["shake", 3]],
+            });
+          } else if (type === "saw") {
+            events.push({
+              if: { x: +(c - 1.3).toFixed(2) }, once: true,
+              do: [["saw", Math.min(29, c + 4), y - 1, late ? -3.0 : -2.6, 0], ["sfx", "saw"]],
+            });
+          } else if (type === "lock") {
+            events.push({
+              if: { x: +c.toFixed(2) }, once: true,
+              do: [["lock", late ? 0.4 : 0.5], ["sfx", "land"], ["shake", 3]],
+            });
+          } else if (type === "wind") {
+            events.push({
+              if: { x: +(c - 0.2).toFixed(2) }, once: true,
+              do: [["wind", -0.7], ["sfx", "reverse"], ["queue", 0.55, ["wind", 0]]],
+            });
+          } else if (type === "hole") {
+            events.push({
+              if: { x: +(c - 1.4).toFixed(2) }, once: true,
+              do: [["hole", c, y, 1, 1], ["spikes", c, Math.min(11, y + 1), 1], ["shake", 6], ["sfx", "crumble"]],
+            });
+          } else continue;
+          realAt.push({ x: c, t: type });
+          used[type] += 1;
           break;
         }
       }

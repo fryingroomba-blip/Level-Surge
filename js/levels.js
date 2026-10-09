@@ -147,11 +147,11 @@
         sink(19.4, 22, 2, 0.18),
         { if: { door: "fake" }, once: true, delay: 0.12, do: [
           ["spikes", 15, 9, 4], ["shake", 12], ["sfx", "spike"],
-          ["queue", 0.35, ["fill", 15, 9, 4, 1, "#"]],
-          ["queue", 0.18, ["fill", 10, 9, 2, 1, "#"], ["fill", 10, 10, 2, 1, "#"], ["fill", 22, 9, 2, 1, "#"], ["fill", 22, 10, 2, 1, "#"]],
+          ["queue", 0.55, ["fill", 15, 9, 4, 1, "#"]],
+          ["queue", 0.22, ["fill", 10, 9, 2, 1, "#"], ["fill", 10, 10, 2, 1, "#"], ["fill", 22, 9, 2, 1, "#"], ["fill", 22, 10, 2, 1, "#"]],
         ]},
-        { if: { beenPast: 24, xLess: 16 }, once: true, delay: 1.05, do: [
-          ["saw", 34, 8, -1.85, 0], ["sfx", "saw"],
+        { if: { beenPast: 24, xLess: 16 }, once: true, delay: 0.45, do: [
+          ["saw", 34, 8, -2.9, 0], ["sfx", "saw"],
         ]},
         { if: { beenPast: 24, xLess: 11 }, once: true, do: [
           ["fill", 1, 5, 11, 1, "."],
@@ -509,11 +509,11 @@
         sink(20.2, 22, 2, 0.18),
         { if: { door: "fake" }, once: true, delay: 0.12, do: [
           ["spikes", 14, 9, 4], ["shake", 12], ["sfx", "spike"],
-          ["queue", 0.35, ["fill", 14, 9, 4, 1, "#"]],
-          ["queue", 0.18, ["fill", 11, 9, 2, 1, "#"], ["fill", 11, 10, 2, 1, "#"], ["fill", 22, 9, 2, 1, "#"], ["fill", 22, 10, 2, 1, "#"]],
+          ["queue", 0.55, ["fill", 14, 9, 4, 1, "#"]],
+          ["queue", 0.22, ["fill", 11, 9, 2, 1, "#"], ["fill", 11, 10, 2, 1, "#"], ["fill", 22, 9, 2, 1, "#"], ["fill", 22, 10, 2, 1, "#"]],
         ]},
-        { if: { beenPast: 24, xLess: 16 }, once: true, delay: 1.05, do: [
-          ["saw", 34, 8, -1.85, 0], ["sfx", "saw"],
+        { if: { beenPast: 24, xLess: 16 }, once: true, delay: 0.45, do: [
+          ["saw", 34, 8, -2.9, 0], ["sfx", "saw"],
         ]},
         { if: { beenPast: 24, xLess: 7 }, once: true, delay: 0.1, do: [
           ["fill", 0, 7, 5, 1, "v"],
@@ -587,11 +587,11 @@
         sink(19.4, 22, 2, 0.18),
         { if: { door: "fake" }, once: true, delay: 0.12, do: [
           ["spikes", 15, 9, 4], ["shake", 12], ["sfx", "spike"],
-          ["queue", 0.35, ["fill", 15, 9, 4, 1, "#"]],
-          ["queue", 0.18, ["fill", 10, 9, 2, 1, "#"], ["fill", 10, 10, 2, 1, "#"], ["fill", 22, 9, 2, 1, "#"], ["fill", 22, 10, 2, 1, "#"]],
+          ["queue", 0.55, ["fill", 15, 9, 4, 1, "#"]],
+          ["queue", 0.22, ["fill", 10, 9, 2, 1, "#"], ["fill", 10, 10, 2, 1, "#"], ["fill", 22, 9, 2, 1, "#"], ["fill", 22, 10, 2, 1, "#"]],
         ]},
-        { if: { beenPast: 24, xLess: 16 }, once: true, delay: 1.05, do: [
-          ["saw", 34, 8, -1.85, 0], ["sfx", "saw"],
+        { if: { beenPast: 24, xLess: 16 }, once: true, delay: 0.45, do: [
+          ["saw", 34, 8, -2.9, 0], ["sfx", "saw"],
         ]},
         { if: { beenPast: 24, xLess: 12 }, once: true, quiet: true, do: [
           ["dust", 10, 8, 3], ["shake", 4],

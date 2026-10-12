@@ -1792,131 +1792,23 @@
     const pulse = beatGlow();
     const heat = Math.min(1, (world.trapsFired || 0) / 10);
     const th = currentTheme();
-    const accent = th.accent || [210, 225, 255];
-    const [ar, ag, ab] = accent;
+    // Trap heat + later dims push the void into a denser trip.
+    const dim = world.dim || 1;
+    const trip = Math.min(0.85, 0.32 + heat * 0.28 + Math.max(0, dim - 1) * 0.015);
+    if (window.SURGE_VOID && window.SURGE_VOID.draw) {
+      window.SURGE_VOID.draw({
+        ctx, w: VIEW_W, h: VIEW_H, t, theme: th, pulse, heat, trip,
+        floorShade: true, bolt: true,
+      });
+      return;
+    }
+    // Fallback if void-sky.js failed to load.
     const skyCols = th.sky || ["#0b1018", "#07090f", "#04050a"];
-    const planetCols = th.planet || ["#ffffff", "#7b93bc", "#1b2433"];
-
     const sky = ctx.createLinearGradient(0, 0, 0, VIEW_H);
     sky.addColorStop(0, skyCols[0]);
-    sky.addColorStop(0.42, skyCols[1]);
     sky.addColorStop(1, skyCols[2]);
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-
-    ctx.fillStyle = `rgba(${ar},${ag},${ab},0.04)`;
-    for (let b = 0; b < 3; b++) {
-      const y = VIEW_H * (0.18 + b * 0.12) + Math.sin(t * 0.3 + b) * 10;
-      ctx.beginPath();
-      ctx.ellipse(VIEW_W * (0.35 + b * 0.18), y, VIEW_W * 0.42, 28 + pulse * 8, 0, 0, Math.PI * 2);
-        ctx.fill();
-    }
-
-    const cx = VIEW_W * 0.76;
-    const cy = VIEW_H * 0.2;
-    const r = Math.min(VIEW_W, VIEW_H) * (0.118 + pulse * 0.012);
-
-    const corona = ctx.createRadialGradient(cx, cy, r * 0.15, cx, cy, r * 4.4);
-    corona.addColorStop(0, `rgba(${ar},${ag},${ab},${0.2 + pulse * 0.16})`);
-    corona.addColorStop(0.22, `rgba(${ar},${ag},${ab},${0.1 + pulse * 0.08})`);
-    corona.addColorStop(0.55, `rgba(${Math.round(ar * 0.4)},${Math.round(ag * 0.4)},${Math.round(ab * 0.5)},${0.05 + heat * 0.03})`);
-    corona.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = corona;
-    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-
-    for (let k = 0; k < 3; k++) {
-      const ph = (t * 0.28 + k / 3) % 1;
-      ctx.beginPath();
-      ctx.arc(cx, cy, r * (1.35 + ph * 4.2), 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(${ar},${ag},${ab},${(1 - ph) * (0.16 + pulse * 0.12)})`;
-      ctx.lineWidth = 1.5 + pulse * 1.5;
-      ctx.stroke();
-    }
-
-    const planet = ctx.createRadialGradient(cx - r * 0.32, cy - r * 0.38, r * 0.08, cx, cy, r);
-    planet.addColorStop(0, planetCols[0]);
-    planet.addColorStop(0.22, planetCols[0]);
-    planet.addColorStop(0.55, planetCols[1]);
-    planet.addColorStop(1, planetCols[2]);
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = planet;
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(cx + r * 0.22, cy + r * 0.12, r * 0.92, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(6,8,14,0.28)";
-    ctx.fill();
-
-    ctx.strokeStyle = `rgba(${ar},${ag},${ab},0.18)`;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r * 1.04, 0, Math.PI * 2);
-    ctx.stroke();
-
-    for (let i = 0; i < 8; i++) {
-      const a = t * 0.32 + i * 0.785;
-      const rr = r * (1.7 + 0.4 * Math.sin(t * 0.7 + i));
-      const x = cx + Math.cos(a) * rr * 1.55;
-      const y = cy + Math.sin(a) * rr * 0.42;
-      const len = 9 + (i % 4) * 6;
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(a + 1.2);
-      ctx.fillStyle = i % 2 ? `rgba(${ar},${ag},${ab},0.55)` : `rgba(${ar},${ag},${ab},0.32)`;
-      ctx.beginPath();
-      ctx.moveTo(0, -len);
-      ctx.lineTo(2.2, len * 0.7);
-      ctx.lineTo(-2.2, len * 0.7);
-      ctx.fill();
-      ctx.restore();
-    }
-
-    ctx.fillStyle = `rgba(${ar},${ag},${ab},0.72)`;
-    for (let i = 0; i < 70; i++) {
-      const tw = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * (1.3 + (i % 5) * 0.4) + i));
-      const x = (frac(i * 13.7) * VIEW_W + t * (4 + (i % 6))) % VIEW_W;
-      const y = frac(i * 9.1) * VIEW_H * 0.72;
-      const sz = i % 11 === 0 ? 2.4 : 1.1;
-      ctx.globalAlpha = tw;
-      ctx.fillRect(x, y, sz, sz);
-    }
-    ctx.globalAlpha = 1;
-
-    drawWeather(t, pulse, heat, th.weather || "shards", accent);
-
-    const needle = th.needle || "#101624";
-    const edge = th.edge || "rgba(160,190,230,0.22)";
-    drawNeedleField(t, VIEW_H * 0.56, 13, 90, 250, 10, needle, edge, 0.08, 1.1);
-    drawNeedleField(t, VIEW_H * 0.66, 17, 60, 180, 20, needle, edge, -0.05, 4.4);
-    drawNeedleField(t, VIEW_H * 0.78, 21, 40, 130, 36, skyCols[2], edge, 0.04, 8.8);
-
-    ctx.fillStyle = "rgba(8,10,16,0.55)";
-    ctx.fillRect(0, VIEW_H * 0.86, VIEW_W, VIEW_H * 0.14);
-
-    const bolt = (t * 0.19) % 11;
-    if (bolt > 10.82) {
-      const a = (bolt - 10.82) / 0.18;
-      ctx.fillStyle = `rgba(${ar},${ag},${ab},${0.16 * (1 - a)})`;
-      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-      ctx.strokeStyle = `rgba(255,255,255,${0.7 * (1 - a)})`;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      let bx = VIEW_W * (0.35 + frac(Math.floor(t * 3)) * 0.4);
-      let by = 0;
-      ctx.moveTo(bx, by);
-      for (let k = 0; k < 6; k++) {
-        bx += (frac(t * 9 + k) - 0.5) * 70;
-        by += VIEW_H * 0.045 + k * 6;
-        ctx.lineTo(bx, by);
-      }
-      ctx.lineTo(cx, cy);
-      ctx.stroke();
-    }
-
-    if (pulse > 0.55) {
-      ctx.fillStyle = `rgba(${ar},${ag},${ab},${(pulse - 0.55) * 0.12})`;
-      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-    }
   }
 
   function drawTile(t, x, y) {

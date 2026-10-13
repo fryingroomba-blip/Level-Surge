@@ -709,12 +709,18 @@
       ceiling: late ? 3 : 2,
       gravity: d >= 5 ? 2 : 0,
       teleport: d >= 10 ? 2 : 0,
+      // Rare hard traps: at most one, and only in some rooms.
+      rare: (!boss && d >= 4) ? 1 : 0,
+      // Entity / horror traps: even rarer, later dims, never stack with rare.
+      entity: (!boss && d >= 7) ? 1 : 0,
       sig: 2,
     };
     const used = {
       gate: 0, hole: 0, laser: 0, saw: 0, reverse: 0, push: 0,
-      drop: 0, lock: 0, wind: 0, side: 0, ceiling: 0, gravity: 0, teleport: 0, sig: 0,
+      drop: 0, lock: 0, wind: 0, side: 0, ceiling: 0, gravity: 0, teleport: 0, rare: 0, entity: 0, sig: 0,
     };
+    const RARE = ["slip", "jumpCut", "magnet", "blink", "clamp", "echo", "sticky", "rift", "blackout", "heavy"];
+    const ENTITY = ["stalker", "drone", "rocket", "voidFog", "watcher", "sentry", "swarm", "phantom", "huntLight", "crushBot"];
     const roster = [
       ["gate", "hole", "saw", "gate", "hole", "reverse", "push"],
       ["hole", "gate", "saw", "hole", "gate", "laser", "push"],
@@ -726,7 +732,7 @@
     const order = roster[(room + d) % roster.length];
     const bounceX = (room + d) % 4 === 1 ? 8 + ((room * 3 + d) % 14) : -1;
     const crumbleX = (room + d) % 5 === 2 ? 6 + ((room * 2) % 12) : -1;
-    const LONG = { hole: 1, laser: 1, saw: 1, drop: 1, ceiling: 1, side: 1, teleport: 1 };
+    const LONG = { hole: 1, laser: 1, saw: 1, drop: 1, ceiling: 1, side: 1, teleport: 1, blink: 1, clamp: 1, rift: 1, echo: 1, stalker: 1, drone: 1, rocket: 1, swarm: 1, crushBot: 1, huntLight: 1 };
 
     function span(x, dir) {
       let count = 0;
@@ -913,6 +919,147 @@
       return true;
     }
 
+    function commitRare(x, type) {
+      if (events.length >= n || used.rare >= (caps.rare || 0)) return false;
+      if (x < 12 || x > 22 || surface[x] < 0) return false;
+      for (let i = 0; i < realAt.length; i++) {
+        if (Math.abs(realAt[i].x - x) < 3) return false;
+      }
+      if (nearPit(x, 2)) return false;
+      const y = surface[x];
+      const L = span(x, -1);
+      const R = span(x, 1);
+      if (type === "slip") {
+        if (L + R < 4) return false;
+        events.push({
+          if: { x: +(x - 0.4).toFixed(2), ground: true }, once: true,
+          do: [["slip", late ? 1.35 : 1.1], ["sfx", "reverse"], ["lie", "ICE"], ["shake", 2]],
+        });
+      } else if (type === "jumpCut") {
+        if (R < 2) return false;
+        events.push({
+          if: { x: +(x - 0.3).toFixed(2) }, once: true,
+          do: [["jumpCut", late ? 0.48 : 0.55, late ? 1.5 : 1.25], ["sfx", "land"], ["lie", "HEAVY LEGS"]],
+        });
+      } else if (type === "magnet") {
+        // Pull backward — hard, but short.
+        events.push({
+          if: { x: +(x - 0.2).toFixed(2) }, once: true,
+          do: [["magnet", Math.max(4, x - 5), late ? 0.2 : 0.15, late ? 0.95 : 0.8], ["sfx", "reverse"], ["lie", "PULL"]],
+        });
+      } else if (type === "blink") {
+        if (L < 1 || R < 1 || y < 3) return false;
+        events.push({
+          if: { x: +(x - 1.2).toFixed(2) }, once: true,
+          do: [["blink", x, y, 2, 1, late ? 0.7 : 0.9], ["lie", "GONE"]],
+        });
+      } else if (type === "clamp") {
+        if (y < 5 || L < 1 || R < 1) return false;
+        events.push({
+          if: { x: +(x - 1.1).toFixed(2) }, once: true,
+          do: [["clamp", x, y, late ? 0.42 : 0.5], ["lie", "JAWS"]],
+        });
+      } else if (type === "echo") {
+        events.push({
+          if: { x: +(x - 0.5).toFixed(2) }, once: true,
+          do: [["echo", late ? 0.48 : 0.6], ["shake", 2]],
+        });
+      } else if (type === "sticky") {
+        if (!flat(x)) return false;
+        events.push({
+          if: { x: +(x - 0.25).toFixed(2) }, once: true,
+          do: [["sticky", late ? 0.48 : 0.58], ["sfx", "land"], ["lie", "TAR"]],
+        });
+      } else if (type === "rift") {
+        if (d < 6 || L + R < 3) return false;
+        events.push({
+          if: { x: +(x - 0.6).toFixed(2) }, once: true,
+          do: [["rift", late ? 1.15 : 1.0], ["lie", "HUNGRY"]],
+        });
+      } else if (type === "blackout") {
+        events.push({
+          if: { x: +(x - 0.4).toFixed(2) }, once: true,
+          do: [["blackout", late ? 1.35 : 1.15], ["sfx", "glitch"], ["lie", "BLIND"]],
+        });
+      } else if (type === "heavy") {
+        events.push({
+          if: { x: +(x - 0.3).toFixed(2) }, once: true,
+          do: [["heavy", late ? 1.65 : 1.45, late ? 1.1 : 0.95], ["sfx", "land"], ["lie", "CRUSH"]],
+        });
+      } else return false;
+      realAt.push({ x, t: type });
+      used.rare += 1;
+      return true;
+    }
+
+    function commitEntity(x, type) {
+      if (events.length >= n || used.entity >= (caps.entity || 0)) return false;
+      if (x < 13 || x > 23 || surface[x] < 0) return false;
+      for (let i = 0; i < realAt.length; i++) {
+        if (Math.abs(realAt[i].x - x) < 4) return false;
+      }
+      if (nearPit(x, 2)) return false;
+      const y = surface[x];
+      const lateE = d >= 14;
+      if (type === "stalker") {
+        events.push({
+          if: { x: +(x - 0.4).toFixed(2) }, once: true,
+          do: [["stalker", lateE ? 70 : 95, lateE ? 3.4 : 2.8, lateE ? 3.5 : 3.15], ["lie", "IT SEES YOU"]],
+        });
+      } else if (type === "drone") {
+        events.push({
+          if: { x: +(x - 0.5).toFixed(2) }, once: true,
+          do: [["drone", x, Math.max(2, y - 5), lateE ? 3.8 : 3.2], ["lie", "TARGET LOCKED"]],
+        });
+      } else if (type === "rocket") {
+        events.push({
+          if: { x: +(x - 0.3).toFixed(2) }, once: true,
+          do: [["rocket", 1, y - 1, lateE ? 3.0 : 2.5, lateE ? 0.09 : 0.06], ["lie", "INCOMING"]],
+        });
+      } else if (type === "voidFog") {
+        if (d < 9) return false;
+        events.push({
+          if: { x: +(x - 0.4).toFixed(2) }, once: true,
+          do: [["voidFog", lateE ? 2.6 : 2.1], ["lie", "FOG RISING"]],
+        });
+      } else if (type === "watcher") {
+        events.push({
+          if: { x: +(x - 0.35).toFixed(2) }, once: true,
+          do: [["watcher", x, Math.max(1, y - 6), lateE ? 3.4 : 2.9], ["lie", "WATCHING"]],
+        });
+      } else if (type === "sentry") {
+        events.push({
+          if: { x: +(x - 0.4).toFixed(2) }, once: true,
+          do: [["sentry", x > 16 ? 1 : -1, y - 1, lateE ? 3.2 : 2.7], ["lie", "SENTRY"]],
+        });
+      } else if (type === "swarm") {
+        events.push({
+          if: { x: +(x - 0.5).toFixed(2) }, once: true,
+          do: [["swarm", Math.max(4, y - 2), lateE ? -1 : 1, lateE ? 6 : 5], ["lie", "SWARM"]],
+        });
+      } else if (type === "phantom") {
+        events.push({
+          if: { x: +(x - 0.3).toFixed(2) }, once: true,
+          do: [["phantom", lateE ? 3.0 : 2.5], ["lie", "NOT YOU"]],
+        });
+      } else if (type === "huntLight") {
+        if (d < 10) return false;
+        events.push({
+          if: { x: +(x - 0.4).toFixed(2) }, once: true,
+          do: [["huntLight", lateE ? 2.8 : 2.3, lateE ? 70 : 82], ["lie", "STAY LIT"]],
+        });
+      } else if (type === "crushBot") {
+        if (y < 5) return false;
+        events.push({
+          if: { x: +(x - 0.6).toFixed(2) }, once: true,
+          do: [["crushBot", x + 1, lateE ? 2.4 : 2.0, y], ["lie", "STOMP"]],
+        });
+      } else return false;
+      realAt.push({ x, t: type });
+      used.entity += 1;
+      return true;
+    }
+
     const head = surface[1] >= 0 ? surface[1] : 8;
     events.push({
       if: { jump: true, xLess: 4.2, air: true }, once: true, delay: 0.05,
@@ -937,6 +1084,48 @@
       if (!placed) {
         for (let c = 8; c <= 25; c++) {
           if (commitSig(c, sig)) break;
+        }
+      }
+    }
+
+    // Rare hard traps: ~1 in 5 rooms from D4 up. Place early so the budget can't crowd them out.
+    const wantRare = (caps.rare || 0) > 0 && (room * 7 + d * 3) % 5 === 0;
+    if (wantRare && events.length < n) {
+      const pick = RARE[(room + d * 2) % RARE.length];
+      let placed = false;
+      for (let hi = 0; hi < hot.length && !placed; hi++) {
+        const c = hot[hi];
+        if (c < 12 || c > 22) continue;
+        placed = commitRare(c, pick);
+      }
+      if (!placed) {
+        for (let c = 12; c <= 22 && !placed; c++) placed = commitRare(c, pick);
+      }
+      if (!placed) {
+        for (let ri = 0; ri < RARE.length && !placed; ri++) {
+          const alt = RARE[(ri + room + 1) % RARE.length];
+          for (let c = 12; c <= 22 && !placed; c++) placed = commitRare(c, alt);
+        }
+      }
+    }
+
+    // Entity / horror traps: ~1 in 7 rooms from D7 up. Never share a room with a rare.
+    const wantEntity = (caps.entity || 0) > 0 && !wantRare && (room * 11 + d * 5) % 7 === 0;
+    if (wantEntity && events.length < n) {
+      const pick = ENTITY[(room + d * 3) % ENTITY.length];
+      let placed = false;
+      for (let hi = 0; hi < hot.length && !placed; hi++) {
+        const c = hot[hi];
+        if (c < 13 || c > 23) continue;
+        placed = commitEntity(c, pick);
+      }
+      if (!placed) {
+        for (let c = 13; c <= 23 && !placed; c++) placed = commitEntity(c, pick);
+      }
+      if (!placed) {
+        for (let ei = 0; ei < ENTITY.length && !placed; ei++) {
+          const alt = ENTITY[(ei + room + 2) % ENTITY.length];
+          for (let c = 13; c <= 23 && !placed; c++) placed = commitEntity(c, alt);
         }
       }
     }

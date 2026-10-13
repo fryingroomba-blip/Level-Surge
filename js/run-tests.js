@@ -167,6 +167,10 @@ var ACTIONS = {
   teleport:1, push:1, lock:1, laser:1, wind:1, platform:1, drop:1,
   hideDoor:1, showDoor:1, swapDoor:1, slow:1,
   dust:1, flash:1, whisper:1, glow:1, lie:1,
+  slip:1, jumpCut:1, magnet:1, blink:1, clamp:1,
+  echo:1, sticky:1, rift:1, blackout:1, heavy:1,
+  stalker:1, drone:1, rocket:1, voidFog:1, watcher:1,
+  sentry:1, swarm:1, phantom:1, huntLight:1, crushBot:1,
 };
 var IF_KEYS = {
   x:1, beenPast:1, xLess:1, time:1, jump:1, before:1, jumpAfter:1,

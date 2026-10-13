@@ -7,9 +7,9 @@
   };
   const sky = () => pad("");
 
-  const jumpPunish = (xLess = 8, y = 5) => ({
+  const jumpPunish = (xLess = 4.2, y = 3) => ({
     if: { jump: true, xLess, air: true }, once: true, delay: 0.05, do: [
-      ["fill", 1, y, 16, 1, "v"], ["shake", 5], ["sfx", "spike"],
+      ["fill", 1, y, 10, 1, "v"], ["shake", 5], ["sfx", "spike"],
     ],
   });
   const sink = (when, hx, w = 2, delay = 0.22, fy = 9) => ({
@@ -53,9 +53,109 @@
       ["saw", sx, sy, vx, 0],
     ],
   });
-  const hangSpikes = (after, x, w = 8, y = 5) => ({
+  const hangSpikes = (after, x, w = 8, y = 3) => ({
     if: { jumpAfter: after, air: true }, once: true, delay: 0.06, do: [
       ["fill", x, y, w, 1, "v"], ["sfx", "spike"], ["shake", 4],
+    ],
+  });
+  // Rare hard traps — used sparingly in handmade rooms.
+  const iceSheet = (when, dur = 1.05) => ({
+    if: { x: when, ground: true }, once: true, do: [
+      ["slip", dur], ["sfx", "reverse"], ["lie", "ICE"],
+    ],
+  });
+  const weakLegs = (when, mul = 0.55, dur = 1.2) => ({
+    if: { x: when }, once: true, do: [
+      ["jumpCut", mul, dur], ["sfx", "land"], ["lie", "HEAVY LEGS"],
+    ],
+  });
+  const jawBite = (when, x, y = 9, hold = 0.48) => ({
+    if: { x: when }, once: true, do: [
+      ["clamp", x, y, hold], ["lie", "JAWS"],
+    ],
+  });
+  const ghostEcho = (when, delay = 0.58) => ({
+    if: { x: when }, once: true, do: [["echo", delay]],
+  });
+  const tarPad = (when, dur = 0.55) => ({
+    if: { x: when }, once: true, do: [
+      ["sticky", dur], ["sfx", "land"], ["lie", "TAR"],
+    ],
+  });
+  const blindSpot = (when, dur = 1.2) => ({
+    if: { x: when }, once: true, do: [
+      ["blackout", dur], ["sfx", "glitch"], ["lie", "BLIND"],
+    ],
+  });
+  const crushWeight = (when, mul = 1.5, dur = 1.0) => ({
+    if: { x: when }, once: true, do: [
+      ["heavy", mul, dur], ["sfx", "land"], ["lie", "CRUSH"],
+    ],
+  });
+  const pullBack = (when, tx, str = 0.16, dur = 0.85) => ({
+    if: { x: when }, once: true, do: [
+      ["magnet", tx, str, dur], ["sfx", "reverse"], ["lie", "PULL"],
+    ],
+  });
+  const phantomFloor = (when, x, y = 9, w = 2, dur = 0.85) => ({
+    if: { x: when }, once: true, do: [
+      ["blink", x, y, w, 1, dur], ["lie", "GONE"],
+    ],
+  });
+  const hungryFloor = (when, dur = 1.05) => ({
+    if: { x: when }, once: true, do: [
+      ["rift", dur], ["lie", "HUNGRY"],
+    ],
+  });
+  // Entity / horror traps — scarier, technical, even rarer.
+  const wakeStalker = (when, dist = 95, life = 2.7, speed = 3.15) => ({
+    if: { x: when }, once: true, do: [
+      ["stalker", dist, life, speed], ["lie", "IT SEES YOU"],
+    ],
+  });
+  const callDrone = (when, x, y = 3, life = 3.1) => ({
+    if: { x: when }, once: true, do: [
+      ["drone", x, y, life], ["lie", "TARGET LOCKED"],
+    ],
+  });
+  const launchRocket = (when, fromRight = 1, y = 7, life = 2.4) => ({
+    if: { x: when }, once: true, do: [
+      ["rocket", fromRight, y, life, 0.06], ["lie", "INCOMING"],
+    ],
+  });
+  const risingFog = (when, dur = 2.0) => ({
+    if: { x: when }, once: true, do: [
+      ["voidFog", dur], ["lie", "FOG RISING"],
+    ],
+  });
+  const openEye = (when, x, y = 2, life = 2.8) => ({
+    if: { x: when }, once: true, do: [
+      ["watcher", x, y, life], ["lie", "WATCHING"],
+    ],
+  });
+  const wallSentry = (when, side = 1, y = 8, life = 2.6) => ({
+    if: { x: when }, once: true, do: [
+      ["sentry", side, y, life], ["lie", "SENTRY"],
+    ],
+  });
+  const batSwarm = (when, y = 6, dir = 1, n = 5) => ({
+    if: { x: when }, once: true, do: [
+      ["swarm", y, dir, n], ["lie", "SWARM"],
+    ],
+  });
+  const mirrorGhost = (when, life = 2.4) => ({
+    if: { x: when }, once: true, do: [
+      ["phantom", life], ["lie", "NOT YOU"],
+    ],
+  });
+  const stayLit = (when, dur = 2.2, r = 84) => ({
+    if: { x: when }, once: true, do: [
+      ["huntLight", dur, r], ["lie", "STAY LIT"],
+    ],
+  });
+  const stompBot = (when, x, life = 2.0, floorY = 9) => ({
+    if: { x: when }, once: true, do: [
+      ["crushBot", x, life, floorY], ["lie", "STOMP"],
     ],
   });
 
@@ -63,7 +163,7 @@
     {
       name: "TRUST ME",
       taunt: "THE FLOOR SAID BYE",
-      sol: "R55 R40 JR16 R40 JR16 R50",
+      sol: "R50 JR14 R40 JR14 R40 JR14 R60",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(), sky(), sky(),
         pad("S                             E"),
@@ -95,7 +195,7 @@
     {
       name: "KEEP JUMPING",
       taunt: "LANDING IS OPTIONAL",
-      sol: "R40 JR16 R30 JR18 R40 JR16 R50",
+      sol: "R18 JR14 R30 JR22 R30",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(), sky(), sky(),
         pad("S                            E"),
@@ -193,21 +293,18 @@
         fakeCrack(8.2, 12, 3),
         sink(9.6, 12, 2, 0.26),
         sneakSaw(14.8, 32, 8, -2.4, 0.9),
-        { if: { x: 16.6 }, once: true, quiet: true, do: [
-          ["glow", 18, 5, 6, 0.28],
-          ["queue", 10.5, ["saw", 0, 8, 2.6, 0]],
-        ]},
+        openEye(16.6, 18, 2, 2.6),
         slice(17.4, 18),
         flip(21.3, 0.28),
         sink(24.4, 26, 2, 0.2),
-        doorPop(28.2, 30, 0.15),
+        risingFog(26.8, 1.55),
       ],
     },
     {
       name: "SHINY",
       taunt: "GREED IS A PIT",
       explodeCoins: true,
-      sol: "R55 R40 JR16 R40 JR16 R50",
+      sol: "R110 R40 JR14 R40 JR14 R50",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(),
         pad(".............C"),
@@ -226,7 +323,7 @@
         hangSpikes(10, 8, 14),
         sneakSaw(17.8, 5, 8, 2.2, 0.7),
         sink(19.6, 22, 2, 0.22),
-        ghostBeam(20.4, 21, 5, 5),
+        callDrone(20.4, 21, 3, 2.8),
         slice(21.1, 21),
         flip(23.5, 0.28),
         doorPop(27.4, 29, 0.14),
@@ -235,7 +332,7 @@
     {
       name: "BACKWARDS",
       taunt: "LEFT IS RIGHT NOW",
-      sol: "R55 JR16 R40 JR18 R50 JR16 R50",
+      sol: "R28 JR14 R21 JR18 R50 JR18 R60",
       map: [
         sky(),
         pad("######........................"),
@@ -254,20 +351,18 @@
           ["reverse", true], ["flash", 0.05], ["sfx", "reverse"],
           ["queue", 0.55, ["reverse", false]],
         ]},
+        iceSheet(14.2, 1.0),
         sneakSaw(13.2, 1, 8, 2.2, 0.65),
         hangSpikes(15.4, 16, 8),
         sink(17.4, 20, 2, 0.2),
         slice(21.3, 22),
-        flip(24.4, 0.3),
-        { if: { time: 16.5 }, once: true, delay: 0.5, do: [
-          ["gravity", 0.7], ["flash", 0.04],
-        ]},
+        mirrorGhost(23.8, 2.0),
       ],
     },
     {
       name: "CHECKERED",
       taunt: "LOOKS SOLID",
-      sol: "R50 JR20 R40 JR20 R40 JR20 R60",
+      sol: "R26 JR14 R26 JR14 R26 JR14 R26 JR14 R26 JR14 R26 JR14 R26 JR14 R80",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(), sky(), sky(),
         pad("S                             E"),
@@ -276,7 +371,7 @@
         pad("################################"),
       ],
       events: [
-        jumpPunish(4),
+        jumpPunish(3.5, 3),
         fakeCrack(5.1),
         sneakSaw(5.8, -1, 8, 2.1, 0.7),
         { if: { x: 9.2 }, once: true, delay: 0.22, do: [
@@ -284,7 +379,8 @@
         ]},
         hangSpikes(11.5, 12, 8),
         ghostBeam(13.6, 14, 5, 4),
-        slice(14.4, 14),
+        // Jaws snap ahead of the player so a clean jump clears them.
+        jawBite(14.8, 17, 9, 0.38),
         flip(18.3, 0.28),
         sink(26.2, 28, 1, 0.16),
         doorPop(23.6, 25, 0.14),
@@ -293,7 +389,7 @@
     {
       name: "BUZZ",
       taunt: "IT LIKES YOU",
-      sol: "R55 JR16 R55 JR18 R50",
+      sol: "R60 JR18 R25 JR18 R25 JR18 R40",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(), sky(), sky(),
         pad("S                          o  E"),
@@ -309,12 +405,13 @@
           ["queue", 0.45, ["reverse", false]],
         ]},
         sneakSaw(12.8, -1, 7, 2.0, 0.55),
+        crushWeight(14.0, 1.45, 0.9),
         { if: { x: 15.1 }, once: true, delay: 0.55, do: [["chase", 0]] },
-        hangSpikes(17.4, 18, 8),
+        // Blink a tile the player can hop — short so a jump clears it.
+        phantomFloor(17.8, 20, 9, 1, 0.55),
         sink(19.3, 22, 2, 0.2),
-        slice(23.2, 24),
+        launchRocket(22.4, 1, 7, 2.3),
         doorPop(26.4, 28, 0.14),
-        lateSaw(16.5, 32, 8, -2.6),
       ],
     },
     {
@@ -330,20 +427,20 @@
       ],
       events: [
         fakeCrack(6.5),
-        jumpPunish(8, 5),
+        jumpPunish(4.2, 3),
         { if: { x: 9.0 }, once: true, delay: 0.14, do: [
-          ["fill", 11, 7, 3, 1, "v"], ["shake", 5], ["sfx", "spike"],
+          ["fill", 11, 4, 3, 1, "v"], ["shake", 5], ["sfx", "spike"],
         ]},
         sneakSaw(11.2, -2, 8, 2.1, 0.7),
         slice(14.6, 14, 6, 5, 0.14),
         hangSpikes(16.2, 15, 7),
+        ghostEcho(17.4, 0.7),
         { if: { x: 18.8 }, once: true, delay: 0.16, do: [
           ["fill", 20, 8, 1, 1, "^"], ["sfx", "spike"], ["shake", 4],
           ["queue", 0.55, ["fill", 20, 8, 1, 1, "."]],
         ]},
-        flip(23.2, 0.32),
+        batSwarm(23.2, 5, -1, 4),
         doorPop(27.2, 29, 0.12),
-        { if: { time: 15.5 }, once: true, delay: 0.35, do: [["gravity", 0.72]] },
       ],
     },
     {
@@ -387,7 +484,7 @@
     {
       name: "COME BACK",
       taunt: "KEEP WALKING",
-      sol: "R60 JR14 R40 JR14 R40 JR14 R60",
+      sol: "W120 R50 JR18 R50 JR16 R60",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(), sky(), sky(),
         pad("S                     E"),
@@ -403,15 +500,15 @@
           ["moveDoor", 29, 8], ["hole", 16, 9, 3, 1], ["spikes", 16, 10, 3],
           ["shake", 8], ["sfx", "crumble"],
         ]},
-        hangSpikes(15.5, 16, 8),
+        pullBack(17.0, 10, 0.12, 0.65),
         sneakSaw(18.8, 10, 8, 2.75, 0.42),
+        hungryFloor(21.2, 0.7),
         { if: { x: 23.1 }, once: true, delay: 0.2, do: [
           ["reverse", true], ["sfx", "reverse"],
           ["queue", 0.5, ["reverse", false]],
         ]},
-        slice(25.2, 26),
+        wakeStalker(23.8, 110, 2.2, 2.95),
         doorPop(27.2, 28, 0.14),
-        lateSaw(16.8, -1, 8, 2.5),
       ],
     },
     {
@@ -446,16 +543,14 @@
         { if: { time: 3.4, xLess: 9 }, once: true, delay: 0.2, do: [
           ["saw", -1, 8, 2.85, 0],
         ]},
-        { if: { time: 11.6, xLess: 14 }, once: true, delay: 0.25, do: [
-          ["saw", -1, 10, 2.65, 0],
-        ]},
+        launchRocket(7.2, 1, 7, 2.2),
       ],
     },
     {
       name: "DON'T STOP",
       taunt: "STANDING IS DYING",
       crumbleIfStill: 0.4,
-      sol: "R50 JR18 R40 JR16 R60",
+      sol: "R45 JR16 R20 R80 JR18 R30",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(), sky(), sky(),
         pad("S                             E"),
@@ -470,13 +565,13 @@
         ]},
         sink(6.5, 9, 2, 0.18),
         sneakSaw(11.2, -1, 8, 2.95, 0.32),
+        tarPad(12.4, 0.35),
         { if: { x: 13.4 }, once: true, delay: 0.16, do: [["push", 1.45, 0]] },
         { if: { x: 15.2 }, once: true, delay: 0.22, do: [
           ["reverse", true], ["sfx", "reverse"],
           ["queue", 0.5, ["reverse", false]],
         ]},
-        hangSpikes(17.4, 18, 8),
-        slice(19.3, 20),
+        stayLit(17.6, 1.85, 92),
         sink(22.4, 24, 2, 0.16),
         doorPop(26.4, 28, 0.12),
       ],
@@ -484,7 +579,7 @@
     {
       name: "PSYCH",
       taunt: "THE LONG WAY BACK",
-      sol: "R55 JR18 R50 JR18 R80 W40 L160 W55 L30",
+      sol: "W30 R70 JR12 R50 JR12 R60",
       map: [
         pad("vvvvvv......................"),
         sky(),
@@ -515,6 +610,9 @@
         { if: { beenPast: 24, xLess: 16 }, once: true, delay: 0.45, do: [
           ["saw", 34, 8, -2.9, 0], ["sfx", "saw"],
         ]},
+        { if: { beenPast: 24, xLess: 14 }, once: true, do: [
+          ["blackout", 1.15], ["sfx", "glitch"], ["lie", "BLIND"],
+        ]},
         { if: { beenPast: 24, xLess: 7 }, once: true, delay: 0.1, do: [
           ["fill", 0, 7, 5, 1, "v"],
           ["sfx", "spike"],
@@ -527,15 +625,12 @@
             ["sfx", "crumble"],
           ],
         ]},
-        { if: { beenPast: 24, xLess: 4.2, ground: true }, once: true, quiet: true, do: [
-          ["dust", 4, 9, 2],
-        ]},
       ],
     },
     {
       name: "THROUGH",
       taunt: "WALLS ARE A RUMOR",
-      sol: "R55 R70 JR18 R40",
+      sol: "R100 R40 JR12 R40 JR12 R50",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(), sky(), sky(),
         pad("S         **********          E"),
@@ -548,15 +643,15 @@
         fakeCrack(7.2),
         hangSpikes(9.5, 10, 10),
         sneakSaw(10.2, 2, 8, 2.55, 0.4),
+        blindSpot(12.8, 1.1),
         slice(14.1, 14),
-        { if: { x: 16.3 }, once: true, delay: 0.28, do: [["push", 0.9, 0]] },
+        wallSentry(18.4, 1, 7, 2.1),
         sink(19.3, 22, 2, 0.2),
         { if: { x: 24.2 }, once: true, delay: 0.22, do: [
           ["reverse", true], ["sfx", "reverse"],
           ["queue", 0.45, ["reverse", false]],
         ]},
         doorPop(27.4, 29, 0.14),
-        lateSaw(16.5, 32, 8, -2.5),
       ],
     },
     {
@@ -593,8 +688,8 @@
         { if: { beenPast: 24, xLess: 16 }, once: true, delay: 0.45, do: [
           ["saw", 34, 8, -2.9, 0], ["sfx", "saw"],
         ]},
-        { if: { beenPast: 24, xLess: 12 }, once: true, quiet: true, do: [
-          ["dust", 10, 8, 3], ["shake", 4],
+        { if: { beenPast: 24, xLess: 13 }, once: true, do: [
+          ["crushBot", 10, 2.0, 9], ["sfx", "near"], ["lie", "STOMP"],
         ]},
         { if: { beenPast: 24, xLess: 7 }, once: true, delay: 0.1, do: [
           ["fill", 0, 7, 5, 1, "v"],

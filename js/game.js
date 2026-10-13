@@ -219,195 +219,346 @@
     hzFrom(rootHz, semitone) {
       return rootHz * Math.pow(2, semitone / 12);
     },
-    sectionName(bar) {
-      if (bar < 8) return "sparse";
-      if (bar < 16) return "groove";
-      if (bar < 32) return "build";
-      if (bar < 48) return "drop";
-      if (bar < 56) return "brk";
-      if (bar < 64) return "build";
-      if (bar < 80) return "drop";
-      if (bar < 88) return "cool";
-      if (bar < 92) return "sparse";
-      return "sparse";
-    },
-    hatHits(style, s, section, drop) {
-      if (style === "all") return section !== "sparse";
-      if (style === "even") return s % 2 === 0 && section !== "sparse";
-      if (style === "odd") return s % 2 === 1 && (section === "drop" || section === "groove" || section === "build");
-      if (style === "quarters") return s % 4 === 0 && section !== "sparse";
-      if (style === "swing") return (s === 2 || s === 6 || s === 10 || s === 14) && section !== "sparse";
-      if (style === "gallop") return (s % 4 === 0 || s % 4 === 3) && section !== "sparse";
-      if (style === "glitch") return (s === 1 || s === 5 || s === 7 || s === 11 || s === 14) && section !== "sparse";
-      if (style === "needle") return (s === 3 || s === 11 || (drop && s === 7));
-      if (style === "sparse") return s === 0 && (section === "drop" || section === "groove");
-      return s % 2 === 0 && section !== "sparse";
-    },
     playStep(step, t) {
-      const LOOP_BARS = 96;
-      const bar = Math.floor(step / 16) % LOOP_BARS;
-      const s = step % 16;
-      const heat = Math.min(1, (world.trapsFired || 0) / 8);
       const rootHz = (this.theme && this.theme.root) || 92.5;
       const dim = (this.theme && this.theme.dim) || 1;
       const track = (this.theme && this.theme.track)
         || (window.SURGE_TRACKS && window.SURGE_TRACKS.musicFor(dim))
-        || null;
-      const section = this.sectionName(bar);
-      const drop = section === "drop";
-      const build = section === "build";
-      const groove = section === "groove";
-      const cool = section === "cool";
-      const brk = section === "brk";
-      const sparse = section === "sparse";
-      const body = groove || build || drop || cool;
-
-      // Chord tones for this bar
+        || { style: "voidAmbient", prog: [[0, 7, 12]], scale: [0, 2, 3, 5, 7], motif: [0, 7, 12, 7] };
+      const style = track.style || "voidAmbient";
+      const bar = Math.floor(step / 16);
+      const s = step % 16;
+      const heat = Math.min(1, (world.trapsFired || 0) / 8);
       let ch;
-      if (track && window.SURGE_TRACKS) {
-        ch = window.SURGE_TRACKS.chordsFor(rootHz, dim)[bar % 4];
-      } else if (window.SURGE_WORLDS && window.SURGE_WORLDS.chordsFor) {
-        ch = window.SURGE_WORLDS.chordsFor(rootHz)[bar % 4];
-      } else {
-        ch = [rootHz, rootHz * 1.189, rootHz * 1.498, rootHz * 2];
-      }
-
-      const waves = (track && track.waves) || { bass: "sine", lead: "triangle", pad: "sine" };
-      const kickMap = (track && track.kick) || {};
-      const snareMap = (track && track.snare) || {};
-      let kickHits = kickMap[section] || kickMap.groove || [0, 8];
-      if (drop && heat > 0.55 && kickHits.indexOf(6) < 0) kickHits = kickHits.concat([6]);
-      const snareHits = snareMap[section] || (body ? [4, 12] : []);
-      const kickF = (track && track.kickF) || [175, 34];
-      const hatHz = (track && track.hatHz) || 7200;
-      const swing = (track && track.swing) || 0;
-      // Slight offbeat delay via shorter note starts is approximated by skipping early samples.
-      const swung = swing > 0 && (s % 2 === 1);
-
-      // Drums
-      if (kickHits.indexOf(s) !== -1) {
-        this.voice(kickF[0], t, 0.22, "sine", swung ? 0.42 : 0.5, kickF[1]);
-        this.voice(kickF[1] + 30, t, 0.09, "sine", 0.22);
-        this.voice(980, t, 0.014, "square", 0.04, 180);
-        this.lastKick = t;
-      }
-      if (snareHits.indexOf(s) !== -1) {
-        this.noiseHit(t, 0.14, drop ? 0.22 : 0.16, Math.min(2200, hatHz * 0.35));
-        this.voice(210, t, 0.08, "triangle", 0.1, 85);
-      }
-      if (this.hatHits((track && track.hat) || "even", s, section, drop)) {
-        const hv = s % 4 === 0 ? 0.045 : 0.028;
-        this.noiseHit(t, swung ? 0.02 : 0.026, drop ? hv * 1.15 : hv, hatHz);
-      }
-      if (drop && s % 2 === 1 && (track && track.hat) === "all") {
-        this.noiseHit(t, 0.014, 0.018, hatHz * 1.2);
-      }
-
-      // Bass
-      const bassStyle = (track && track.bass) || "half";
-      const bassWave = waves.bass || "sine";
-      if (bassStyle === "half" && (s === 0 || (drop && (s === 6 || s === 10)) || (build && s === 8))) {
-        this.voice(ch[0] / 2, t, drop ? 0.24 : 0.4, bassWave, sparse ? 0.14 : 0.2);
-      } else if (bassStyle === "pulse" && s % 4 === 0 && !sparse) {
-        this.voice(ch[0] / 2, t, 0.18, bassWave, 0.18);
-      } else if (bassStyle === "offbeat" && (s === 4 || s === 12) && body) {
-        this.voice(ch[0] / 2, t, 0.28, bassWave, 0.17);
-      } else if (bassStyle === "gallop" && (s % 4 === 0 || s % 4 === 3) && body) {
-        this.voice(ch[(s % 8 < 4) ? 0 : 1] / 2, t, 0.12, bassWave, 0.16);
-      } else if (bassStyle === "drone" && s === 0) {
-        this.voice(ch[0] / 2, t, 1.85, bassWave, 0.12);
-      } else if (bassStyle === "slide" && (s === 0 || s === 8) && body) {
-        this.voice(ch[0] / 2, t, 0.35, bassWave, 0.17, ch[1] / 2);
-      }
-
-      // Pads / chords
-      const padStyle = (track && track.pad) || "glass";
-      if (s === 0 && padStyle !== "none") {
-        const padWave = waves.pad || "sine";
-        const padVol = sparse ? 0.045 : 0.055;
-        if (padStyle === "glass") {
-          this.voice(ch[0], t, 1.9, "sine", padVol);
-          this.voice(ch[2], t, 1.9, "sine", padVol * 0.7);
-          this.voice(ch[1] * 2, t, 1.9, "triangle", padVol * 0.4);
-        } else if (padStyle === "organ") {
-          this.voice(ch[0], t, 1.95, "sine", padVol * 1.1);
-          this.voice(ch[0] * 2, t, 1.95, "sine", padVol * 0.5);
-          this.voice(ch[2], t, 1.95, "triangle", padVol * 0.55);
-          this.voice(ch[3], t, 1.95, "sine", padVol * 0.35);
-        } else if (padStyle === "swarm") {
-          this.voice(ch[0], t, 1.7, padWave, padVol);
-          this.voice(ch[0] * 1.01, t, 1.7, "triangle", padVol * 0.45);
-          this.voice(ch[2], t, 1.7, padWave, padVol * 0.5);
-        } else if (padStyle === "hum") {
-          this.voice(ch[0], t, 1.95, "sine", padVol * 0.9);
-          this.voice(ch[0] * 1.49831, t, 1.95, "sine", padVol * 0.4);
+      if (window.SURGE_TRACKS) ch = window.SURGE_TRACKS.chordsFor(rootHz, dim)[bar % track.prog.length];
+      else ch = [rootHz, rootHz * 1.189, rootHz * 1.498, rootHz * 2];
+      const ctx = { step, t, bar, s, rootHz, ch, track, heat, scale: track.scale || [0, 2, 3, 5, 7], motif: track.motif || [0, 2, 4, 5] };
+      const fn = this._trk[style] || this._trk.voidAmbient;
+      fn.call(this, ctx);
+    },
+    // Each style is a different piece of music — not shared drum/pad skeletons.
+    _trk: {
+      voidAmbient(c) {
+        const { t, s, bar, ch, rootHz, motif } = c;
+        if (s === 0) {
+          this.voice(ch[0] / 2, t, 3.6, "sine", 0.11);
+          this.voice(ch[1] || ch[0] * 1.5, t, 3.4, "sine", 0.05);
+          this.voice((ch[2] || ch[0] * 2) * 2, t, 2.8, "triangle", 0.02);
         }
-      }
-
-      // Leads
-      const leadStyle = (track && track.lead) || "arp";
-      const leadWave = waves.lead || "triangle";
-      const scale = (track && track.scale) || [0, 2, 3, 5, 7, 8, 10];
-      const melody = (track && track.melody) || [0, 2, 4, 3, 5, 4, 2, 1];
-      const activeLead = drop || (build && bar % 2 === 1) || (cool && bar < 84) || (groove && leadStyle === "bells");
-
-      if (activeLead && leadStyle === "arp") {
-        const arp = [ch[0] * 2, ch[1] * 2, ch[2] * 2, ch[3] * 2, ch[2] * 2, ch[1] * 2, ch[2] * 2, ch[0] * 4];
-        this.voice(arp[s % 8], t, 0.09, leadWave, cool ? 0.032 : 0.05);
-        if (drop && heat > 0.3) this.voice(arp[s % 8] * 2, t, 0.05, "sine", 0.02);
-      } else if (activeLead && leadStyle === "melody" && s % 2 === 0) {
-        const deg = scale[melody[(s / 2) % melody.length] % scale.length];
-        const f = this.hzFrom(rootHz, deg + 12);
-        this.voice(f, t, 0.2, leadWave, 0.05);
-        if (drop) this.voice(f * 1.005, t, 0.2, leadWave, 0.025);
-      } else if (activeLead && leadStyle === "acid" && body) {
-        const deg = scale[melody[s % melody.length] % scale.length];
+        if (s === 8 && bar % 2 === 1) this.voice(ch[0] * 0.5, t, 1.6, "sine", 0.06);
+        if ((s === 4 || s === 12) && bar % 3 === 0) {
+          const f = this.hzFrom(rootHz, motif[(bar + s) % motif.length] + 24);
+          this.voice(f, t, 1.2, "sine", 0.028);
+          this.voice(f * 2.005, t, 0.9, "triangle", 0.012);
+        }
+      },
+      industrial(c) {
+        const { t, s, bar, ch, heat } = c;
+        const stomps = [0, 6, 8, 11];
+        if (stomps.indexOf(s) >= 0) {
+          this.voice(70, t, 0.18, "sine", 0.55, 28);
+          this.noiseHit(t, 0.08, 0.2, 400);
+        }
+        if (s === 4 || s === 12 || (heat > 0.4 && s === 10)) {
+          this.noiseHit(t, 0.12, 0.28, 1800);
+          this.voice(180, t, 0.06, "square", 0.08, 60);
+        }
+        if (s % 2 === 1) this.noiseHit(t, 0.02, 0.04, 3200);
+        if (s === 0) this.voice(ch[0] / 2, t, 0.35, "sawtooth", 0.14);
+        if (s === 8) this.voice((ch[1] || ch[0] * 1.2) / 2, t, 0.28, "sawtooth", 0.12, ch[0] / 2);
+        if (bar % 4 === 3 && s === 14) this.noiseHit(t, 0.25, 0.18, 900);
+      },
+      waltz(c) {
+        // 3/4 feel inside 16: accents on 0, 6, 10 (and wrap)
+        const { t, s, bar, ch, rootHz, motif } = c;
+        const beat = s % 12;
+        if (beat === 0) {
+          this.voice(90, t, 0.2, "sine", 0.35, 40);
+          this.voice(ch[0], t, 1.1, "sine", 0.05);
+          this.voice(ch[1] || ch[0] * 1.2, t, 1.1, "sine", 0.035);
+        }
+        if (beat === 4 || beat === 8) this.noiseHit(t, 0.05, 0.08, 5000);
+        if (beat === 0 || beat === 4 || beat === 8) {
+          const f = this.hzFrom(rootHz, motif[(Math.floor(s / 4) + bar) % motif.length] + 24);
+          this.voice(f, t, 0.7, "sine", 0.045);
+          this.voice(f * 2.01, t, 0.4, "triangle", 0.02);
+        }
+        if (s === 0) this.voice(ch[0] / 2, t, 1.4, "sine", 0.1);
+      },
+      psychedelic(c) {
+        const { t, s, bar, ch, rootHz, motif } = c;
+        if (s === 0) {
+          this.voice(ch[0], t, 2.2, "triangle", 0.055);
+          this.voice(ch[0] * 1.008, t, 2.2, "sine", 0.04);
+          this.voice((ch[2] || ch[0] * 1.5), t, 2.0, "triangle", 0.035);
+          this.voice((ch[3] || ch[0] * 2) * 0.99, t, 1.8, "sine", 0.025);
+        }
+        // No kick — spore blips
+        if (s === 3 || s === 7 || s === 11 || s === 14) {
+          const f = this.hzFrom(rootHz, motif[(s + bar) % motif.length] + 19);
+          this.voice(f, t, 0.18, "sine", 0.04, f * 1.06);
+        }
+        if (s % 5 === 2) this.noiseHit(t, 0.04, 0.02, 7000);
+        if (bar % 2 === 0 && s === 8) this.voice(ch[0] / 3, t, 1.5, "triangle", 0.08);
+      },
+      techno(c) {
+        const { t, s, bar, ch, rootHz, motif, heat } = c;
+        // 4-on-floor
+        if (s % 4 === 0) {
+          this.voice(180, t, 0.2, "sine", 0.5, 30);
+          this.voice(60, t, 0.12, "sine", 0.25);
+        }
+        if (s === 4 || s === 12) this.noiseHit(t, 0.1, 0.18, 2200);
+        // Clock tick every 16th
+        this.voice(2400 + (s % 4) * 200, t, 0.012, "square", s % 4 === 0 ? 0.04 : 0.018);
+        if (s % 2 === 0) this.noiseHit(t, 0.015, 0.03, 11000);
+        if (s % 4 === 0) this.voice(ch[0] / 2, t, 0.16, "square", 0.14);
+        if (s % 2 === 0 && bar % 2 === 1) {
+          const f = this.hzFrom(rootHz, motif[(s / 2) % motif.length] + 12);
+          this.voice(f, t, 0.1, "square", 0.04 + heat * 0.02);
+        }
+      },
+      dub(c) {
+        const { t, s, ch, rootHz, motif, bar } = c;
+        if (s === 0 || s === 9) this.voice(55, t, 0.35, "sine", 0.45, 28);
+        if (s === 4) {
+          this.noiseHit(t, 0.16, 0.14, 1400);
+          this.voice(200, t, 0.1, "triangle", 0.08, 80);
+        }
+        // Offbeat skank chords
+        if (s === 2 || s === 6 || s === 10 || s === 14) {
+          this.voice(ch[0] * 2, t, 0.12, "triangle", 0.06);
+          this.voice((ch[1] || ch[0] * 1.2) * 2, t, 0.12, "triangle", 0.04);
+        }
+        if (s === 0) this.voice(ch[0] / 2, t, 0.9, "sine", 0.16);
+        if (s === 8 && bar % 2 === 0) {
+          const f = this.hzFrom(rootHz, motif[bar % motif.length] + 12);
+          this.voice(f, t, 0.5, "sine", 0.05);
+          this.voice(f * 0.5, t + 0.12, 0.4, "sine", 0.03); // echo
+        }
+        if (s % 4 === 0) this.noiseHit(t, 0.03, 0.02, 2800);
+      },
+      liquid(c) {
+        const { t, s, bar, ch, rootHz, motif } = c;
+        if (s === 0) {
+          this.voice(ch[0], t, 2.4, "sine", 0.05);
+          this.voice(ch[0] * 1.498, t, 2.2, "sine", 0.03);
+          this.voice((ch[2] || ch[0] * 2), t, 2.0, "triangle", 0.025);
+        }
+        // Soft delayed hats (odd 16ths)
+        if (s === 3 || s === 7 || s === 11 || s === 15) this.noiseHit(t, 0.06, 0.04, 9000);
+        if (s === 2 || s === 10) this.voice(ch[0] / 2, t, 0.8, "sine", 0.09);
+        if (s === 0 || s === 8) {
+          const f = this.hzFrom(rootHz, motif[(bar + (s ? 1 : 0)) % motif.length] + 24);
+          this.voice(f, t, 0.9, "sine", 0.035);
+          this.voice(f * 0.997, t, 0.85, "triangle", 0.02);
+        }
+        if (bar % 4 === 2 && s === 12) this.voice(ch[0] * 4, t, 1.4, "sine", 0.02);
+      },
+      train(c) {
+        const { t, s, bar, ch, rootHz, motif } = c;
+        // Gallop: X-x-X X-x-X
+        if (s % 4 === 0 || s % 4 === 3) {
+          this.voice(140, t, 0.1, "sine", s % 4 === 0 ? 0.45 : 0.28, 35);
+          this.noiseHit(t, 0.03, 0.08, 1200);
+        }
+        if (s === 4 || s === 12) this.noiseHit(t, 0.08, 0.16, 2000);
+        if (s % 4 === 0 || s % 4 === 3) this.voice(ch[0] / 2, t, 0.1, "sawtooth", 0.12);
+        // Whistle every other bar
+        if (bar % 2 === 0 && s === 0) {
+          const f = this.hzFrom(rootHz, motif[bar % motif.length] + 24);
+          this.voice(f, t, 0.6, "sine", 0.06, f * 1.03);
+          this.voice(f * 1.5, t, 0.45, "triangle", 0.03);
+        }
+        if (s === 8) this.noiseHit(t, 0.1, 0.05, 800); // steam
+      },
+      glitch(c) {
+        const { t, s, bar, ch, rootHz, motif, step } = c;
+        // Pseudo-random from step — broken timing
+        const r = ((step * 1103515245 + 12345) >>> 0) % 100;
+        if (r < 18) {
+          this.voice(40 + (r * 3), t, 0.08, "square", 0.35, 20);
+          this.noiseHit(t, 0.05, 0.2, 500 + r * 40);
+        }
+        if (r > 70 && r < 85) this.noiseHit(t, 0.03, 0.15, 8000 + r * 50);
+        if (r > 40 && r < 55) {
+          const f = this.hzFrom(rootHz, motif[r % motif.length]);
+          this.voice(f, t, 0.06, "square", 0.08);
+          this.voice(f * 1.5, t, 0.04, "square", 0.05);
+        }
+        if (s === 0 && bar % 2 === 0) this.voice(ch[0] / 2, t, 0.2, "square", 0.12);
+        if (s === 7 || s === 13) this.noiseHit(t, 0.15, 0.12, 1500);
+      },
+      ritual(c) {
+        const { t, s, bar, ch, rootHz, motif } = c;
+        if (s === 0) {
+          this.voice(48, t, 0.5, "sine", 0.5, 22);
+          this.noiseHit(t, 0.2, 0.15, 300);
+          this.voice(ch[0] / 2, t, 3.2, "triangle", 0.12);
+          this.voice(ch[0], t, 3.0, "sine", 0.05);
+          this.voice((ch[1] || ch[0] * 1.5), t, 2.8, "sine", 0.04);
+        }
+        if (s === 8 && bar % 2 === 1) this.voice(40, t, 0.35, "sine", 0.3, 20);
+        if (s === 0 || s === 8) {
+          const f = this.hzFrom(rootHz, motif[(bar + (s ? 4 : 0)) % motif.length] + 12);
+          this.voice(f, t, 1.4, "triangle", 0.04);
+        }
+      },
+      crystal(c) {
+        const { t, s, bar, rootHz, motif, ch } = c;
+        // No kick, no bass — only glass
+        if (s % 3 === 0) {
+          const f = this.hzFrom(rootHz, motif[(s + bar) % motif.length] + 24);
+          this.voice(f, t, 0.55, "sine", 0.04);
+          this.voice(f * 2.005, t, 0.35, "sine", 0.018);
+          this.voice(f * 3.01, t, 0.2, "triangle", 0.01);
+        }
+        if (s === 0) {
+          this.voice(ch[0] * 2, t, 1.8, "sine", 0.03);
+          this.voice((ch[1] || ch[0] * 1.25) * 2, t, 1.6, "sine", 0.022);
+        }
+        if (s === 8) this.voice((ch[2] || ch[0] * 1.5) * 4, t, 1.2, "triangle", 0.018);
+      },
+      lullaby(c) {
+        const { t, s, bar, rootHz, motif, ch } = c;
+        if (s === 0) this.voice(ch[0] / 2, t, 2.8, "sine", 0.08);
+        // Music box on even steps, sparse
+        if (s % 2 === 0) {
+          const deg = motif[(Math.floor(s / 2) + bar * 2) % motif.length];
+          const f = this.hzFrom(rootHz, deg + 24);
+          this.voice(f, t, 0.35, "square", 0.035);
+          this.voice(f * 2, t, 0.2, "sine", 0.012);
+        }
+        // Occasional wrong note dissonance
+        if (bar % 4 === 3 && s === 10) this.voice(this.hzFrom(rootHz, 1 + 24), t, 0.6, "triangle", 0.03);
+      },
+      acid(c) {
+        const { t, s, ch, rootHz, motif, heat } = c;
+        if (s % 4 === 0) this.voice(165, t, 0.18, "sine", 0.48, 32);
+        if (s === 4 || s === 12) this.noiseHit(t, 0.09, 0.16, 2500);
+        if (s % 2 === 0) this.noiseHit(t, 0.012, 0.035, 9000);
+        // 303 every 16th
+        const deg = motif[s % motif.length];
+        const next = motif[(s + 1) % motif.length];
         const f = this.hzFrom(rootHz, deg);
-        const next = this.hzFrom(rootHz, scale[melody[(s + 1) % melody.length] % scale.length]);
-        this.voice(f, t, 0.14, "sawtooth", 0.055, next);
-      } else if (activeLead && leadStyle === "bells" && (s === 0 || s === 6 || s === 10)) {
-        const deg = scale[melody[(bar + s) % melody.length] % scale.length];
-        const f = this.hzFrom(rootHz, deg + 24);
-        this.voice(f, t, 0.55, "sine", 0.04);
-        this.voice(f * 2.01, t, 0.35, "triangle", 0.018);
-      } else if (activeLead && leadStyle === "siren" && s % 2 === 0) {
-        const deg = scale[melody[(s / 2) % melody.length] % scale.length];
-        const f = this.hzFrom(rootHz, deg + 12);
-        this.voice(f, t, 0.22, "sawtooth", 0.055);
-        this.voice(f * 1.007, t, 0.22, "sawtooth", 0.03);
-        if (drop) this.voice(f * 0.5, t, 0.18, "triangle", 0.02);
-      } else if (activeLead && leadStyle === "chip" && s % 2 === 0) {
-        const deg = scale[melody[(s / 2) % melody.length] % scale.length];
-        const f = this.hzFrom(rootHz, deg + 12);
-        this.voice(f, t, 0.12, "square", 0.045);
-      } else if (!activeLead && (groove || brk) && s % 4 === 0 && leadStyle !== "none") {
-        this.voice(ch[(s / 4) % 4] * 2, t, 0.14, leadWave, 0.035);
-      }
-
-      // Textures unique to the dimension feel
-      const tex = (track && track.texture) || "none";
-      if (tex === "static" && body && (s === 1 || s === 9 || (drop && s === 5))) {
-        this.noiseHit(t, 0.04, 0.025, 9000);
-      } else if (tex === "steam" && body && (s === 2 || s === 10)) {
-        this.noiseHit(t, 0.08, 0.03, 1600);
-      } else if (tex === "rain" && body && s % 3 === 0) {
-        this.noiseHit(t, 0.03, 0.018, 6000);
-      } else if (tex === "shimmer" && s === 0 && (drop || cool || build)) {
-        this.voice(ch[3] * 2, t, 0.8, "sine", 0.02);
-        this.voice(ch[2] * 2.01, t, 0.7, "triangle", 0.014);
-      }
-
-      // Arrangement risers / impacts (shared skeleton, different voice)
-      if ((bar === 30 || bar === 31 || bar === 62 || bar === 63) && s >= 8) {
-        const rise = s - 8;
-        this.noiseHit(t, 0.1, 0.018 + rise * 0.012, 420);
-        this.voice(rootHz + rise * 18, t, 0.12, waves.lead || "sawtooth", 0.028, rootHz * 4);
-      }
-      if (s === 0 && (bar === 32 || bar === 64)) this.noiseHit(t, 0.35, 0.12, 280);
-      if (bar === 95 && s >= 12) {
-        this.voice(rootHz, t, 0.45, "sine", 0.04);
-        this.voice(rootHz * 1.49831, t, 0.45, "sine", 0.024);
-      }
+        const n = this.hzFrom(rootHz, next);
+        this.voice(f, t, 0.13, "sawtooth", 0.07 + heat * 0.03, n);
+        if (s === 0) this.voice(ch[0] / 2, t, 0.25, "sawtooth", 0.1);
+      },
+      organ(c) {
+        const { t, s, ch } = c;
+        if (s !== 0) return;
+        const vol = 0.07;
+        this.voice(ch[0], t, 3.5, "sine", vol);
+        this.voice(ch[0] * 2, t, 3.5, "sine", vol * 0.55);
+        this.voice((ch[1] || ch[0] * 1.5), t, 3.5, "sine", vol * 0.5);
+        this.voice((ch[2] || ch[0] * 2), t, 3.5, "triangle", vol * 0.4);
+        if (ch[3]) this.voice(ch[3], t, 3.5, "sine", vol * 0.3);
+        this.voice(ch[0] / 2, t, 3.5, "sine", 0.1);
+        // Soft pedal thump only
+        this.voice(55, t, 0.4, "sine", 0.2, 30);
+      },
+      jungle(c) {
+        const { t, s, bar, ch, rootHz, motif, heat } = c;
+        const kicks = [0, 3, 8, 10];
+        const snares = [4, 7, 12, 15];
+        if (kicks.indexOf(s) >= 0) {
+          this.voice(190, t, 0.14, "sine", 0.5, 28);
+          this.voice(50, t, 0.1, "sine", 0.3);
+        }
+        if (snares.indexOf(s) >= 0) {
+          this.noiseHit(t, 0.1, 0.22 + heat * 0.05, 2800);
+          this.voice(220, t, 0.05, "triangle", 0.1, 90);
+        }
+        if (s % 2 === 1) this.noiseHit(t, 0.012, 0.04, 10000);
+        if (s === 0 || s === 8) this.voice(ch[0] / 2, t, 0.2, "sawtooth", 0.14);
+        if (bar % 2 === 1 && s % 2 === 0) {
+          const f = this.hzFrom(rootHz, motif[(s / 2) % motif.length] + 12);
+          this.voice(f, t, 0.1, "sawtooth", 0.045);
+        }
+      },
+      chip(c) {
+        const { t, s, bar, rootHz, motif, ch } = c;
+        // Arp bass + square lead — no pads, no noise hats
+        if (s % 2 === 0) {
+          const deg = motif[(s + bar * 2) % motif.length];
+          this.voice(this.hzFrom(rootHz, deg + 12), t, 0.11, "square", 0.055);
+        }
+        if (s % 4 === 0) this.voice(ch[0] / 2, t, 0.14, "square", 0.1);
+        if (s === 0 || s === 8) this.voice(90, t, 0.08, "square", 0.12);
+        // Triangle "counter" every other bar
+        if (bar % 2 === 0 && (s === 4 || s === 12)) {
+          this.voice(this.hzFrom(rootHz, motif[(s / 4) % motif.length] + 19), t, 0.2, "triangle", 0.04);
+        }
+      },
+      needle(c) {
+        const { t, s, bar, rootHz, motif, ch } = c;
+        if (s === 0 && bar % 4 === 0) this.voice(ch[0] / 3, t, 3.8, "sine", 0.07);
+        // Rare needle pings
+        if (s === 3 || s === 11 || (bar % 3 === 0 && s === 7)) {
+          const f = this.hzFrom(rootHz, motif[(bar + s) % motif.length]);
+          this.voice(f, t, 0.08, "triangle", 0.05);
+          this.voice(f * 2.5, t, 0.05, "sine", 0.025);
+        }
+        if (bar % 8 === 7 && s === 14) this.noiseHit(t, 0.4, 0.06, 200);
+      },
+      doom(c) {
+        const { t, s, bar, ch, rootHz, motif } = c;
+        if (s === 0 || s === 8) {
+          this.voice(70, t, 0.35, "sine", 0.5, 25);
+          this.noiseHit(t, 0.12, 0.18, 600);
+          // Power chord
+          this.voice(ch[0], t, 0.9, "sawtooth", 0.1);
+          this.voice(ch[0] * 1.498, t, 0.9, "sawtooth", 0.07);
+          this.voice(ch[0] * 2, t, 0.9, "triangle", 0.05);
+        }
+        if (s === 4 || s === 12) this.noiseHit(t, 0.1, 0.14, 1800);
+        if (bar % 2 === 1 && s === 0) {
+          const f = this.hzFrom(rootHz, motif[bar % motif.length] + 12);
+          this.voice(f, t, 0.7, "triangle", 0.05);
+        }
+      },
+      fold(c) {
+        // 7/8 cycle: 14 sixteenths then 2 rest
+        const { t, s, bar, ch, rootHz, motif } = c;
+        const cell = (bar * 16 + s) % 14;
+        if (cell === 0 || cell === 4 || cell === 8) {
+          this.voice(120, t, 0.12, "sine", 0.4, 35);
+        }
+        if (cell === 2 || cell === 6 || cell === 10 || cell === 12) {
+          this.noiseHit(t, 0.05, 0.1, 4000);
+        }
+        if (cell < 14 && cell % 2 === 0) {
+          const f = this.hzFrom(rootHz, motif[cell % motif.length] + 12);
+          this.voice(f, t, 0.12, "sine", 0.045);
+        }
+        if (cell === 0) this.voice(ch[0] / 2, t, 0.5, "triangle", 0.12);
+        // Mirror phrase backwards every other cycle
+        if (bar % 2 === 1 && cell === 0) {
+          this.voice(ch[0] * 2, t, 0.8, "triangle", 0.03);
+        }
+      },
+      fanfare(c) {
+        const { t, s, bar, ch, rootHz, motif } = c;
+        // March: kick on 0/8, snare 4/12
+        if (s === 0 || s === 8) this.voice(160, t, 0.18, "sine", 0.45, 30);
+        if (s === 4 || s === 12) {
+          this.noiseHit(t, 0.1, 0.2, 2400);
+          this.voice(300, t, 0.06, "triangle", 0.08);
+        }
+        if (s % 2 === 0) this.noiseHit(t, 0.02, 0.03, 8000);
+        if (s % 2 === 0) {
+          const deg = motif[(s / 2 + bar) % motif.length];
+          const f = this.hzFrom(rootHz, deg + 12);
+          this.voice(f, t, 0.2, "sawtooth", 0.055);
+          this.voice(f * 1.498, t, 0.2, "triangle", 0.03);
+        }
+        if (s === 0) {
+          this.voice(ch[0], t, 0.9, "sawtooth", 0.06);
+          this.voice(ch[0] * 1.25, t, 0.9, "sawtooth", 0.04);
+          this.voice(ch[0] * 1.5, t, 0.9, "triangle", 0.035);
+        }
+      },
     },
     music() {
       if (!this.ctx || this._musicOn) return;

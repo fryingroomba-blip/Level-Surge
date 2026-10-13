@@ -149,14 +149,18 @@ if (!__GAME) fail("__GAME missing");
 
 if (SURGE_TRACKS) {
   var ids = {};
+  var styles = {};
   SURGE_TRACKS.TRACKS.forEach(function (tr, i) {
     if (!tr.id) fail("track " + (i + 1) + " missing id");
     if (ids[tr.id]) fail("duplicate track id " + tr.id);
     ids[tr.id] = 1;
-    if (!tr.prog || tr.prog.length !== 4) fail("track " + tr.id + " bad prog");
-    if (!tr.kick || !tr.lead || !tr.bass) fail("track " + tr.id + " incomplete");
+    if (!tr.style) fail("track " + tr.id + " missing style");
+    if (styles[tr.style]) fail("duplicate track style " + tr.style);
+    styles[tr.style] = 1;
+    if (!tr.prog || tr.prog.length < 3) fail("track " + tr.id + " bad prog");
+    if (!tr.motif || !tr.scale) fail("track " + tr.id + " incomplete");
   });
-  out("Soundtrack pack: OK (" + SURGE_TRACKS.count + " unique)");
+  out("Soundtrack pack: OK (" + SURGE_TRACKS.count + " unique styles)");
 }
 
 if (SURGE_WORLDS) {

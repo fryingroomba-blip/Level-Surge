@@ -91,12 +91,45 @@ a { color: inherit; }
 
 .nav a { text-decoration: none; color: var(--dim); }
 .nav a:hover { color: var(--cream); }
+.nav .mute {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 14px;
+  letter-spacing: 0;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+.nav .mute:hover { color: var(--cream); }
 .nav .play {
   color: var(--cream);
   border: 2px solid var(--cream);
   background: var(--red);
   padding: 6px 14px;
   box-shadow: 0 3px 0 #6b0c0c;
+}
+
+.sound-tip {
+  position: sticky;
+  top: 78px;
+  z-index: 24;
+  margin: 0;
+  padding: 6px 12px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(244, 234, 216, 0.55);
+  background: rgba(8, 6, 10, 0.55);
+  pointer-events: none;
+  transition: opacity 0.4s ease, color 0.4s ease;
+}
+.sound-tip.on {
+  color: rgba(244, 234, 216, 0.35);
 }
 
 .wrap {

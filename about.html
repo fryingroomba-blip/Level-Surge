@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Rubik:wght@400;600;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/about.css?v=music3" />
+  <link rel="stylesheet" href="css/about.css?v=classic1" />
 </head>
 <body>
   <canvas id="sky" aria-hidden="true"></canvas>
@@ -21,8 +21,10 @@
     <a href="#worlds">Worlds</a>
     <a href="#marks">Marks</a>
     <a href="#traps">Traps</a>
+    <button type="button" id="about-mute" class="mute" aria-pressed="false" title="Mute classic soundtrack">🔊</button>
     <a class="play" href="index.html">Play</a>
   </nav>
+  <p id="about-sound-tip" class="sound-tip">tap anywhere for the classic soundtrack</p>
 
   <main class="wrap">
     <header class="hero">
@@ -364,19 +366,19 @@
 
     <section id="sound">
       <h2 data-letters="S">SOUND</h2>
-      <p class="lead">There are no music files. The browser builds the track. I wanted it to feel handmade and a little broken.</p>
+      <p class="lead">This page plays the classic browser-built mix — the one the game used before every dimension got its own engine. Tap once to unlock it.</p>
       <ul class="specs">
         <li>
-          <span>Tempo</span>
-          <em><strong>BPM</strong> Each world has its own. Nullscape is 128. Iron Clock is 132. Last Light is 148. Hunger Moon is 108 — slow on purpose, so you sweat.</em>
+          <span>Classic</span>
+          <em><strong>96 bars</strong> Shared drums, pads, and lead. Roots and tempos still follow the world cycling behind you. The in-game worlds now sound nothing like this on purpose.</em>
         </li>
         <li>
           <span>Root</span>
-          <em><strong>Hz</strong> The chord follows the world's root note. Nullscape sits at 92.5. The loop runs 96 bars. I got weird about this.</em>
+          <em><strong>Hz</strong> The chord follows the world's root note. Nullscape sits at 92.5. I got weird about this.</em>
         </li>
         <li>
-          <span>Heat</span>
-          <em><strong>+trap</strong> As traps fire, the arrangement gets thicker. Mute it from the speaker in the bar if your nerves are done.</em>
+          <span>Mute</span>
+          <em><strong>🔊</strong> Speaker in the top bar. Same place energy as the in-game mute, without the trap heat.</em>
         </li>
       </ul>
     </section>
@@ -386,11 +388,11 @@
     </footer>
   </main>
 
-  <script src="js/levels.js?v=music3"></script>
-  <script src="js/tracks.js?v=music3"></script>
-  <script src="js/worlds.js?v=music3"></script>
-  <script src="js/void-sky.js?v=music3"></script>
-  <script src="js/about-sky.js?v=music3"></script>
+  <script src="js/levels.js?v=classic1"></script>
+  <script src="js/worlds.js?v=classic1"></script>
+  <script src="js/void-sky.js?v=classic1"></script>
+  <script src="js/about-sky.js?v=classic1"></script>
+  <script src="js/about-music.js?v=classic1"></script>
   <script>
     const GLYPH = {
       A: "img/glyphs/a.svg?v=8",

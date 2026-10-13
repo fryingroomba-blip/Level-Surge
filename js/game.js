@@ -2898,22 +2898,6 @@
     const air = opts.air != null ? opts.air : (demo ? false : !player.onGround);
     const blink = opts.blink != null ? opts.blink : ((demo ? performance.now() / 1000 : world.time) % 3.4) < 0.09;
 
-    // Tail
-    ctx.shadowColor = "rgba(227,27,27,0.55)";
-    ctx.shadowBlur = 12;
-    ctx.strokeStyle = "#c41e1e";
-    ctx.lineWidth = 2.6;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(18, 17);
-    ctx.quadraticCurveTo(30, 11 + gait * 3.5, 26, 24);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = "#e31b1b";
-    ctx.beginPath();
-    ctx.moveTo(25, 22); ctx.lineTo(29, 27); ctx.lineTo(22, 25);
-    ctx.fill();
-
     // Horns
     ctx.fillStyle = "#1a100c";
     ctx.beginPath();
@@ -2939,6 +2923,15 @@
     ctx.fillRect(1, 20, 22, 8);
     ctx.fillStyle = "rgba(0,0,0,0.18)";
     ctx.fillRect(16, 8, 7, 16);
+
+    // Red cube hands (no arms)
+    const handY = air ? 16 : 17 + gait * 1.2;
+    ctx.fillStyle = "#e31b1b";
+    ctx.fillRect(-4, handY, 5, 5);
+    ctx.fillRect(23, handY - gait * 0.8, 5, 5);
+    ctx.fillStyle = "#ff5a5a";
+    ctx.fillRect(-3, handY + 1, 2, 2);
+    ctx.fillRect(24, handY - gait * 0.8 + 1, 2, 2);
 
     const leg = air ? -2 : gait * 3.2;
     ctx.fillStyle = "#7a0e0e";
@@ -2979,9 +2972,6 @@
     // Grin
     ctx.fillStyle = "#8a0c0c";
     ctx.fillRect(8, 19.2, 9, 2.4);
-    ctx.fillStyle = "#fff0d0";
-    ctx.fillRect(9, 19.2, 2, 1.4);
-    ctx.fillRect(14, 19.2, 2, 1.4);
     ctx.restore();
   }
 

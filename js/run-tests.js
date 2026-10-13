@@ -128,6 +128,7 @@ out("--- Level Surge headless tests ---");
 
 try {
   load("js/levels.js");
+  load("js/tracks.js");
   load("js/worlds.js");
   try { load("js/roast.js"); } catch (e) { out("roast.js skipped: " + e); }
   load("js/game.js");
@@ -138,11 +139,25 @@ try {
 
 out("HAND_LEVELS: " + (HAND_LEVELS && HAND_LEVELS.length));
 out("SURGE_WORLDS: " + (SURGE_WORLDS && SURGE_WORLDS.count));
+out("SURGE_TRACKS: " + (SURGE_TRACKS && SURGE_TRACKS.count));
 out("__GAME: " + (!!__GAME));
 
 if (!HAND_LEVELS || !HAND_LEVELS.length) fail("HAND_LEVELS missing");
 if (!SURGE_WORLDS) fail("SURGE_WORLDS missing");
+if (!SURGE_TRACKS || SURGE_TRACKS.count !== 20) fail("SURGE_TRACKS missing or not 20");
 if (!__GAME) fail("__GAME missing");
+
+if (SURGE_TRACKS) {
+  var ids = {};
+  SURGE_TRACKS.TRACKS.forEach(function (tr, i) {
+    if (!tr.id) fail("track " + (i + 1) + " missing id");
+    if (ids[tr.id]) fail("duplicate track id " + tr.id);
+    ids[tr.id] = 1;
+    if (!tr.prog || tr.prog.length !== 4) fail("track " + tr.id + " bad prog");
+    if (!tr.kick || !tr.lead || !tr.bass) fail("track " + tr.id + " incomplete");
+  });
+  out("Soundtrack pack: OK (" + SURGE_TRACKS.count + " unique)");
+}
 
 if (SURGE_WORLDS) {
   for (var d = 1; d <= 20; d++) {

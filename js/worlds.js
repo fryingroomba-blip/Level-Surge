@@ -1310,7 +1310,10 @@
 
   function theme(d) { return DIMS[Math.max(0, Math.min(DIMS.length - 1, d - 1))]; }
 
-  function chordsFor(rootHz) {
+  function chordsFor(rootHz, d) {
+    if (root.SURGE_TRACKS && root.SURGE_TRACKS.chordsFor) {
+      return root.SURGE_TRACKS.chordsFor(rootHz, d || 1);
+    }
     const r = rootHz;
     return [
       [r, r * 1.18921, r * 1.49831, r * 2],

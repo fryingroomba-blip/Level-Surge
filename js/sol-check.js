@@ -114,6 +114,7 @@ window.clearTimeout = function () {};
 window.globalThis = window;
 
 load("js/levels.js");
+load("js/tracks.js");
 load("js/worlds.js");
 try { load("js/roast.js"); } catch (e) {}
 load("js/game.js");

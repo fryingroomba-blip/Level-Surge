@@ -20,6 +20,42 @@
     ctx.font = `${heavy ? 900 : 800} ${Math.round(px)}px ${heavy ? "Bungee, " : ""}Rubik, sans-serif`;
   }
 
+  // Measured line box. Ascent fallback stays tall so Bungee can't report a
+  // short box and let the next line climb into it.
+  function measureLine(ctx, text, px, heavy) {
+    font(ctx, px, heavy);
+    const m = ctx.measureText(text || "");
+    const asc = Math.max(m.actualBoundingBoxAscent || 0, px * 0.78);
+    const desc = Math.max(m.actualBoundingBoxDescent || 0, px * 0.22);
+    return { text, px, heavy: !!heavy, w: m.width, asc, desc, h: asc + desc };
+  }
+
+  function fitLine(ctx, text, px, heavy, maxW) {
+    let size = px;
+    let line = measureLine(ctx, text, size, heavy);
+    while (line.w > maxW && size > 11) {
+      size = Math.max(11, size * 0.92);
+      line = measureLine(ctx, text, size, heavy);
+      if (size <= 11) break;
+    }
+    return line;
+  }
+
+  // Centers stacked so the ink of one line never enters the next.
+  function stackLines(ctx, lines, maxW) {
+    const fitted = lines.map((ln) => Object.assign(fitLine(ctx, ln.text, ln.px, ln.heavy, maxW), { role: ln.role, fill: ln.fill }));
+    let y = 0;
+    fitted.forEach((ln, i) => {
+      const prev = fitted[i - 1];
+      const gap = prev ? Math.max(prev.px, ln.px) * 0.46 : 0;
+      y += gap;
+      ln.gapBefore = gap;
+      ln.cy = y + ln.asc;
+      y += ln.h;
+    });
+    return { lines: fitted, h: y };
+  }
+
   function stamp(ctx, text, x, y, size, rot, color, a) {
     ctx.save();
     ctx.globalAlpha = a == null ? 1 : a;
@@ -1044,10 +1080,11 @@
       ctx.moveTo(W * 0.2, H * 0.72);
       ctx.lineTo(W * 0.8, H * 0.72);
       ctx.stroke();
-      font(ctx, W * 0.018, false);
+      const walk = fitLine(ctx, "WALKING WAS LEGAL", u(W, H, 16), false, W * 0.7);
       ctx.fillStyle = "#ffd24a";
       ctx.textAlign = "center";
-      ctx.fillText("WALKING WAS LEGAL", W / 2, H * 0.72 + 28);
+      ctx.textBaseline = "top";
+      ctx.fillText(walk.text, W / 2, H * 0.72 + walk.px * 0.45);
       ctx.restore();
     }
     if (s.kind === "fake" && s.sike) {
@@ -1056,13 +1093,22 @@
     if (s.kind === "still" && s.doc) {
       ctx.save();
       ctx.globalAlpha = s.doc * 0.9;
-      panel(ctx, W * 0.14, H * 0.12, W * 0.72, 64);
-      font(ctx, W * 0.016, false);
-      ctx.fillStyle = "#c4b49c";
+      const block = stackLines(ctx, [
+        { text: "ATV · ANIMAL TRAP VISION", px: u(W, H, 15), heavy: false },
+        { text: "HERE WE OBSERVE A DEMON WHO FORGOT TO MOVE", px: u(W, H, 15), heavy: false },
+      ], W * 0.66);
+      const pad = u(W, H, 12);
+      const boxW = W * 0.72;
+      const boxH = block.h + pad * 2;
+      const top = H * 0.12;
+      panel(ctx, (W - boxW) / 2, top, boxW, boxH);
       ctx.textAlign = "center";
-      ctx.fillText("ATV · ANIMAL TRAP VISION", W / 2, H * 0.12 + 26);
-      ctx.fillStyle = "#f4ead8";
-      ctx.fillText("HERE WE OBSERVE A DEMON WHO FORGOT TO MOVE", W / 2, H * 0.12 + 48);
+      ctx.textBaseline = "middle";
+      block.lines.forEach((ln, i) => {
+        font(ctx, ln.px, false);
+        ctx.fillStyle = i === 0 ? "#c4b49c" : "#f4ead8";
+        ctx.fillText(ln.text, W / 2, top + pad + ln.cy);
+      });
       ctx.restore();
     }
 
@@ -1078,22 +1124,26 @@
       const pop = easeOut(s.capIn == null ? 1 : s.capIn);
       const cap = s.caption || "";
       const sub = s.sub || "";
-      const capSize = cap ? u(W, H, cap.length > 22 ? 28 : cap.length > 16 ? 34 : 42) : 0;
-      const subSize = sub ? u(W, H, 16) : 0;
-      const gap = cap && sub ? Math.max(u(W, H, 16), capSize * 0.38 + subSize * 0.62) : 0;
-      let y = u(W, H, 20) + (cap ? capSize * 0.55 : subSize * 0.55);
-      if (cap) {
-        ctx.save();
-        ctx.translate(W / 2, y);
-        ctx.scale(lerp(1.1, 1, pop), lerp(1.1, 1, pop));
-        outlineStamp(ctx, cap, 0, 0, capSize, -0.03, "#f4ead8", pop);
-        ctx.restore();
-        y += capSize * 0.62 + gap;
-      }
-      if (sub) {
-        const sp = easeOut(Math.max(0, (s.capIn || 1) - 0.15));
-        stamp(ctx, sub, W / 2, y, subSize, 0.02, "#e31b1b", 0.95 * sp);
-      }
+      const wantCap = cap ? u(W, H, cap.length > 22 ? 28 : cap.length > 16 ? 34 : 42) : 0;
+      const wantSub = sub ? u(W, H, 16) : 0;
+      const specs = [];
+      if (cap) specs.push({ text: cap, px: wantCap, heavy: true, role: "cap" });
+      if (sub) specs.push({ text: sub, px: wantSub, heavy: true, role: "sub" });
+      const block = stackLines(ctx, specs, W * 0.88);
+      // Clear the HUD band, then sit the pair with measured air between them.
+      let y = u(W, H, 46);
+      block.lines.forEach((ln) => {
+        if (ln.role === "cap") {
+          ctx.save();
+          ctx.translate(W / 2, y + ln.cy);
+          ctx.scale(lerp(1.08, 1, pop), lerp(1.08, 1, pop));
+          outlineStamp(ctx, ln.text, 0, 0, ln.px, -0.02, "#f4ead8", pop);
+          ctx.restore();
+        } else {
+          const sp = easeOut(Math.max(0, (s.capIn || 1) - 0.15));
+          stamp(ctx, ln.text, W / 2, y + ln.cy, ln.px, 0.015, "#e31b1b", 0.95 * sp);
+        }
+      });
     }
 
     if (s.kind === "spike" && s.tip) {
@@ -1107,10 +1157,11 @@
       ctx.lineTo(ax - 16, ay - 28);
       ctx.lineTo(ax + 16, ay - 28);
       ctx.fill();
-      font(ctx, W * 0.018, true);
+      const tip = fitLine(ctx, "THESE. THE SHARP ONES.", u(W, H, 16), true, W * 0.7);
       ctx.textAlign = "center";
+      ctx.textBaseline = "top";
       ctx.fillStyle = "#ffd24a";
-      ctx.fillText("THESE. THE SHARP ONES.", ax, ay + 28);
+      ctx.fillText(tip.text, ax, ay + tip.px * 0.35);
       ctx.restore();
     }
 
@@ -1133,20 +1184,39 @@
     ctx.globalAlpha = a;
     ctx.fillStyle = "rgba(8,6,10,0.82)";
     ctx.fillRect(0, 0, W, H);
-    outlineStamp(ctx, "LEVEL COMPLETE!", W / 2, H * 0.28, Math.min(64, W * 0.07), 0, "#ffd24a", 1);
-    font(ctx, W * 0.028, true);
-    ctx.fillStyle = "#f4ead8";
+    const winBlock = stackLines(ctx, [
+      { text: "LEVEL COMPLETE!", px: Math.min(u(W, H, 52), 64), heavy: true },
+      { text: s.levelName || "TRUST ME", px: u(W, H, 26), heavy: true },
+      { text: `ATTEMPT ${79437924 + (s.seed % 90)}  ·  100%`, px: u(W, H, 16), heavy: false },
+    ], W * 0.9);
+    const winTop = H * 0.22;
     ctx.textAlign = "center";
-    ctx.fillText(s.levelName || "TRUST ME", W / 2, H * 0.38);
-    font(ctx, W * 0.016, false);
-    ctx.fillStyle = "#9a8c7a";
-    ctx.fillText(`ATTEMPT ${79437924 + (s.seed % 90)}  ·  100%`, W / 2, H * 0.46);
-    bar(ctx, W * 0.22, H * 0.52, W * 0.56, 22, 1, "CLEARED", 1);
+    ctx.textBaseline = "middle";
+    winBlock.lines.forEach((ln, i) => {
+      if (i === 0) outlineStamp(ctx, ln.text, W / 2, winTop + ln.cy, ln.px, 0, "#ffd24a", 1);
+      else {
+        font(ctx, ln.px, ln.heavy);
+        ctx.fillStyle = i === 1 ? "#f4ead8" : "#9a8c7a";
+        ctx.fillText(ln.text, W / 2, winTop + ln.cy);
+      }
+    });
+    const barH = u(W, H, 22);
+    const barY = winTop + winBlock.h + u(W, H, 16);
+    bar(ctx, W * 0.22, barY, W * 0.56, barH, 1, "CLEARED", 1);
     if (s.newBest) {
-      outlineStamp(ctx, "NEW BEST", W / 2, H * 0.66, Math.min(40, W * 0.045), -0.05, "#e31b1b", s.newBest);
-      font(ctx, W * 0.02, true);
-      ctx.fillStyle = "#ffd24a";
-      ctx.fillText("SURGE RATING 99,999,999×", W / 2, H * 0.74);
+      const best = stackLines(ctx, [
+        { text: "NEW BEST", px: Math.min(u(W, H, 36), 44), heavy: true },
+        { text: "SURGE RATING 99,999,999×", px: u(W, H, 18), heavy: true },
+      ], W * 0.9);
+      const bestTop = barY + barH + u(W, H, 18);
+      best.lines.forEach((ln, i) => {
+        if (i === 0) outlineStamp(ctx, ln.text, W / 2, bestTop + ln.cy, ln.px, -0.04, "#e31b1b", s.newBest);
+        else {
+          font(ctx, ln.px, true);
+          ctx.fillStyle = "#ffd24a";
+          ctx.fillText(ln.text, W / 2, bestTop + ln.cy);
+        }
+      });
     }
     if (s.confetti) {
       ctx.fillStyle = "#ffd24a";
@@ -1161,9 +1231,12 @@
 
   function drawAlmost(ctx, s, W, H) {
     ctx.save();
+    const barH = u(W, H, 28);
+    const strip = barH + u(W, H, 36);
+    const top = H * 0.4;
     ctx.fillStyle = "rgba(8,6,10,0.55)";
-    ctx.fillRect(0, H * 0.4, W, 80);
-    bar(ctx, W * 0.18, H * 0.44, W * 0.64, 28, s.progress, `${Math.floor(s.progress * 100)}%`, 1);
+    ctx.fillRect(0, top, W, strip);
+    bar(ctx, W * 0.18, top + (strip - barH) / 2, W * 0.64, barH, s.progress, `${Math.floor(s.progress * 100)}%`, 1);
     ctx.restore();
   }
 
@@ -1178,24 +1251,29 @@
     ];
     ctx.save();
     ctx.globalAlpha = Math.min(1, s.credits * 2);
-    const y0 = H * 0.55 - s.credits * 80;
-    names.forEach((n, i) => {
-      font(ctx, W * 0.018, i === 0);
-      ctx.fillStyle = i === 0 ? "#ffd24a" : "#c4b49c";
-      ctx.textAlign = "center";
-      ctx.fillText(n, W / 2, y0 + i * 28);
+    const block = stackLines(ctx, names.map((n, i) => ({
+      text: n, px: u(W, H, i === 0 ? 20 : 16), heavy: true, fill: i === 0 ? "#ffd24a" : "#c4b49c",
+    })), W * 0.9);
+    const y0 = H * 0.62 - block.h * Math.min(1, s.credits);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    block.lines.forEach((ln) => {
+      font(ctx, ln.px, true);
+      ctx.fillStyle = ln.fill;
+      ctx.fillText(ln.text, W / 2, y0 + ln.cy);
     });
     ctx.restore();
   }
 
   function drawDvd(ctx, s, W, H) {
     const t = s.t * 0.22;
-    const bw = W * 0.34;
-    const bh = 54;
+    const label = fitLine(ctx, "SKILL ISSUE", u(W, H, 26), true, W * 0.3);
+    const bw = Math.max(W * 0.28, label.w + label.px * 1.6);
+    const bh = label.h + label.px * 0.9;
     const x = Math.abs((t * 180) % (W - bw) * 2 - (W - bw));
     const y = Math.abs((t * 110) % (H - bh) * 2 - (H - bh));
     panel(ctx, x, y, bw, bh);
-    stamp(ctx, "SKILL ISSUE", x + bw / 2, y + bh / 2, W * 0.028, 0, "#e31b1b", 1);
+    stamp(ctx, label.text, x + bw / 2, y + bh / 2, label.px, 0, "#e31b1b", 1);
   }
 
   function drawReport(ctx, s, W, H) {
@@ -1252,31 +1330,38 @@
     const labels = s.slots < 0.82
       ? ["7", "7", "7"]
       : ["DEATH", "DEATH", "DEATH"];
-    const w = W * 0.18;
-    const x0 = W / 2 - (w * 3 + 16) / 2;
+    const sample = fitLine(ctx, "DEATH", u(W, H, 22), true, W * 0.16);
+    const reelH = sample.h + sample.px * 0.7;
+    const w = Math.max(W * 0.16, sample.w + sample.px);
+    const gap = u(W, H, 8);
+    const x0 = W / 2 - (w * 3 + gap * 2) / 2;
     const y = H * 0.58;
-    panel(ctx, x0 - 16, y - 24, w * 3 + 48, 88);
+    const framePad = u(W, H, 16);
+    panel(ctx, x0 - framePad, y - framePad, w * 3 + gap * 2 + framePad * 2, reelH + framePad * 2);
     labels.forEach((lab, i) => {
-      const x = x0 + i * (w + 8);
+      const x = x0 + i * (w + gap);
+      const line = fitLine(ctx, lab, lab.length > 1 ? sample.px : u(W, H, 36), true, w * 0.86);
       ctx.fillStyle = "#140808";
-      ctx.fillRect(x, y, w, 52);
-      font(ctx, lab.length > 1 ? W * 0.016 : W * 0.04, true);
+      ctx.fillRect(x, y, w, reelH);
+      font(ctx, line.px, true);
       ctx.fillStyle = "#ffd24a";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      const jitter = s.slots < 0.82 ? Math.sin(s.t * 24 + i) * 6 : 0;
-      ctx.fillText(lab, x + w / 2, y + 26 + jitter);
+      const jitter = s.slots < 0.82 ? Math.sin(s.t * 24 + i) * u(W, H, 4) : 0;
+      ctx.fillText(lab, x + w / 2, y + reelH / 2 + jitter);
     });
   }
 
   function drawCard(ctx, s, W, H, api) {
     const a = s.card;
-    const titlePx = u(W, H, 18);
-    const bodyPx = u(W, H, 15);
-    const titleStep = titlePx * 1.55;
-    const bodyStep = bodyPx * 1.7;
-    const w = Math.min(W * 0.86, Math.max(W * 0.5, titlePx * 22));
-    const h = titlePx * 1.35 + titleStep + bodyStep + bodyPx;
+    const card = stackLines(ctx, [
+      { text: "BLADE APPRECIATION SOCIETY", px: u(W, H, 18), heavy: true, fill: "#ffd24a" },
+      { text: `MEMBER #${1000 + (api.deaths || 1)}`, px: u(W, H, 15), heavy: false, fill: "#f4ead8" },
+      { text: "IT SPINS. YOU WALKED IN.", px: u(W, H, 15), heavy: false, fill: "#f4ead8" },
+    ], W * 0.78);
+    const pad = u(W, H, 16);
+    const w = Math.min(W * 0.86, Math.max(W * 0.46, Math.max(...card.lines.map((ln) => ln.w)) + pad * 2));
+    const h = card.h + pad * 2;
     const x = W / 2 - w / 2;
     const y = Math.max(H * 0.42, Math.min(H * 0.58, H - h - u(W, H, 16)));
     ctx.save();
@@ -1289,40 +1374,36 @@
     ctx.strokeStyle = "#ffd24a";
     ctx.lineWidth = 3;
     ctx.strokeRect(x + 6, y + 6, w - 12, h - 12);
-    font(ctx, titlePx, true);
-    ctx.fillStyle = "#ffd24a";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    let lineY = y + titlePx * 1.15;
-    ctx.fillText("BLADE APPRECIATION SOCIETY", W / 2, lineY);
-    font(ctx, bodyPx, false);
-    ctx.fillStyle = "#f4ead8";
-    lineY += titleStep;
-    ctx.fillText(`MEMBER #${1000 + (api.deaths || 1)}`, W / 2, lineY);
-    lineY += bodyStep;
-    ctx.fillText("IT SPINS. YOU WALKED IN.", W / 2, lineY);
+    card.lines.forEach((ln) => {
+      font(ctx, ln.px, ln.heavy);
+      ctx.fillStyle = ln.fill;
+      ctx.fillText(ln.text, W / 2, y + pad + ln.cy);
+    });
     ctx.restore();
   }
 
   function drawMenu(ctx, s, W, H) {
     ctx.save();
     ctx.globalAlpha = s.menu;
-    const titlePx = u(W, H, 22);
-    const bodyPx = u(W, H, 16);
-    const row = Math.max(titlePx, bodyPx) * 1.65;
-    const boxH = row * 3 + bodyPx * 0.8;
-    const top = H * 0.56;
-    panel(ctx, W * 0.12, top, W * 0.76, boxH);
-    font(ctx, titlePx, true);
-    ctx.fillStyle = "#ffd24a";
+    const menu = stackLines(ctx, [
+      { text: "SPIKE TASTING MENU", px: u(W, H, 22), heavy: true, fill: "#ffd24a" },
+      { text: "DEMON SKEWER  ·  ★☆☆☆☆  ·  CHEF'S PITY", px: u(W, H, 16), heavy: false, fill: "#f4ead8" },
+      { text: "CUSTOMER DID NOT LOOK", px: u(W, H, 16), heavy: false, fill: "#e31b1b" },
+    ], W * 0.7);
+    const pad = u(W, H, 14);
+    const boxW = W * 0.76;
+    const boxH = menu.h + pad * 2;
+    const top = Math.max(u(W, H, 24), H * 0.62 - boxH);
+    panel(ctx, (W - boxW) / 2, top, boxW, boxH);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("SPIKE TASTING MENU", W / 2, top + row * 0.7);
-    font(ctx, bodyPx, false);
-    ctx.fillStyle = "#f4ead8";
-    ctx.fillText("DEMON SKEWER  ·  ★☆☆☆☆  ·  CHEF'S PITY", W / 2, top + row * 1.75);
-    ctx.fillStyle = "#e31b1b";
-    ctx.fillText("CUSTOMER DID NOT LOOK", W / 2, top + row * 2.8);
+    menu.lines.forEach((ln) => {
+      font(ctx, ln.px, ln.heavy);
+      ctx.fillStyle = ln.fill;
+      ctx.fillText(ln.text, W / 2, top + pad + ln.cy);
+    });
     ctx.restore();
   }
 
@@ -1409,36 +1490,53 @@
   function drawTomb(ctx, s, W, H) {
     ctx.save();
     ctx.globalAlpha = s.tomb;
+    const epitaph = stackLines(ctx, [
+      { text: "HERE LIES", px: u(W, H, 14), heavy: true },
+      { text: "OUTPLAYED BY A BRICK", px: u(W, H, 13), heavy: true },
+      { text: s.insult || "REST IN PIECES", px: u(W, H, 12), heavy: true },
+    ], W * 0.42);
     const x = W / 2;
-    const y = H * 0.62;
+    const half = Math.max(...epitaph.lines.map((ln) => ln.w)) / 2 + u(W, H, 18);
+    const body = epitaph.h + u(W, H, 28);
+    const y = H * 0.7 - body;
     ctx.fillStyle = "#6b6560";
     ctx.beginPath();
-    ctx.moveTo(x - 70, y + 50);
-    ctx.lineTo(x - 70, y - 10);
-    ctx.quadraticCurveTo(x, y - 70, x + 70, y - 10);
-    ctx.lineTo(x + 70, y + 50);
+    ctx.moveTo(x - half, y + body);
+    ctx.lineTo(x - half, y + half * 0.35);
+    ctx.quadraticCurveTo(x, y - half * 0.45, x + half, y + half * 0.35);
+    ctx.lineTo(x + half, y + body);
     ctx.closePath();
     ctx.fill();
     ctx.fillStyle = "#1a120e";
-    font(ctx, W * 0.016, true);
     ctx.textAlign = "center";
-    ctx.fillText("HERE LIES", x, y - 8);
-    ctx.fillText("OUTPLAYED BY A BRICK", x, y + 16);
-    ctx.fillText(s.insult || "REST IN PIECES", x, y + 40);
+    ctx.textBaseline = "middle";
+    const stoneTop = y + half * 0.28;
+    epitaph.lines.forEach((ln) => {
+      font(ctx, ln.px, true);
+      ctx.fillText(ln.text, x, stoneTop + ln.cy);
+    });
     ctx.restore();
   }
 
   function drawHotel(ctx, s, W, H) {
     ctx.save();
     ctx.globalAlpha = s.hotel;
-    panel(ctx, W * 0.14, H * 0.2, W * 0.72, 90);
-    font(ctx, W * 0.028, true);
-    ctx.fillStyle = "#ffd24a";
+    const sign = stackLines(ctx, [
+      { text: "HOTEL FLOOR", px: u(W, H, 26), heavy: true, fill: "#ffd24a" },
+      { text: "NO VACANCY  ·  YOU ARE THE VACANCY", px: u(W, H, 16), heavy: false, fill: "#f4ead8" },
+    ], W * 0.66);
+    const pad = u(W, H, 14);
+    const boxW = W * 0.72;
+    const boxH = sign.h + pad * 2;
+    const top = H * 0.2;
+    panel(ctx, (W - boxW) / 2, top, boxW, boxH);
     ctx.textAlign = "center";
-    ctx.fillText("HOTEL FLOOR", W / 2, H * 0.2 + 36);
-    font(ctx, W * 0.016, false);
-    ctx.fillStyle = "#f4ead8";
-    ctx.fillText("NO VACANCY  ·  YOU ARE THE VACANCY", W / 2, H * 0.2 + 66);
+    ctx.textBaseline = "middle";
+    sign.lines.forEach((ln) => {
+      font(ctx, ln.px, ln.heavy);
+      ctx.fillStyle = ln.fill;
+      ctx.fillText(ln.text, W / 2, top + pad + ln.cy);
+    });
     ctx.restore();
   }
 
@@ -1446,12 +1544,24 @@
     if (s.swap) {
       ctx.save();
       ctx.globalAlpha = s.swap;
-      panel(ctx, W * 0.25, H * 0.6, W * 0.5, 80);
-      font(ctx, W * 0.04, true);
+      const flip = stackLines(ctx, [
+        { text: "◀  LEFT    RIGHT  ▶", px: u(W, H, 28), heavy: true },
+        { text: "▶  LEFT    RIGHT  ◀", px: u(W, H, 28), heavy: true },
+      ], W * 0.46);
+      const pad = u(W, H, 14);
+      const boxW = Math.min(W * 0.7, Math.max(...flip.lines.map((ln) => ln.w)) + pad * 2);
+      const boxH = flip.h + pad * 2;
+      const top = H * 0.58;
+      const left = (W - boxW) / 2;
+      panel(ctx, left, top, boxW, boxH);
+      font(ctx, flip.lines[0].px, true);
       ctx.fillStyle = "#80a0ff";
       ctx.textAlign = "center";
-      ctx.fillText("◀  LEFT    RIGHT  ▶", W / 2, H * 0.6 + 34);
-      ctx.fillText("▶  LEFT    RIGHT  ◀", W / 2, H * 0.6 + 64);
+      ctx.textBaseline = "middle";
+      flip.lines.forEach((ln) => {
+        font(ctx, ln.px, true);
+        ctx.fillText(ln.text, W / 2, top + pad + ln.cy);
+      });
       ctx.restore();
     }
     if (s.gps) {

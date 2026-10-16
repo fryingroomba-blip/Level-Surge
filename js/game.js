@@ -1460,8 +1460,10 @@
       audio.play("crumble");
     }
     if (type === "blackout") {
-      world.blackout = Math.max(world.blackout || 0, a[1] || 1.5);
-      world.flash = 0.05;
+      world.blackout = Math.max(world.blackout || 0, a[1] || 6.5);
+      world.flash = 0.12;
+      world.chromatic = Math.max(world.chromatic || 0, 0.28);
+      world.shake = Math.max(world.shake, 3);
     }
     if (type === "heavy") {
       world.heavyMul = a[1] == null ? 1.55 : a[1];
@@ -4040,12 +4042,18 @@
       const view = camera();
       const px = (player.x + player.w / 2) * view.scale + view.ox;
       const py = (player.y + player.h / 2) * view.scale + view.oy;
-      const a = Math.min(0.88, 0.55 + world.blackout * 0.2);
-      const g = ctx.createRadialGradient(px, py, 28, px, py, Math.max(VIEW_W, VIEW_H) * 0.55);
+      const pulse = 0.04 + Math.sin(world.time * 9) * 0.03;
+      const a = Math.min(0.97, 0.82 + Math.min(world.blackout, 4) * 0.04 + pulse);
+      const sight = Math.max(10, 16 - Math.min(world.blackout, 3) * 1.2);
+      const reach = Math.max(VIEW_W, VIEW_H) * 0.72;
+      const g = ctx.createRadialGradient(px, py, sight, px, py, reach);
       g.addColorStop(0, "rgba(0,0,0,0)");
-      g.addColorStop(0.35, `rgba(0,0,0,${a * 0.45})`);
+      g.addColorStop(0.12, `rgba(0,0,0,${a * 0.55})`);
+      g.addColorStop(0.4, `rgba(0,0,0,${a * 0.88})`);
       g.addColorStop(1, `rgba(0,0,0,${a})`);
       ctx.fillStyle = g;
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      ctx.fillStyle = `rgba(8,0,12,${0.18 + pulse})`;
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     }
     if (world.huntLight && world.time < world.huntLight.until) {

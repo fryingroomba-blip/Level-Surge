@@ -124,9 +124,11 @@ window.setTimeout = function (fn) { return 0; };
 window.clearTimeout = function () {};
 window.globalThis = window;
 
+window.__SURGE_TEST__ = true;
 out("--- Level Surge headless tests ---");
 
 try {
+  load("js/guard.js");
   load("js/levels.js");
   load("js/tracks.js");
   load("js/worlds.js");
@@ -146,6 +148,17 @@ if (!HAND_LEVELS || !HAND_LEVELS.length) fail("HAND_LEVELS missing");
 if (!SURGE_WORLDS) fail("SURGE_WORLDS missing");
 if (!SURGE_TRACKS || SURGE_TRACKS.count !== 20) fail("SURGE_TRACKS missing or not 20");
 if (!__GAME) fail("__GAME missing");
+if (!SURGE_GUARD) fail("SURGE_GUARD missing");
+
+if (__GAME && __GAME.securitySelfTest) {
+  try {
+    var sec = __GAME.securitySelfTest();
+    if (sec && sec.length) sec.forEach(function (s) { fail("security: " + s); });
+    else out("securitySelfTest: OK");
+  } catch (e) {
+    fail("securitySelfTest threw: " + e);
+  }
+} else fail("securitySelfTest missing");
 
 if (SURGE_TRACKS) {
   var ids = {};
@@ -169,7 +182,7 @@ if (SURGE_WORLDS) {
     var n = SURGE_WORLDS.roomCount(d);
     var t = SURGE_WORLDS.trapCount(d);
     if (lvls.length !== n) fail("D" + d + " rooms " + lvls.length + " != " + n);
-    var want = d === 1 ? 10 : t;
+    var want = d === 1 ? 12 : t;
     if (lvls[0].events.length !== want) fail("D" + d + " traps0 " + lvls[0].events.length + " != " + want);
     if (d > 1) {
       var last = lvls[lvls.length - 1];
@@ -178,6 +191,40 @@ if (SURGE_WORLDS) {
     if (!SURGE_WORLDS.theme(d) || !SURGE_WORLDS.theme(d).name) fail("D" + d + " missing theme");
   }
   out("World generate/theme: OK");
+  var prevWin = 99;
+  var prevPress = 0;
+  for (var qd = 1; qd <= 20; qd++) {
+    var spec = SURGE_WORLDS.qteAction(qd, function () { return 0.5; });
+    if (!spec || spec[0] !== "qte") fail("D" + qd + " qte action missing");
+    else {
+      if (!(spec[1] < prevWin)) fail("D" + qd + " qte window " + spec[1] + " did not get tighter");
+      var presses = spec.length - 2;
+      if (presses < prevPress) fail("D" + qd + " qte lost presses");
+      if (qd === 1 && presses !== 1) fail("D1 qte presses " + presses);
+      if (qd === 20 && (presses < 6 || spec[1] > 0.32)) fail("D20 qte stayed easy " + spec[1] + " x" + presses);
+      prevWin = spec[1];
+      prevPress = presses;
+    }
+  }
+  var qteRooms = 0;
+  var qteTotal = 0;
+  var multi = 0;
+  for (var qd2 = 2; qd2 <= 20; qd2++) {
+    var pack = SURGE_WORLDS.generate(qd2);
+    pack.forEach(function (lvl) {
+      qteTotal++;
+      var hits = 0;
+      (lvl.events || []).forEach(function (ev) {
+        (ev.do || []).forEach(function (a) { if (a[0] === "qte") hits++; });
+      });
+      if (hits > 1) multi++;
+      if (hits) qteRooms++;
+    });
+  }
+  var rate = qteTotal ? qteRooms / qteTotal : 0;
+  if (multi) fail("qte stacked in " + multi + " rooms");
+  if (rate < 0.06 || rate > 0.16) fail("qte rate " + rate.toFixed(3) + " (" + qteRooms + "/" + qteTotal + ")");
+  else out("qte rate " + rate.toFixed(3) + " (" + qteRooms + "/" + qteTotal + ")");
 }
 
 var ACTIONS = {
@@ -190,6 +237,10 @@ var ACTIONS = {
   echo:1, sticky:1, rift:1, blackout:1, heavy:1,
   stalker:1, drone:1, rocket:1, voidFog:1, watcher:1,
   sentry:1, swarm:1, phantom:1, huntLight:1, crushBot:1,
+  qte:1,
+  reaper:1, salvo:1, pincer:1, guillotine:1, abyss:1, eclipse:1, snare:1, orbitSaw:1,
+  crossfire:1, leech:1, shardRain:1, wraith:1, mineLine:1, gravLock:1, seeker:1,
+  collapse:1, barbedWind:1, mirrorBolt:1, pitBeast:1, judgment:1,
 };
 var IF_KEYS = {
   x:1, beenPast:1, xLess:1, time:1, jump:1, before:1, jumpAfter:1,
@@ -205,7 +256,7 @@ function walkAction(a, tag) {
 }
 HAND_LEVELS.forEach(function (lvl, i) {
   var tag = "#" + (i + 1) + " " + (lvl.name || "?");
-  if (!lvl.events || lvl.events.length !== 10) fail(tag + " expected 10 traps got " + (lvl.events && lvl.events.length));
+  if (!lvl.events || lvl.events.length !== 12) fail(tag + " expected 12 traps got " + (lvl.events && lvl.events.length));
   (lvl.events || []).forEach(function (ev, ei) {
     Object.keys(ev.if || {}).forEach(function (k) {
       if (!IF_KEYS[k]) fail(tag + " trap " + ei + " unknown if." + k);

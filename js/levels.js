@@ -58,7 +58,7 @@
       ["fill", x, y, w, 1, "v"], ["sfx", "spike"], ["shake", 4],
     ],
   });
-  // Rare hard traps — used sparingly in handmade rooms.
+  // Rare hard traps — one or two per room, short enough to survive.
   const iceSheet = (when, dur = 1.05) => ({
     if: { x: when, ground: true }, once: true, do: [
       ["slip", dur], ["sfx", "reverse"], ["lie", "ICE"],
@@ -107,7 +107,7 @@
       ["rift", dur], ["lie", "HUNGRY"],
     ],
   });
-  // Entity / horror traps — scarier, technical, even rarer.
+  // Entity / horror traps — one extra threat that a moving player can clear.
   const wakeStalker = (when, dist = 95, life = 2.7, speed = 3.15) => ({
     if: { x: when }, once: true, do: [
       ["stalker", dist, life, speed], ["lie", "IT SEES YOU"],
@@ -190,6 +190,8 @@
           ["hole", 26, 9, 2, 1], ["spikes", 26, 10, 2], ["shake", 6], ["sfx", "crumble"],
           ["queue", 0.7, ["fill", 29, 9, 1, 1, "^"], ["sfx", "spike"]],
         ]},
+        iceSheet(7.6, 0.7),
+        openEye(16.4, 18, 2, 2.0),
       ],
     },
     {
@@ -219,6 +221,8 @@
         { if: { x: 11.2 }, once: true, delay: 0.26, do: [["push", 0, -2.4]] },
         slice(17.4, 18),
         doorPop(26.8, 28, 0.14),
+        blindSpot(13.2, 0.75),
+        ghostEcho(16.2, 0.8),
       ],
     },
     {
@@ -251,7 +255,7 @@
           ["queue", 0.22, ["fill", 10, 9, 2, 1, "#"], ["fill", 10, 10, 2, 1, "#"], ["fill", 22, 9, 2, 1, "#"], ["fill", 22, 10, 2, 1, "#"]],
         ]},
         { if: { beenPast: 24, xLess: 16 }, once: true, delay: 0.45, do: [
-          ["saw", 34, 8, -2.9, 0], ["sfx", "saw"],
+          ["saw", 33, 8, -2.9, 0], ["sfx", "saw"],
         ]},
         { if: { beenPast: 24, xLess: 11 }, once: true, do: [
           ["fill", 1, 5, 11, 1, "."],
@@ -267,12 +271,14 @@
         { if: { beenPast: 24, xLess: 3 }, once: true, quiet: true, do: [
           ["dust", 1, 9, 2], ["shake", 2],
         ]},
+        blindSpot(8.6, 0.8),
+        openEye(15.4, 16, 3, 2.2),
       ],
     },
     {
       name: "WAIT FOR IT",
       taunt: "PATIENCE, DEMON",
-      sol: "W130 R90 JR20 R50 JR16 R40",
+      sol: "W120 R60 JR18 R50 JR16 R60",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(), sky(),
         pad("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"),
@@ -298,6 +304,8 @@
         flip(21.3, 0.28),
         sink(24.4, 26, 2, 0.2),
         risingFog(26.8, 1.55),
+        iceSheet(11.2, 0.55),
+        mirrorGhost(19.6, 1.4),
       ],
     },
     {
@@ -327,6 +335,8 @@
         slice(21.1, 21),
         flip(23.5, 0.28),
         doorPop(27.4, 29, 0.14),
+        blindSpot(12.2, 0.8),
+        pullBack(18.6, 14, 0.1, 0.45),
       ],
     },
     {
@@ -357,6 +367,8 @@
         sink(17.4, 20, 2, 0.2),
         slice(21.3, 22),
         mirrorGhost(23.8, 2.0),
+        blindSpot(8.4, 0.65),
+        weakLegs(22.2, 0.72, 0.45),
       ],
     },
     {
@@ -384,12 +396,14 @@
         flip(18.3, 0.28),
         sink(26.2, 28, 1, 0.16),
         doorPop(23.6, 25, 0.14),
+        blindSpot(8.4, 0.7),
+        ghostEcho(16.6, 0.75),
       ],
     },
     {
       name: "BUZZ",
       taunt: "IT LIKES YOU",
-      sol: "R60 JR18 R25 JR18 R25 JR18 R40",
+      sol: "R45 JR16 R20 R80 JR18 R30",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(), sky(), sky(),
         pad("S                          o  E"),
@@ -412,6 +426,8 @@
         sink(19.3, 22, 2, 0.2),
         launchRocket(22.4, 1, 7, 2.3),
         doorPop(26.4, 28, 0.14),
+        blindSpot(8.6, 0.6),
+        tarPad(10.6, 0.28),
       ],
     },
     {
@@ -431,7 +447,7 @@
         { if: { x: 9.0 }, once: true, delay: 0.14, do: [
           ["fill", 11, 4, 3, 1, "v"], ["shake", 5], ["sfx", "spike"],
         ]},
-        sneakSaw(11.2, -2, 8, 2.1, 0.7),
+        sneakSaw(11.2, -1, 8, 2.1, 0.7),
         slice(14.6, 14, 6, 5, 0.14),
         hangSpikes(16.2, 15, 7),
         ghostEcho(17.4, 0.7),
@@ -441,6 +457,8 @@
         ]},
         batSwarm(23.2, 5, -1, 4),
         doorPop(27.2, 29, 0.12),
+        iceSheet(7.4, 0.5),
+        crushWeight(13.4, 1.35, 0.45),
       ],
     },
     {
@@ -479,6 +497,8 @@
           ["dust", 22, 2, 2], ["shake", 3],
         ]},
         lateSaw(9, -1, 1, 1.55),
+        blindSpot(10.8, 0.7),
+        openEye(17.4, 8, 1, 2.0),
       ],
     },
     {
@@ -509,6 +529,8 @@
         ]},
         wakeStalker(23.8, 110, 2.2, 2.95),
         doorPop(27.2, 28, 0.14),
+        blindSpot(8.8, 0.75),
+        ghostEcho(15.6, 0.85),
       ],
     },
     {
@@ -544,6 +566,8 @@
           ["saw", -1, 8, 2.85, 0],
         ]},
         launchRocket(7.2, 1, 7, 2.2),
+        blindSpot(6.2, 0.7),
+        mirrorGhost(14.8, 1.3),
       ],
     },
     {
@@ -574,6 +598,8 @@
         stayLit(17.6, 1.85, 92),
         sink(22.4, 24, 2, 0.16),
         doorPop(26.4, 28, 0.12),
+        wakeStalker(9.2, 140, 1.5, 2.4),
+        ghostEcho(16.8, 0.7),
       ],
     },
     {
@@ -608,7 +634,7 @@
           ["queue", 0.22, ["fill", 11, 9, 2, 1, "#"], ["fill", 11, 10, 2, 1, "#"], ["fill", 22, 9, 2, 1, "#"], ["fill", 22, 10, 2, 1, "#"]],
         ]},
         { if: { beenPast: 24, xLess: 16 }, once: true, delay: 0.45, do: [
-          ["saw", 34, 8, -2.9, 0], ["sfx", "saw"],
+          ["saw", 33, 8, -2.9, 0], ["sfx", "saw"],
         ]},
         { if: { beenPast: 24, xLess: 14 }, once: true, do: [
           ["blackout", 1.15], ["sfx", "glitch"], ["lie", "BLIND"],
@@ -625,6 +651,8 @@
             ["sfx", "crumble"],
           ],
         ]},
+        iceSheet(6.8, 0.55),
+        openEye(15.8, 17, 3, 2.0),
       ],
     },
     {
@@ -652,6 +680,8 @@
           ["queue", 0.45, ["reverse", false]],
         ]},
         doorPop(27.4, 29, 0.14),
+        ghostEcho(11.6, 0.75),
+        pullBack(21.4, 16, 0.1, 0.4),
       ],
     },
     {
@@ -686,7 +716,7 @@
           ["queue", 0.22, ["fill", 10, 9, 2, 1, "#"], ["fill", 10, 10, 2, 1, "#"], ["fill", 22, 9, 2, 1, "#"], ["fill", 22, 10, 2, 1, "#"]],
         ]},
         { if: { beenPast: 24, xLess: 16 }, once: true, delay: 0.45, do: [
-          ["saw", 34, 8, -2.9, 0], ["sfx", "saw"],
+          ["saw", 33, 8, -2.9, 0], ["sfx", "saw"],
         ]},
         { if: { beenPast: 24, xLess: 13 }, once: true, do: [
           ["crushBot", 10, 2.0, 9], ["sfx", "near"], ["lie", "STOMP"],
@@ -703,6 +733,8 @@
             ["sfx", "crumble"],
           ],
         ]},
+        iceSheet(6.2, 0.55),
+        openEye(14.2, 16, 4, 2.0),
       ],
     },
   ];

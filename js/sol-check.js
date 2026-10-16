@@ -113,6 +113,7 @@ window.setTimeout = function (fn) { return 0; };
 window.clearTimeout = function () {};
 window.globalThis = window;
 
+window.__SURGE_TEST__ = true;
 load("js/levels.js");
 load("js/tracks.js");
 load("js/worlds.js");

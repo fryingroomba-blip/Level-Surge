@@ -177,17 +177,31 @@
   }
 
   function loadStore() {
-    try {
-      const raw = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
-      return Array.isArray(raw.rooms) ? raw.rooms : [];
-    } catch (_) {
-      return [];
+    const G = window.SURGE_GUARD;
+    if (!G || !G.openRooms) return [];
+    let text = null;
+    try { text = localStorage.getItem(STORE_KEY); } catch (_) { return []; }
+    const rooms = G.openRooms(text);
+    const encoded = G.packRooms(rooms);
+    if (text != null && encoded && text !== encoded) {
+      try { localStorage.setItem(STORE_KEY, encoded); } catch (_) { /* quota */ }
     }
+    return rooms;
   }
 
   function writeStore(rooms) {
+    const G = window.SURGE_GUARD;
+    if (!G || !G.packRooms) {
+      setStatus("Could not save");
+      return;
+    }
+    const encoded = G.packRooms(G.sanitizeRooms(rooms));
+    if (!encoded) {
+      setStatus("Could not save");
+      return;
+    }
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({ rooms }));
+      localStorage.setItem(STORE_KEY, encoded);
     } catch (_) {
       setStatus("Could not save (storage full?)");
     }
@@ -212,24 +226,53 @@
     if (!exit) map[8][30] = "E";
   }
 
+  function labelOf(value, max, fallback) {
+    const G = window.SURGE_GUARD;
+    const raw = String(value || "").trim().toUpperCase();
+    const clean = G ? G.plainLabel(raw, max) : raw.replace(/[<>&]/g, "").slice(0, max);
+    return clean || fallback;
+  }
+
+  function copyEvent(ev) {
+    const G = window.SURGE_GUARD;
+    try {
+      const text = JSON.stringify(ev);
+      return G ? G.parseStore(text) : JSON.parse(text);
+    } catch (_) {
+      return null;
+    }
+  }
+
   function buildLevel() {
     ensureUniqueMarks();
-    const name = ((nameEl && nameEl.value) || "UNNAMED").trim().toUpperCase() || "UNNAMED";
-    const taunt = ((tauntEl && tauntEl.value) || "YOU BUILT THIS").trim().toUpperCase() || "YOU BUILT THIS";
-    return {
+    const G = window.SURGE_GUARD;
+    if (!G) return null;
+    const events = [];
+    for (const t of traps) {
+      const ev = copyEvent(t.event);
+      if (ev) events.push(ev);
+    }
+    return G.sanitizeRoom({
       id: editId || ("room-" + Date.now().toString(36)),
-      name,
-      taunt,
+      name: labelOf(nameEl && nameEl.value, 24, "UNNAMED"),
+      taunt: labelOf(tauntEl && tauntEl.value, 32, "YOU BUILT THIS"),
       map: map.map((r) => r.join("")),
-      events: traps.map((t) => JSON.parse(JSON.stringify(t.event))),
+      events,
       explodeCoins: false,
       crumbleIfStill: 0,
       dim: 1,
       creator: true,
-    };
+    });
   }
 
   function applyLevel(lvl) {
+    const G = window.SURGE_GUARD;
+    const clean = G ? G.sanitizeRoom(lvl) : null;
+    if (!clean) {
+      setStatus("Room rejected");
+      return;
+    }
+    lvl = clean;
     editId = lvl.id || null;
     if (nameEl) nameEl.value = lvl.name || "UNNAMED";
     if (tauntEl) tauntEl.value = lvl.taunt || "YOU BUILT THIS";
@@ -292,6 +335,10 @@
 
   function addTrapAt(x) {
     if (x < 0 || x >= COLS) return;
+    if (traps.length >= 64) {
+      setStatus("Trap limit reached");
+      return;
+    }
     const kind = TRAP_KINDS.find((k) => k.id === trapKind) || TRAP_KINDS[1];
     const y = surfaceY(x);
     const event = kind.build(x, y);
@@ -476,7 +523,13 @@
       btn.type = "button";
       btn.className = "creator-lib-item";
       const n = (room.events || []).length;
-      btn.innerHTML = `${room.name || "UNNAMED"}<span class="meta">${n} traps · load / hold to delete</span>`;
+      const title = document.createElement("span");
+      title.textContent = room.name || "UNNAMED";
+      const meta = document.createElement("span");
+      meta.className = "meta";
+      meta.textContent = n + " traps · load / hold to delete";
+      btn.appendChild(title);
+      btn.appendChild(meta);
       btn.onclick = () => {
         applyLevel(room);
         setStatus(`Loaded ${room.name}`);
@@ -526,6 +579,10 @@
 
   function saveRoom() {
     const lvl = buildLevel();
+    if (!lvl) {
+      setStatus("Room rejected");
+      return;
+    }
     const rooms = loadStore();
     const idx = rooms.findIndex((r) => r.id === lvl.id);
     if (idx >= 0) rooms[idx] = lvl;
@@ -538,6 +595,10 @@
 
   function testRoom() {
     const lvl = buildLevel();
+    if (!lvl) {
+      setStatus("Room rejected");
+      return;
+    }
     const g = window.__GAME;
     if (!g || typeof g.playCustom !== "function") {
       setStatus("Game not ready");
@@ -559,6 +620,10 @@
 
   function exportJson() {
     const lvl = buildLevel();
+    if (!lvl) {
+      setStatus("Room rejected");
+      return;
+    }
     const text = JSON.stringify({
       name: lvl.name,
       taunt: lvl.taunt,

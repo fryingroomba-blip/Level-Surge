@@ -31,10 +31,17 @@
     { name: "LAST LIGHT", lore: "Last world. I'm a little scared too.", weather: "shards", bpm: 152, root: 61.74, sky: ["#06060a", "#040408", "#020204"], planet: ["#ffffff", "#d0d8ff", "#101018"], needle: "#0c0c14", edge: "rgba(255,255,255,0.34)", accent: [255, 255, 255], mul: "rgba(20,20,40,0.55)", brick: ["#303040", "#e8e8f8"] },
   ];
 
+  let roomW = 32;
+  function stageWidth(d) {
+    return 32 + 5 * Math.max(0, d - 1);
+  }
+  function activationCap(d) {
+    return 4 + 10 * Math.max(0, d - 1);
+  }
   function roomCount(d) { return 15 + d; }
   function trapCount(d) {
     let n = 10;
-    for (let i = 2; i <= d; i++) n += (i % 2 === 0 ? 2 : 3);
+    for (let i = 2; i <= d; i++) n += (i % 2 === 0 ? 2 : 3) + 10;
     return n;
   }
 
@@ -188,7 +195,7 @@
     if (id === "petalSaw") {
       return {
         if: { x: +(x - 2.0).toFixed(2) }, once: true,
-        do: [["saw", Math.min(30, x + 4), y - 1, late ? -2.4 : -2.1, 0], ["sfx", "saw"]],
+        do: [["saw", Math.min(roomW - 2, x + 4), y - 1, late ? -2.4 : -2.1, 0], ["sfx", "saw"]],
       };
     }
     if (id === "tickGate") {
@@ -282,7 +289,7 @@
     if (id === "boneSaw") {
       return {
         if: { x: +(x - 1.8).toFixed(2) }, once: true,
-        do: [["saw", Math.min(30, x + 3), Math.max(2, y - 3), late ? -2.1 : -1.85, 0.35], ["sfx", "saw"]],
+        do: [["saw", Math.min(roomW - 2, x + 3), Math.max(2, y - 3), late ? -2.1 : -1.85, 0.35], ["sfx", "saw"]],
       };
     }
     if (id === "glassCrack") {
@@ -313,7 +320,7 @@
       return {
         if: { x: +(x - 2.0).toFixed(2) }, once: true,
         do: [
-          ["saw", Math.min(29, x + 6), y - 1, late ? -2.9 : -2.55, 0], ["sfx", "saw"],
+          ["saw", Math.min(roomW - 3, x + 6), y - 1, late ? -2.9 : -2.55, 0], ["sfx", "saw"],
           ["queue", 0.35, ["chase", 0]],
         ],
       };
@@ -417,7 +424,7 @@
       return {
         if: { x: +(x - 2.1).toFixed(2) }, once: true,
         do: [
-          ["saw", Math.min(30, x + 5), y - 1, late ? -2.2 : -1.9, 0], ["sfx", "saw"],
+          ["saw", Math.min(roomW - 2, x + 5), y - 1, late ? -2.2 : -1.9, 0], ["sfx", "saw"],
           ["queue", 0.35, ["saw", Math.max(0, x - 4), y - 1, late ? 2.0 : 1.75, 0]],
         ],
       };
@@ -436,7 +443,7 @@
       return {
         if: { x: +(x - 2.3).toFixed(2) }, once: true,
         do: [
-          ["saw", Math.min(30, x + 6), y - 1, late ? -3.0 : -2.7, 0], ["sfx", "saw"],
+          ["saw", Math.min(roomW - 2, x + 6), y - 1, late ? -3.0 : -2.7, 0], ["sfx", "saw"],
           ["queue", 0.28, ["chase", 0]],
         ],
       };
@@ -451,6 +458,33 @@
     };
   }
   function pick(r, arr) { return arr[(r() * arr.length) | 0]; }
+
+  // Prompt trap. Each dimension is meaner on every axis that fits in the action:
+  // a shorter window, one more letter in the pool, and more presses as the number climbs.
+  function qteAction(d, roll) {
+    const dim = Math.max(1, Math.min(20, d | 0));
+    const windowSec = Math.max(0.28, +(1.15 - (dim - 1) * 0.045).toFixed(3));
+    let presses = 1;
+    if (dim >= 4) presses = 2;
+    if (dim >= 8) presses = 3;
+    if (dim >= 12) presses = 4;
+    if (dim >= 16) presses = 5;
+    if (dim >= 19) presses = 6;
+    const pool = "JKLFGHVBNMCXZEUTYIOPQ";
+    const poolN = Math.min(pool.length, dim + 1);
+    const next = typeof roll === "function" ? roll : () => 0;
+    const keys = [];
+    for (let i = 0; i < presses; i++) {
+      let ch = pool[(next() * poolN) | 0];
+      let guardN = 0;
+      while (i > 0 && ch === keys[i - 1] && poolN > 1 && guardN < 4) {
+        ch = pool[(next() * poolN) | 0];
+        guardN++;
+      }
+      keys.push(ch.charCodeAt(0));
+    }
+    return ["qte", windowSec].concat(keys);
+  }
 
   const LAYOUTS = ["RIDGE", "GAPS", "CLIMB", "TRENCH", "SHELF", "STEPS", "POCKETS", "BRIDGE"];
 
@@ -563,14 +597,15 @@
   }
 
   function terrain(d, room, r) {
-    const W = 32;
+    roomW = stageWidth(d);
+    const W = roomW;
     const surface = new Array(W);
     let y = 7 + (room % 3);
     const pitChance = 0.06 + (room % 5) * 0.012 + (d >= 14 ? 0.04 : d >= 7 ? 0.02 : 0);
     for (let x = 0; x < W; x++) {
-      if (x > 4 && x < 27 && r() < pitChance) {
+      if (x > 4 && x < W - 5 && r() < pitChance) {
         surface[x] = -1;
-        if (r() < 0.55 && x + 1 < 27) {
+        if (r() < 0.55 && x + 1 < W - 5) {
           x += 1;
           surface[x] = -1;
         }
@@ -582,12 +617,12 @@
         if (roll < climb && y > 5) y -= 1;
         else if (roll > 0.82 && y < 9) y += 1;
       }
-      if ((d + room) % 6 === 2 && x > 18) y = Math.max(5, y - (x % 7 === 0 ? 1 : 0));
-      if ((d + room) % 6 === 4 && x > 8 && x < 16) y = Math.min(9, y + (x % 5 === 0 ? 1 : 0));
+      if ((d + room) % 6 === 2 && x > W * 0.55) y = Math.max(5, y - (x % 7 === 0 ? 1 : 0));
+      if ((d + room) % 6 === 4 && x > W * 0.25 && x < W * 0.5) y = Math.min(9, y + (x % 5 === 0 ? 1 : 0));
       surface[x] = Math.max(5, Math.min(9, y));
     }
     for (let x = 0; x < W; x++) {
-      if (x < 3 || x > 28) surface[x] = surface[x] < 0 ? 9 : surface[x];
+      if (x < 3 || x > W - 4) surface[x] = surface[x] < 0 ? 9 : surface[x];
     }
     let run = 0;
     for (let x = 0; x < W; x++) {
@@ -609,9 +644,10 @@
       if (dy > 1) surface[x] = surface[x - 1] + 1;
       if (dy < -1) surface[x] = surface[x - 1] - 1;
     }
+    const door = W - 2;
     surface[1] = surface[1] < 0 ? 9 : surface[1];
-    surface[30] = surface[30] < 0 ? surface[29] < 0 ? 9 : surface[29] : surface[30];
-    if (!reachable(surface, 1, 30)) {
+    surface[door] = surface[door] < 0 ? (surface[door - 1] < 0 ? 9 : surface[door - 1]) : surface[door];
+    if (!reachable(surface, 1, door)) {
       for (let x = 0; x < W; x++) if (surface[x] < 0) surface[x] = 9;
       for (let x = 1; x < W; x++) {
         const dy = surface[x] - surface[x - 1];
@@ -652,7 +688,7 @@
       for (let y = surface[x]; y < H; y++) g[y][x] = "#";
     }
     g[surface[1] - 1][1] = "S";
-    g[surface[30] - 1][30] = "E";
+    g[surface[W - 2] - 1][W - 2] = "E";
     const lip = 2 + ((d + room) % 3);
     for (let x = 0; x < W; x++) {
       const nearGap = (x > 0 && surface[x - 1] < 0) || (x + 1 < W && surface[x + 1] < 0)
@@ -679,11 +715,124 @@
       if (py > 0) g[py - 1][13] = "F";
     }
     g[surface[1] - 1][1] = "S";
-    g[surface[30] - 1][30] = "E";
+    g[surface[W - 2] - 1][W - 2] = "E";
     return g.map((row) => row.join(""));
   }
 
+  // Local hazards that put themselves back. A second hit is a beat, not a new hole.
+  const PULSE_OK = {
+    fill: 1, laser: 1, glow: 1, sfx: 1, shake: 1, flash: 1, queue: 1, lie: 1, dust: 1, whisper: 1,
+  };
+
+  function pulseKinds(actions, out) {
+    for (let i = 0; i < actions.length; i++) {
+      const a = actions[i];
+      if (!a || !a.length) continue;
+      out.push(a[0]);
+      if (a[0] === "queue") {
+        for (let k = 2; k < a.length; k++) {
+          if (Array.isArray(a[k])) pulseKinds([a[k]], out);
+        }
+      }
+    }
+  }
+
+  function canPulse(ev) {
+    if (!ev || ev.quiet || !ev.if || ev.if.x == null) return false;
+    if (ev.if.jump || ev.if.door) return false;
+    const kinds = [];
+    pulseKinds(ev.do || [], kinds);
+    if (!kinds.length) return false;
+    let hazard = false;
+    let restores = false;
+    for (let i = 0; i < kinds.length; i++) {
+      if (!PULSE_OK[kinds[i]]) return false;
+      if (kinds[i] === "fill" || kinds[i] === "laser") hazard = true;
+      if (kinds[i] === "queue" || kinds[i] === "laser") restores = true;
+    }
+    return hazard && restores;
+  }
+
+  function pulseGap(ev) {
+    let busy = 0.35;
+    function walk(list) {
+      for (let i = 0; i < list.length; i++) {
+        const a = list[i];
+        if (!a) continue;
+        if (a[0] === "queue") busy = Math.max(busy, Number(a[1]) || 0);
+        if (a[0] === "laser") busy = Math.max(busy, Number(a[4]) || 0.4);
+        if (a[0] === "queue") {
+          const nested = [];
+          for (let k = 2; k < a.length; k++) if (Array.isArray(a[k])) nested.push(a[k]);
+          walk(nested);
+        }
+      }
+    }
+    walk(ev.do || []);
+    const gap = busy + 0.75;
+    return Math.min(1.85, Math.max(1.2, Math.round(gap * 100) / 100));
+  }
+
+  // How many traps in this room get a second life. 0 is allowed. 5 is the ceiling.
+  function repeatSlots(d, roll, eligible) {
+    let want = 0;
+    const quietRoom = roll < (d <= 6 ? 0.18 : 0.08);
+    if (!quietRoom && d <= 4) want = roll < 0.7 ? 1 : 2;
+    else if (!quietRoom && d <= 8) want = roll < 0.4 ? 1 : roll < 0.85 ? 2 : 3;
+    else if (!quietRoom && d <= 13) want = roll < 0.25 ? 2 : roll < 0.7 ? 3 : 4;
+    else if (!quietRoom) want = roll < 0.2 ? 2 : roll < 0.55 ? 3 : roll < 0.88 ? 4 : 5;
+    return Math.max(0, Math.min(5, want, eligible));
+  }
+
+  function stampRepeats(events, d, room) {
+    if (d < 3) return;
+    const eligible = [];
+    for (let i = 0; i < events.length; i++) {
+      if (canPulse(events[i])) eligible.push(i);
+    }
+    if (!eligible.length) return;
+    eligible.sort((a, b) => (events[a].if.x || 0) - (events[b].if.x || 0));
+    const r = rng((d * 9176 + room * 503 + 41) >>> 0);
+    const want = repeatSlots(d, r(), eligible.length);
+    if (want <= 0) return;
+    const picked = [];
+    const used = new Set();
+    const start = (r() * eligible.length) | 0;
+    const step = Math.max(1, eligible.length / want);
+    function crowded(idx, gap) {
+      const x = events[idx].if.x || 0;
+      for (let p = 0; p < picked.length; p++) {
+        if (Math.abs((events[picked[p]].if.x || 0) - x) < gap) return true;
+      }
+      return false;
+    }
+    for (let k = 0; k < eligible.length && picked.length < want; k++) {
+      const idx = eligible[(start + Math.floor(k * step)) % eligible.length];
+      if (used.has(idx) || crowded(idx, 3)) continue;
+      used.add(idx);
+      picked.push(idx);
+    }
+    for (let i = 0; i < eligible.length && picked.length < want; i++) {
+      const idx = eligible[(start + i) % eligible.length];
+      if (used.has(idx) || crowded(idx, 2.5)) continue;
+      used.add(idx);
+      picked.push(idx);
+    }
+    // 4 hits is one trap in a room, and most rooms never roll it.
+    const fourChance = d < 6 ? 0.06 : d < 10 ? 0.1 : d < 15 ? 0.14 : 0.18;
+    const fourAt = (r() < fourChance && picked.length) ? (r() * picked.length) | 0 : -1;
+    for (let i = 0; i < picked.length; i++) {
+      const ev = events[picked[i]];
+      let times = 2;
+      if (i === fourAt) times = activationCap(d);
+      else if (r() < 0.22) times = 3;
+      ev.times = times;
+      ev.rearm = pulseGap(ev);
+    }
+  }
+
   function buildEvents(d, surface, boss, room) {
+    roomW = surface.length;
     const n = trapCount(d) + (boss ? 4 : 0);
     const events = [];
     const realAt = [];
@@ -693,13 +842,14 @@
     const gapLong = late ? 2 : 3;
     const gapShort = late ? 1 : 2;
     // Spend most of the trap budget on real hits, not quiet dust/glow.
-    const budget = Math.min(n - 1, (late ? 14 : mid ? 12 : 9) + Math.floor(d / 2));
+    const wide = Math.floor((roomW - 32) / 8);
+    const budget = Math.min(n - 1, (late ? 14 : mid ? 12 : 9) + Math.floor(d / 2) + Math.floor((roomW - 32) / 5));
     const sigs = DIM_SIG[Math.max(0, Math.min(DIM_SIG.length - 1, d - 1))] || [];
     const caps = {
-      gate: late ? 6 : mid ? 5 : 4,
-      hole: late ? 5 : mid ? 4 : 3,
-      laser: late ? 4 : mid ? 3 : 2,
-      saw: late ? 5 : mid ? 4 : 3,
+      gate: (late ? 6 : mid ? 5 : 4) + wide,
+      hole: (late ? 5 : mid ? 4 : 3) + Math.floor(wide / 2),
+      laser: (late ? 4 : mid ? 3 : 2) + Math.floor(wide / 2),
+      saw: (late ? 5 : mid ? 4 : 3) + Math.floor(wide / 2),
       reverse: d >= 6 ? 2 : 0,
       push: mid ? 3 : 2,
       drop: late ? 3 : 2,
@@ -709,10 +859,10 @@
       ceiling: late ? 3 : 2,
       gravity: d >= 5 ? 2 : 0,
       teleport: d >= 10 ? 2 : 0,
-      // Rare hard traps: at most one, and only in some rooms.
-      rare: (!boss && d >= 4) ? 1 : 0,
-      // Entity / horror traps: even rarer, later dims, never stack with rare.
-      entity: (!boss && d >= 7) ? 1 : 0,
+      // Movement gimmicks. From D10 a second one shows up.
+      rare: d >= 10 ? 2 : (d >= 2 ? 1 : 0),
+      // Horror gimmicks. From D10 a second one shows up.
+      entity: d >= 10 ? 2 : (d >= 5 ? 1 : 0),
       sig: 2,
     };
     const used = {
@@ -732,7 +882,7 @@
     const order = roster[(room + d) % roster.length];
     const bounceX = (room + d) % 4 === 1 ? 8 + ((room * 3 + d) % 14) : -1;
     const crumbleX = (room + d) % 5 === 2 ? 6 + ((room * 2) % 12) : -1;
-    const LONG = { hole: 1, laser: 1, saw: 1, drop: 1, ceiling: 1, side: 1, teleport: 1, blink: 1, clamp: 1, rift: 1, echo: 1, stalker: 1, drone: 1, rocket: 1, swarm: 1, crushBot: 1, huntLight: 1 };
+    const LONG = { hole: 1, laser: 1, saw: 1, drop: 1, ceiling: 1, side: 1, teleport: 1, blink: 1, clamp: 1, rift: 1, echo: 1, stalker: 1, drone: 1, rocket: 1, swarm: 1, crushBot: 1, huntLight: 1, reaper: 1, salvo: 1, pincer: 1, guillotine: 1, abyss: 1, eclipse: 1, snare: 1, orbitSaw: 1, crossfire: 1, leech: 1, shardRain: 1, wraith: 1, mineLine: 1, gravLock: 1, seeker: 1, collapse: 1, barbedWind: 1, mirrorBolt: 1, pitBeast: 1, judgment: 1 };
 
     function span(x, dir) {
       let count = 0;
@@ -778,7 +928,7 @@
     }
 
     function allowsFamily(x, family, forSig) {
-      if (x < 8 || x > 25 || surface[x] < 0) return false;
+      if (x < 8 || x > roomW - 7 || surface[x] < 0) return false;
       if (busy(x, family)) return false;
       if (nearPit(x, LONG[family] ? 2 : 1)) return false;
       // Signature traps always get at least one slot of their family.
@@ -836,7 +986,7 @@
       } else if (type === "saw") {
         events.push({
           if: { x: +(x - 1.45).toFixed(2) }, once: true,
-          do: [["saw", Math.min(29, x + 5), y - 1, late ? -3.1 : -2.7, 0], ["sfx", "saw"]],
+          do: [["saw", Math.min(roomW - 3, x + 5), y - 1, late ? -3.1 : -2.7, 0], ["sfx", "saw"]],
         });
       } else if (type === "reverse") {
         events.push({
@@ -863,7 +1013,7 @@
           do: [["lock", late ? 0.42 : 0.52], ["flash", 0.05], ["sfx", "land"], ["shake", 3]],
         });
       } else if (type === "wind") {
-        const dir = x > 16 ? -1 : 1;
+        const dir = x > roomW / 2 ? -1 : 1;
         events.push({
           if: { x: +(x - 0.3).toFixed(2) }, once: true,
           do: [["wind", +(0.75 * dir).toFixed(2)], ["shake", 3], ["sfx", "reverse"],
@@ -873,10 +1023,10 @@
         events.push({
           if: { x: +(x - 1.3).toFixed(2) }, once: true,
           do: [
-            ["fill", x, y - 1, 1, 1, ">"], ["fill", Math.min(30, x + 1), y - 1, 1, 1, "<"],
+            ["fill", x, y - 1, 1, 1, ">"], ["fill", Math.min(roomW - 2, x + 1), y - 1, 1, 1, "<"],
             ["sfx", "spike"], ["shake", 4],
             ["queue", late ? 0.5 : 0.65,
-              ["fill", x, y - 1, 1, 1, "."], ["fill", Math.min(30, x + 1), y - 1, 1, 1, "."]],
+              ["fill", x, y - 1, 1, 1, "."], ["fill", Math.min(roomW - 2, x + 1), y - 1, 1, 1, "."]],
           ],
         });
       } else if (type === "ceiling") {
@@ -919,13 +1069,16 @@
       return true;
     }
 
-    function commitRare(x, type) {
+    function commitRare(x, type, loose) {
       if (events.length >= n || used.rare >= (caps.rare || 0)) return false;
-      if (x < 12 || x > 22 || surface[x] < 0) return false;
+      if (x < 11 || x > roomW - 8 || surface[x] < 0) return false;
+      const gap = loose ? 2 : 3;
       for (let i = 0; i < realAt.length; i++) {
-        if (Math.abs(realAt[i].x - x) < 3) return false;
+        if (Math.abs(realAt[i].x - x) < gap) return false;
       }
-      if (nearPit(x, 2)) return false;
+      if (nearPit(x, 2)) {
+        if (!loose || (type !== "blackout" && type !== "echo")) return false;
+      }
       const y = surface[x];
       const L = span(x, -1);
       const R = span(x, 1);
@@ -992,13 +1145,16 @@
       return true;
     }
 
-    function commitEntity(x, type) {
+    function commitEntity(x, type, loose) {
       if (events.length >= n || used.entity >= (caps.entity || 0)) return false;
-      if (x < 13 || x > 23 || surface[x] < 0) return false;
+      if (x < 11 || x > roomW - 8 || surface[x] < 0) return false;
+      const gap = loose ? 2 : 3;
       for (let i = 0; i < realAt.length; i++) {
-        if (Math.abs(realAt[i].x - x) < 4) return false;
+        if (Math.abs(realAt[i].x - x) < gap) return false;
       }
-      if (nearPit(x, 2)) return false;
+      if (nearPit(x, 2)) {
+        if (!loose || (type !== "watcher" && type !== "phantom")) return false;
+      }
       const y = surface[x];
       const lateE = d >= 14;
       if (type === "stalker") {
@@ -1030,7 +1186,7 @@
       } else if (type === "sentry") {
         events.push({
           if: { x: +(x - 0.4).toFixed(2) }, once: true,
-          do: [["sentry", x > 16 ? 1 : -1, y - 1, lateE ? 3.2 : 2.7], ["lie", "SENTRY"]],
+          do: [["sentry", x > roomW / 2 ? 1 : -1, y - 1, lateE ? 3.2 : 2.7], ["lie", "SENTRY"]],
         });
       } else if (type === "swarm") {
         events.push({
@@ -1066,13 +1222,114 @@
       do: [["fill", 2, Math.max(2, head - 3), 4, 1, "v"], ["shake", 4], ["sfx", "spike"]],
     });
 
-    const heat = pathHeat(surface, 1, 30);
+    const heat = pathHeat(surface, 1, roomW - 2);
     const hot = [];
-    for (let c = 8; c <= 25; c++) {
+    for (let c = 8; c <= roomW - 7; c++) {
       if (surface[c] < 0 || heat[c] <= 0) continue;
       hot.push(c);
     }
     hot.sort((a, b) => heat[b] - heat[a] || a - b);
+
+
+    const APEX = ["reaper", "salvo", "pincer", "guillotine", "abyss", "eclipse", "snare", "orbitSaw", "crossfire", "leech", "shardRain", "wraith", "mineLine", "gravLock", "seeker", "collapse", "barbedWind", "mirrorBolt", "pitBeast", "judgment"];
+
+    function apexWant() {
+      if (d < 8) return 0;
+      if (d < 10) return ((room * 13 + d) % 8 === 0) ? 1 : 0;
+      const tier = 1 + Math.floor((d - 10) / 3);
+      if ((room + d) % 6 === 0) return Math.max(1, tier - 1);
+      return tier;
+    }
+
+    function commitApex(x, type, loose) {
+      if (events.length >= n) return false;
+      if (x < 10 || x > roomW - 8 || surface[x] < 0) return false;
+      for (let i = 0; i < realAt.length; i++) {
+        if (Math.abs(realAt[i].x - x) < (loose ? 3 : 4)) return false;
+      }
+      const floorBite = type === "abyss" || type === "pitBeast" || type === "mineLine" || type === "guillotine" || type === "snare";
+      if (nearPit(x, loose ? 1 : 2)) {
+        if (!loose || floorBite) return false;
+      }
+      const y = surface[x];
+      const L = span(x, -1);
+      const R = span(x, 1);
+      const hard = d >= 15;
+      const lead = +(x - 1.5).toFixed(2);
+      let ev = null;
+      if (type === "reaper") {
+        ev = { if: { x: +(x - 0.35).toFixed(2) }, once: true, do: [["reaper", hard ? 5.8 : 5.2, hard ? 2.8 : 2.3], ["lie", "REAPER"]] };
+      } else if (type === "salvo") {
+        ev = { if: { x: lead }, once: true, do: [["salvo", y], ["lie", "SALVO"]] };
+      } else if (type === "pincer") {
+        if (L + R < 4) return false;
+        ev = { if: { x: +(x - 0.8).toFixed(2) }, once: true, do: [["pincer", x, y], ["lie", "PINCER"]] };
+      } else if (type === "guillotine") {
+        if (y < 5 || R < 2) return false;
+        ev = { if: { x: +(x - 1.8).toFixed(2) }, once: true, do: [["guillotine", x, y, hard ? 4 : 3], ["lie", "DROP"]] };
+      } else if (type === "abyss") {
+        if (L < 1 || R < 2 || y < 4) return false;
+        ev = { if: { x: +(x - 1.4).toFixed(2) }, once: true, do: [["abyss", x, y, 3, hard ? 0.48 : 0.4], ["lie", "ABYSS"]] };
+      } else if (type === "eclipse") {
+        ev = { if: { x: +(x - 0.3).toFixed(2) }, once: true, do: [["eclipse", hard ? 2.1 : 1.7, hard ? 38 : 46], ["lie", "ECLIPSE"]] };
+      } else if (type === "snare") {
+        if (R < 2) return false;
+        ev = { if: { x: +(x - 1.6).toFixed(2) }, once: true, do: [["snare", x + 1, y, 0.42], ["lie", "SNARE"]] };
+      } else if (type === "orbitSaw") {
+        ev = { if: { x: +(x - 1.2).toFixed(2) }, once: true, do: [["orbitSaw", Math.min(roomW - 3, x + 4), y, hard ? -3.2 : -2.6], ["lie", "ORBIT"]] };
+      } else if (type === "crossfire") {
+        if (x < 14 || x > roomW - 14) return false;
+        ev = { if: { x: +(x - 0.4).toFixed(2) }, once: true, do: [["crossfire", x, y], ["lie", "CROSSFIRE"]] };
+      } else if (type === "leech") {
+        ev = { if: { x: +(x - 0.2).toFixed(2) }, once: true, do: [["leech", x, y], ["lie", "LEECH"]] };
+      } else if (type === "shardRain") {
+        if (R < 4) return false;
+        ev = { if: { x: +(x - 1.1).toFixed(2) }, once: true, do: [["shardRain", x, y], ["lie", "RAIN"]] };
+      } else if (type === "wraith") {
+        ev = { if: { x: +(x - 0.3).toFixed(2) }, once: true, do: [["wraith", hard ? 2.6 : 2.2], ["lie", "WRAITH"]] };
+      } else if (type === "mineLine") {
+        if (R < 3) return false;
+        ev = { if: { x: +(x - 0.5).toFixed(2) }, once: true, do: [["mineLine", x, y, hard ? 5 : 4], ["lie", "MINES"]] };
+      } else if (type === "gravLock") {
+        ev = { if: { x: +(x - 0.2).toFixed(2) }, once: true, do: [["gravLock", hard ? 1.05 : 0.85], ["lie", "FLIP"]] };
+      } else if (type === "seeker") {
+        ev = { if: { x: +(x - 0.45).toFixed(2) }, once: true, do: [["seeker", x, y, hard ? 3.6 : 3.1], ["lie", "SEEKER"]] };
+      } else if (type === "collapse") {
+        if (R < 2 || y < 5) return false;
+        ev = { if: { x: +(x - 1.3).toFixed(2) }, once: true, do: [["collapse", x, y], ["lie", "BETWEEN"]] };
+      } else if (type === "barbedWind") {
+        ev = { if: { x: +(x - 0.3).toFixed(2) }, once: true, do: [["barbedWind", x, y], ["lie", "BARBS"]] };
+      } else if (type === "mirrorBolt") {
+        ev = { if: { x: +(x - 0.25).toFixed(2) }, once: true, do: [["mirrorBolt", y, hard ? 0.62 : 0.48], ["lie", "MIRROR"]] };
+      } else if (type === "pitBeast") {
+        if (L + R < 3) return false;
+        ev = { if: { x: +(x - 0.5).toFixed(2) }, once: true, do: [["pitBeast", hard ? 1.5 : 1.25, hard ? 4.4 : 4.1], ["lie", "PIT BEAST"]] };
+      } else if (type === "judgment") {
+        ev = { if: { x: +(x - 1.2).toFixed(2) }, once: true, do: [["judgment", x, y, hard ? 3.6 : 2.8], ["lie", "JUDGMENT"]] };
+      }
+      if (!ev) return false;
+      events.push(ev);
+      realAt.push({ x, t: type });
+      return true;
+    }
+
+    function placeApex() {
+      const want = apexWant();
+      const usedA = new Set();
+      for (let s = 0; s < want && events.length < n; s++) {
+        const start = (room * 3 + d + s * 5) % APEX.length;
+        let placed = false;
+        for (let pass = 0; pass < 2 && !placed; pass++) {
+          for (let k = 0; k < APEX.length && !placed; k++) {
+            const type = APEX[(start + k) % APEX.length];
+            if (usedA.has(type)) continue;
+            for (let hi = 0; hi < hot.length && !placed; hi++) placed = commitApex(hot[hi], type, pass === 1);
+            for (let c = 10; c <= roomW - 8 && !placed; c++) placed = commitApex(c, type, pass === 1);
+            if (placed) usedA.add(type);
+          }
+        }
+      }
+    }
 
     // Place this world's two signature traps first so they actually show up.
     for (let si = 0; si < sigs.length && used.sig < 2 && events.length < n; si++) {
@@ -1082,50 +1339,81 @@
         if (commitSig(hot[hi], sig)) { placed = true; break; }
       }
       if (!placed) {
-        for (let c = 8; c <= 25; c++) {
+        for (let c = 8; c <= roomW - 7; c++) {
           if (commitSig(c, sig)) break;
         }
       }
     }
 
-    // Rare hard traps: ~1 in 5 rooms from D4 up. Place early so the budget can't crowd them out.
-    const wantRare = (caps.rare || 0) > 0 && (room * 7 + d * 3) % 5 === 0;
-    if (wantRare && events.length < n) {
-      const pick = RARE[(room + d * 2) % RARE.length];
+    placeApex();
+
+    // Movement gimmicks, then horror. A loose pass allows a safe tell beside a pit
+    // so a cramped room still gets its gimmick.
+    const rareUsed = new Set();
+    const entUsed = new Set();
+    function placeGimmick(kind, loose) {
+      const list = kind === "rare" ? RARE : ENTITY;
+      const seen = kind === "rare" ? rareUsed : entUsed;
+      const commit = kind === "rare" ? commitRare : commitEntity;
+      const salt = kind === "rare" ? d * 2 + used.rare * 3 : d * 3 + used.entity * 4;
+      const pick = list[(room + salt) % list.length];
       let placed = false;
-      for (let hi = 0; hi < hot.length && !placed; hi++) {
-        const c = hot[hi];
-        if (c < 12 || c > 22) continue;
-        placed = commitRare(c, pick);
-      }
-      if (!placed) {
-        for (let c = 12; c <= 22 && !placed; c++) placed = commitRare(c, pick);
-      }
-      if (!placed) {
-        for (let ri = 0; ri < RARE.length && !placed; ri++) {
-          const alt = RARE[(ri + room + 1) % RARE.length];
-          for (let c = 12; c <= 22 && !placed; c++) placed = commitRare(c, alt);
+      function tryType(type) {
+        if (placed || seen.has(type)) return;
+        for (let hi = 0; hi < hot.length && !placed; hi++) {
+          const c = hot[hi];
+          if (c < 11 || c > roomW - 8) continue;
+          placed = commit(c, type, loose);
         }
+        for (let c = 11; c <= roomW - 8 && !placed; c++) placed = commit(c, type, loose);
+      }
+      tryType(pick);
+      for (let i = 0; i < list.length && !placed; i++) tryType(list[(i + room + 1) % list.length]);
+      if (placed) seen.add(realAt[realAt.length - 1].t);
+      return placed;
+    }
+    function fillGimmick(kind, limit) {
+      const cap = Math.min(limit, caps[kind] || 0);
+      while (used[kind] < cap && events.length < n) {
+        const before = used[kind];
+        if (!placeGimmick(kind, false)) placeGimmick(kind, true);
+        if (used[kind] === before) break;
       }
     }
+    fillGimmick("rare", 1);
+    fillGimmick("entity", 1);
+    fillGimmick("rare", caps.rare || 0);
+    fillGimmick("entity", caps.entity || 0);
 
-    // Entity / horror traps: ~1 in 7 rooms from D7 up. Never share a room with a rare.
-    const wantEntity = (caps.entity || 0) > 0 && !wantRare && (room * 11 + d * 5) % 7 === 0;
-    if (wantEntity && events.length < n) {
-      const pick = ENTITY[(room + d * 3) % ENTITY.length];
+    // Quick-time prompt. Seeded 1-in-10, so the same room always rolls the same way.
+    const qteRng = rng((d * 6151 + room * 2741 + 91) >>> 0);
+    if (qteRng() < 0.1 && events.length < n) {
+      const spec = qteAction(d, qteRng);
       let placed = false;
-      for (let hi = 0; hi < hot.length && !placed; hi++) {
-        const c = hot[hi];
-        if (c < 13 || c > 23) continue;
-        placed = commitEntity(c, pick);
-      }
+      const tryQ = (x, loose) => {
+        if (placed || events.length >= n) return;
+        if (x < 10 || x > roomW - 8 || surface[x] < 0) return;
+        if (!loose && (busy(x, "qte") || nearPit(x, 1))) return;
+        if (loose && busy(x, "qte")) return;
+        events.push({
+          if: { x: +(x - 0.35).toFixed(2) }, once: true,
+          do: [spec],
+        });
+        realAt.push({ x, t: "qte" });
+        placed = true;
+      };
+      for (let hi = 0; hi < hot.length && !placed; hi++) tryQ(hot[hi], false);
+      for (let c = 11; c <= roomW - 9 && !placed; c++) tryQ(c, false);
+      for (let c = 11; c <= roomW - 9 && !placed; c++) tryQ(c, true);
       if (!placed) {
-        for (let c = 13; c <= 23 && !placed; c++) placed = commitEntity(c, pick);
-      }
-      if (!placed) {
-        for (let ei = 0; ei < ENTITY.length && !placed; ei++) {
-          const alt = ENTITY[(ei + room + 2) % ENTITY.length];
-          for (let c = 13; c <= 23 && !placed; c++) placed = commitEntity(c, alt);
+        for (let c = 11; c <= roomW - 9 && !placed && events.length < n; c++) {
+          if (surface[c] < 0) continue;
+          events.push({
+            if: { x: +(c - 0.35).toFixed(2) }, once: true,
+            do: [spec],
+          });
+          realAt.push({ x: c, t: "qte" });
+          placed = true;
         }
       }
     }
@@ -1142,7 +1430,7 @@
     }
     // Second pass: retry every column so spacing still packs after the first hits land.
     if (realAt.length < budget) {
-      for (let c = 8; c <= 25 && realAt.length < budget && events.length < n; c++) {
+      for (let c = 8; c <= roomW - 7 && realAt.length < budget && events.length < n; c++) {
         for (let k = 0; k < order.length; k++) {
           const type = order[(cursor + k) % order.length];
           if (!commit(c, type)) continue;
@@ -1154,7 +1442,7 @@
     // Last resort: force any armed trap family onto leftover legal tiles.
     if (realAt.length < budget) {
       const force = ["gate", "saw", "hole", "laser", "push", "drop", "lock", "wind", "side", "ceiling", "reverse", "gravity", "teleport"];
-      for (let c = 8; c <= 25 && realAt.length < budget && events.length < n; c++) {
+      for (let c = 8; c <= roomW - 7 && realAt.length < budget && events.length < n; c++) {
         for (let fi = 0; fi < force.length; fi++) {
           if (commit(c, force[fi])) break;
         }
@@ -1163,7 +1451,7 @@
     // Still short? Ignore near-pit / flat rules — only spacing + caps.
     if (realAt.length < budget) {
       const force = ["gate", "push", "saw", "lock", "wind", "hole"];
-      for (let c = 8; c <= 25 && realAt.length < budget && events.length < n; c++) {
+      for (let c = 8; c <= roomW - 7 && realAt.length < budget && events.length < n; c++) {
         if (surface[c] < 0 || busy(c, "gate")) continue;
         for (let fi = 0; fi < force.length; fi++) {
           const type = force[fi];
@@ -1183,7 +1471,7 @@
           } else if (type === "saw") {
             events.push({
               if: { x: +(c - 1.3).toFixed(2) }, once: true,
-              do: [["saw", Math.min(29, c + 4), y - 1, late ? -3.0 : -2.6, 0], ["sfx", "saw"]],
+              do: [["saw", Math.min(roomW - 3, c + 4), y - 1, late ? -3.0 : -2.6, 0], ["sfx", "saw"]],
             });
           } else if (type === "lock") {
             events.push({
@@ -1212,18 +1500,18 @@
     const tells = [];
     const seenTell = new Set();
     function pushTell(x) {
-      if (x < 4 || x > 28 || seenTell.has(x)) return;
+      if (x < 4 || x > roomW - 4 || seenTell.has(x)) return;
       seenTell.add(x);
       tells.push(x);
     }
     for (let i = 0; i < realAt.length; i++) pushTell(realAt[i].x - 1);
     const bait = hot.slice().sort((a, b) => heat[b] - heat[a]);
     for (let i = 0; i < bait.length; i++) pushTell(bait[i]);
-    for (let x = 5; x <= 28; x++) pushTell(x);
+    for (let x = 5; x <= roomW - 4; x++) pushTell(x);
     if (!tells.length) tells.push(8);
     let ti = 0;
     let guard = 0;
-    while (events.length < n && guard++ < 300) {
+    while (events.length < n && guard++ < n + 40) {
       const x = tells[ti % tells.length];
       ti += 1;
       const y = surface[x] >= 0 ? surface[x] : 9;
@@ -1269,6 +1557,7 @@
         ],
       };
     }
+    stampRepeats(events, d, room);
     return events.slice(0, n);
   }
 
@@ -1324,7 +1613,7 @@
   }
 
   root.SURGE_WORLDS = {
-    DIMS, roomCount, trapCount, signatureTraps, generate, theme, chordsFor, reachable, pathHeat, count: 20,
+    DIMS, roomCount, trapCount, stageWidth, activationCap, signatureTraps, qteAction, generate, theme, chordsFor, reachable, pathHeat, count: 20,
   };
   root.LEVELS = generate(1);
 })(typeof window !== "undefined" ? window : globalThis);

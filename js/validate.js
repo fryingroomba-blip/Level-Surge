@@ -24,6 +24,14 @@ const ACTIONS = new Set([
   "teleport", "push", "lock", "laser", "wind", "platform", "drop",
   "hideDoor", "showDoor", "swapDoor", "slow",
   "dust", "flash", "whisper", "glow", "lie",
+  "slip", "jumpCut", "magnet", "blink", "clamp",
+  "echo", "sticky", "rift", "blackout", "heavy",
+  "stalker", "drone", "rocket", "voidFog", "watcher",
+  "sentry", "swarm", "phantom", "huntLight", "crushBot",
+  "qte",
+  "reaper", "salvo", "pincer", "guillotine", "abyss", "eclipse", "snare", "orbitSaw",
+    "crossfire", "leech", "shardRain", "wraith", "mineLine", "gravLock", "seeker",
+    "collapse", "barbedWind", "mirrorBolt", "pitBeast", "judgment",
 ]);
 const IF_KEYS = new Set([
   "x", "beenPast", "xLess", "time", "jump", "before", "jumpAfter",
@@ -76,7 +84,7 @@ function checkLevel(lvl, tag, trapWant) {
   });
 }
 
-(HAND || []).forEach((lvl, i) => checkLevel(lvl, `#${i + 1} ${lvl.name || "?"}`, 10));
+(HAND || []).forEach((lvl, i) => checkLevel(lvl, `#${i + 1} ${lvl.name || "?"}`, 12));
 
 if (WORLDS) {
   if (WORLDS.count !== 20 || WORLDS.DIMS.length !== 20) errors.push("Need 20 dimensions");
@@ -89,9 +97,9 @@ if (WORLDS) {
     if (lvls.length !== n) errors.push(`D${d} generated ${lvls.length} rooms`);
     const sample = lvls[0];
     const last = lvls[lvls.length - 1];
-    const wantFirst = d === 1 ? 10 : t;
+    const wantFirst = d === 1 ? 12 : t;
     checkLevel(sample, `D${d} ${sample.name}`, wantFirst);
-    checkLevel(last, `D${d} ${last.name}`, d === 1 ? 10 : t + 4);
+    checkLevel(last, `D${d} ${last.name}`, d === 1 ? 12 : t + 4);
     if (d > 1) {
       lvls.forEach((lvl) => {
         if (!lvl.surface) return;
@@ -101,7 +109,11 @@ if (WORLDS) {
             if (a[0] === "hole" && a[1] >= 0 && a[1] < floor.length) floor[a[1]] = -1;
           });
         });
-        if (floor[1] < 0 || floor[30] < 0) errors.push(`D${d} ${lvl.name}: hole ate spawn or door`);
+        const doorAt = floor.length - 2;
+        if (floor[1] < 0 || floor[doorAt] < 0) errors.push(`D${d} ${lvl.name}: hole ate spawn or door`);
+        if (lvl.map[0].length !== WORLDS.stageWidth(d)) {
+          errors.push(`D${d} ${lvl.name}: width ${lvl.map[0].length} != ${WORLDS.stageWidth(d)}`);
+        }
         let run = 0;
         let max = 0;
         floor.forEach((cell) => {
@@ -111,12 +123,54 @@ if (WORLDS) {
         if (max > 3) errors.push(`D${d} ${lvl.name}: open gap ${max} is wider than a jump`);
       });
     }
+    let fourRooms = 0;
+    let repeatRooms = 0;
+    let apexRooms = 0;
+    const APEX_NAMES = new Set(["reaper", "salvo", "pincer", "guillotine", "abyss", "eclipse", "snare", "orbitSaw", "crossfire", "leech", "shardRain", "wraith", "mineLine", "gravLock", "seeker", "collapse", "barbedWind", "mirrorBolt", "pitBeast", "judgment"]);
+    lvls.forEach((lvl) => {
+      let multi = 0;
+      let fours = 0;
+      (lvl.events || []).forEach((ev) => {
+        const t = ev.times || 1;
+        if (t > WORLDS.activationCap(d)) errors.push(`D${d} ${lvl.name}: trap activates ${t} times`);
+        if (d < 3 && t > 1) errors.push(`D${d} ${lvl.name}: repeat before dimension 3`);
+        if (t > 1) multi += 1;
+        if (t >= 4) fours += 1;
+        if (t > 1 && !(ev.rearm >= 1 && ev.rearm <= 2)) {
+          errors.push(`D${d} ${lvl.name}: bad rearm ${ev.rearm}`);
+        }
+      });
+      if (multi > 5) errors.push(`D${d} ${lvl.name}: ${multi} repeating traps (max 5)`);
+      if (multi && multi >= (lvl.events || []).length) errors.push(`D${d} ${lvl.name}: every trap repeats`);
+      if (fours > 1) errors.push(`D${d} ${lvl.name}: ${fours} traps hit the repeat cap`);
+      let apexHit = false;
+      (lvl.events || []).forEach((ev) => {
+        (ev.do || []).forEach((a) => {
+          if (APEX_NAMES.has(a[0])) apexHit = true;
+        });
+      });
+      if (apexHit) apexRooms += 1;
+      if (multi) repeatRooms += 1;
+      if (fours) fourRooms += 1;
+    });
+    if (d >= 10 && apexRooms < lvls.length) errors.push(`D${d} apex in ${apexRooms}/${lvls.length} rooms`);
+    if (d < 8 && apexRooms) errors.push(`D${d} placed ${apexRooms} apex rooms too early`);
+    if (d >= 3 && repeatRooms === 0) errors.push(`D${d}: no repeating traps`);
+    if (fourRooms > Math.ceil(lvls.length * 0.28)) {
+      errors.push(`D${d}: 4-activation traps in ${fourRooms}/${lvls.length} rooms`);
+    }
     const th = WORLDS.theme(d);
     if (!th || !th.name || !th.sky || !th.weather) errors.push(`D${d} missing theme`);
   }
   if (WORLDS.trapCount(1) !== 10) errors.push("D1 should have 10 traps");
-  if (WORLDS.trapCount(2) !== 12) errors.push("D2 should have 12 traps");
-  if (WORLDS.trapCount(3) !== 15) errors.push("D3 should have 15 traps");
+  if (WORLDS.trapCount(2) !== 22) errors.push("D2 should have 22 traps");
+  if (WORLDS.trapCount(3) !== 35) errors.push("D3 should have 35 traps");
+  if (WORLDS.stageWidth(2) !== 37 || WORLDS.stageWidth(10) !== 77 || WORLDS.stageWidth(20) !== 127) {
+    errors.push("stage width is not +5 blocks per dimension");
+  }
+  if (WORLDS.activationCap(1) !== 4 || WORLDS.activationCap(10) !== 94) {
+    errors.push("activation cap is not +10 per dimension");
+  }
 }
 
 if (errors.length) {

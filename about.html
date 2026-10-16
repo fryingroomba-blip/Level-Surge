@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="referrer" content="no-referrer" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; worker-src 'none'; frame-src 'none'" />
   <title>LEVEL SURGE · ABOUT</title>
   <link rel="icon" type="image/svg+xml" href="img/logo-g.svg" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Rubik:wght@400;600;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/fonts.css?v=sec2" />
   <link rel="stylesheet" href="css/about.css?v=classic1" />
 </head>
 <body>
@@ -217,7 +217,7 @@
 
     <section id="worlds">
       <h2>TWENTY WORLDS</h2>
-      <p class="lead">From D2 on, the last room is a core: four extra traps and a fake door. Trap count starts at 10 and climbs +2, then +3, then +2, then +3. Each world gets two signature traps that only live there. I wanted every world to feel like a different kind of bad mood.</p>
+      <p class="lead">From D2 on, the last room is a core: four extra traps and a fake door. Trap count starts at 10, then each world adds the old climb plus 10 more. Rooms grow by 5 blocks every world. From Dimension 10 the cruel traps stop being rare. Each world still gets two signature traps that only live there. I wanted every world to feel like a different kind of bad mood.</p>
       <div class="worlds" id="world-a"></div>
       <div class="row2">
         <figure class="shot">
@@ -277,7 +277,7 @@
         </figure>
         <figure class="shot">
           <img src="img/shots/lastlight.jpg" alt="Last Light. An almost black sky. The character stands on a high brick shelf beside a gap full of spikes, with the door on a far ledge." />
-          <figcaption>D20 LAST LIGHT. 35 rooms. 57 traps, 61 on the core. If you finish this I will be a little scared of you.</figcaption>
+          <figcaption>D20 LAST LIGHT. 35 rooms. 127 blocks long. 247 traps, 251 on the core. If you finish this I will be a little scared of you.</figcaption>
         </figure>
       </div>
     </section>
@@ -388,129 +388,12 @@
     </footer>
   </main>
 
-  <script src="js/levels.js?v=classic1"></script>
-  <script src="js/worlds.js?v=classic1"></script>
+  <script src="js/guard.js?v=sec3"></script>
+  <script src="js/levels.js?v=gimmick1"></script>
+  <script src="js/worlds.js?v=apex2"></script>
   <script src="js/void-sky.js?v=classic1"></script>
   <script src="js/about-sky.js?v=classic1"></script>
   <script src="js/about-music.js?v=classic1"></script>
-  <script>
-    const GLYPH = {
-      A: "img/glyphs/a.svg?v=8",
-      D: "img/glyphs/d.svg?v=8",
-      R: "img/glyphs/r.svg?v=8",
-      S: "img/glyphs/s.svg?v=8",
-      G: "img/logo-g.svg"
-    };
-    document.querySelectorAll("h2[data-letters]").forEach((el) => {
-      const allow = new Set(el.dataset.letters.split(""));
-      const used = new Set();
-      const text = el.textContent.trim();
-      el.setAttribute("aria-label", text);
-      el.textContent = "";
-      let buf = "";
-      const flush = () => {
-        if (!buf) return;
-        const s = document.createElement("span");
-        s.textContent = buf;
-        el.append(s);
-        buf = "";
-      };
-      for (const ch of text) {
-        if (ch === " ") {
-          flush();
-          const sp = document.createElement("span");
-          sp.className = "sp";
-          el.append(sp);
-          continue;
-        }
-        if (allow.has(ch) && GLYPH[ch] && !used.has(ch)) {
-          used.add(ch);
-          flush();
-          const g = document.createElement("span");
-          g.className = "glyph" + (ch === "A" ? " horn" : "");
-          const img = document.createElement("img");
-          img.src = GLYPH[ch];
-          img.alt = "";
-          g.append(img);
-          el.append(g);
-        } else buf += ch;
-      }
-      flush();
-    });
-
-    const NOTES = {
-      "TRUST ME": "Dust first. Then the floor leaves. I named it TRUST ME. Sorry.",
-      "KEEP JUMPING": "The landing is already a gap. I know. Cruel.",
-      "KNOCK KNOCK": "Right door is the joke. I watched people fall for it.",
-      "WAIT FOR IT": "Ceiling teeth. Floor arrives at 1.9s. Patience hurts.",
-      "SHINY": "Three coins over a pit. They explode. Greed got me too.",
-      "BACKWARDS": "Left and right swap. I still flinch.",
-      "CHECKERED": "Some bricks are paint. I die here showing people.",
-      "BUZZ": "The saw by the door starts chasing. I'm weirdly proud.",
-      "YEET": "Bounce pad, then lighter gravity. Stomach drop.",
-      "UP IS DOWN": "Exit is on the ceiling. I almost softlocked myself.",
-      "COME BACK": "The door slides away. Keep walking. Keep mad.",
-      "FALL IN": "The door is in the hole. Jump. Feel wrong. Do it.",
-      "DON'T STOP": "Standing still drops the bricks. Move. Please.",
-      "PSYCH": "Fake door, then the walk back. My favorite betrayal.",
-      "THROUGH": "Middle wall isn't there. Walk into it with me.",
-      "LAST LAUGH": "Coins explode. Right door is fake. Again. I know."
-    };
-
-    const rooms = document.getElementById("room-list");
-    (window.HAND_LEVELS || []).forEach((level, i) => {
-      const card = document.createElement("article");
-      card.className = "room";
-      const name = document.createElement("strong");
-      name.textContent = level.name;
-      const num = document.createElement("span");
-      num.className = "num";
-      num.textContent = String(i + 1).padStart(2, "0");
-      const note = document.createElement("p");
-      note.textContent = (NOTES[level.name] ? NOTES[level.name] + " · " : "") + (level.taunt || "");
-      card.append(num, name, note);
-      rooms.appendChild(card);
-    });
-
-    const pack = window.SURGE_WORLDS;
-    const bins = [
-      document.getElementById("world-a"),
-      document.getElementById("world-b"),
-      document.getElementById("world-c"),
-      document.getElementById("world-d")
-    ];
-    if (pack) {
-      pack.DIMS.forEach((dim, i) => {
-        const d = i + 1;
-        const roomsN = pack.roomCount(d);
-        const traps = pack.trapCount(d);
-        const boss = d === 1 ? traps : traps + 4;
-        const accent = dim.accent || [227, 27, 27];
-        const card = document.createElement("article");
-        card.className = "world";
-        const pip = document.createElement("i");
-        pip.style.background = `rgb(${accent[0]},${accent[1]},${accent[2]})`;
-        pip.style.boxShadow = `0 0 8px rgb(${accent[0]},${accent[1]},${accent[2]})`;
-        const idx = document.createElement("span");
-        idx.className = "idx";
-        idx.textContent = "D" + String(d).padStart(2, "0");
-        const who = document.createElement("div");
-        who.className = "who";
-        const name = document.createElement("strong");
-        name.textContent = dim.name;
-        const lore = document.createElement("span");
-        lore.className = "lore";
-        lore.textContent = dim.lore;
-        who.append(name, lore);
-        const meta = document.createElement("span");
-        meta.className = "meta";
-        const sigs = (pack.signatureTraps && pack.signatureTraps(d)) || [];
-        const sigLine = sigs.length ? ` · ${sigs.map((t) => t.label).join(" / ")}` : "";
-        meta.textContent = `${roomsN} rooms · ${traps} traps${d > 1 ? ` · core ${boss}` : ""}${sigLine} · ${dim.weather} · ${dim.bpm} bpm`;
-        card.append(pip, idx, who, meta);
-        bins[Math.floor(i / 5)].appendChild(card);
-      });
-    }
-  </script>
+  <script src="js/about-page.js?v=gimmick1"></script>
 </body>
 </html>

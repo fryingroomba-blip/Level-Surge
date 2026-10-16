@@ -33,18 +33,32 @@ html, body {
 #app::after {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: -2px;
   pointer-events: none;
   z-index: 20;
-  opacity: 0.08;
+  opacity: 0.13;
   background-image:
     repeating-linear-gradient(
       0deg,
-      rgba(255,255,255,0.05) 0px,
-      rgba(255,255,255,0.05) 1px,
+      rgba(255,255,255,0.045) 0px,
+      rgba(255,255,255,0.045) 1px,
       transparent 1px,
       transparent 3px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgba(0,0,0,0.08) 0px,
+      rgba(0,0,0,0.08) 1px,
+      transparent 1px,
+      transparent 4px
     );
+  animation: grainShift 0.42s steps(2) infinite;
+}
+
+@keyframes grainShift {
+  0% { transform: translate(0, 0); }
+  50% { transform: translate(-1px, 1px); }
+  100% { transform: translate(1px, -1px); }
 }
 
 #game {
@@ -104,6 +118,11 @@ html, body {
 }
 
 #level-num { color: var(--red); }
+#scene-slate {
+  color: #e7c56a;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+}
 #level-name { color: var(--cream); }
 #dim-name { color: #9ec4ff; font-size: 12px; letter-spacing: 0.16em; }
 #deaths { color: #ffb4b4; }
@@ -171,8 +190,40 @@ html, body {
     radial-gradient(ellipse at 50% 36%, rgba(8, 12, 22, 0.22) 0%, rgba(5, 7, 12, 0.52) 72%);
 }
 
+.screen::before,
+.screen::after,
+#dim-card::before,
+#dim-card::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 5.6vh;
+  background: #000;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.screen::before,
+#dim-card::before {
+  top: 0;
+  box-shadow: inset 0 -1px 0 rgba(231, 197, 106, 0.55);
+}
+
+.screen::after,
+#dim-card::after {
+  bottom: 0;
+  box-shadow: inset 0 1px 0 rgba(231, 197, 106, 0.55);
+}
+
+.creator-screen::before,
+.creator-screen::after {
+  display: none;
+}
+
 .title-tape {
   position: absolute;
+  z-index: 6;
   top: 18px;
   left: -8%;
   right: -8%;
@@ -237,11 +288,36 @@ html, body {
 .title-ornament.left { left: -6px; }
 .title-ornament.right { right: -6px; transform: scaleX(-1); }
 
+.title-credit {
+  margin-bottom: 8px;
+  color: #e7c56a;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.36em;
+}
+
 .title-mark {
   font-size: 12px;
   letter-spacing: 0.42em;
   color: var(--muted);
   margin-bottom: 10px;
+}
+
+.title-laurels {
+  margin-top: 12px;
+  font-family: "Bungee", sans-serif;
+  font-size: clamp(12px, 2.1vw, 16px);
+  letter-spacing: 0.12em;
+  color: #ffd24a;
+  text-shadow: 0 2px 0 #000, 0 0 18px rgba(255, 210, 74, 0.4);
+}
+
+.laurels-sub {
+  margin-top: 4px;
+  color: #c4b49c;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
 }
 
 .logo {
@@ -296,7 +372,7 @@ html, body {
 .win-q { color: var(--red); }
 
 .tagline {
-  margin: 18px 0 16px;
+  margin: 12px 0 12px;
   color: var(--muted);
   font-size: 15px;
   line-height: 1.5;
@@ -308,7 +384,7 @@ html, body {
   justify-content: center;
   gap: 8px 18px;
   list-style: none;
-  margin: 0 0 26px;
+  margin: 0 0 16px;
   color: #c4b49c;
   font-size: 12px;
   font-weight: 800;
@@ -483,7 +559,7 @@ a.ghost-btn {
 
 @media (max-width: 640px) {
   #level-grid, #level-grid.world-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .hud-brand { display: none; }
+  .hud-brand, #scene-slate { display: none; }
   .hud-left, .hud-right { gap: 8px; }
   #hud { padding: 0 12px; font-size: 12px; }
   #room-pips { display: none; }
@@ -534,6 +610,32 @@ a.ghost-btn {
   text-shadow: 0 6px 0 #000;
 }
 
+.cut-mark {
+  margin-bottom: 6px;
+  color: #e7c56a;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.52em;
+}
+
+#clear-screen .stamp {
+  animation: stampSlam 0.42s cubic-bezier(0.15, 1.25, 0.3, 1) both;
+}
+
+@keyframes stampSlam {
+  0% { transform: scale(1.55) rotate(-8deg); opacity: 0; }
+  100% { transform: scale(1) rotate(-2deg); opacity: 1; }
+}
+
+#win-screen .title-laurels {
+  animation: laurelGlow 2.4s ease-in-out infinite;
+}
+
+@keyframes laurelGlow {
+  0%, 100% { text-shadow: 0 2px 0 #000, 0 0 12px rgba(255, 210, 74, 0.25); }
+  50% { text-shadow: 0 2px 0 #000, 0 0 28px rgba(255, 210, 74, 0.75); }
+}
+
 #clear-name {
   margin-top: 8px;
   letter-spacing: 0.28em;
@@ -559,6 +661,14 @@ a.ghost-btn {
   text-align: center;
 }
 
+.cine-kicker {
+  margin-bottom: 12px;
+  color: #e7c56a;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.48em;
+}
+
 #dim-card-num {
   letter-spacing: 0.42em;
   font-size: 12px;
@@ -572,6 +682,13 @@ a.ghost-btn {
   color: var(--cream);
   text-shadow: 0 4px 0 #000, 0 0 24px rgba(227, 27, 27, 0.4);
   margin: 8px 0 10px;
+  animation: dimRise 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes dimRise {
+  0% { opacity: 0; transform: translateY(18px); }
+  35% { opacity: 1; }
+  100% { opacity: 1; transform: none; }
 }
 
 #dim-card-lore {

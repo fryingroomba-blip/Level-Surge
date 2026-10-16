@@ -702,15 +702,15 @@
 
   function loadSave() {
     const G = window.SURGE_GUARD;
-    if (!G || !G.openProgress) return {};
+    if (!G || !G.readProgress) return {};
     let text = null;
     try { text = localStorage.getItem(SAVE_KEY); } catch (_) { return {}; }
-    const clean = G.openProgress(text);
-    const encoded = G.packProgress(clean);
-    if (text != null && encoded && text !== encoded) {
+    const got = G.readProgress(text);
+    const encoded = got.encoded;
+    if (encoded && (got.legacy || got.ok === false || (text != null && text !== encoded))) {
       try { localStorage.setItem(SAVE_KEY, encoded); } catch (_) { /* quota */ }
     }
-    return clean;
+    return got.data || {};
   }
   function writeSave(patch) {
     const G = window.SURGE_GUARD;
@@ -737,13 +737,15 @@
   function unlockLevel(i) {
     const s = loadSave();
     const rooms = Object.assign({}, s.rooms || {});
-    rooms[dimIndex] = Math.max(rooms[dimIndex] || 0, i);
+    const prevRoom = rooms[dimIndex] != null ? rooms[dimIndex] : 0;
+    rooms[dimIndex] = Math.max(prevRoom, i);
+    const prevUnlocked = s.unlocked != null ? s.unlocked : 0;
     writeSave({
       rooms,
       lastDim: dimIndex,
       lastRoom: i,
-      unlockedDim: Math.max(s.unlockedDim || 1, dimIndex),
-      unlocked: Math.max(s.unlocked || 0, i),
+      unlockedDim: Math.max(s.unlockedDim != null ? s.unlockedDim : 1, dimIndex),
+      unlocked: Math.max(prevUnlocked, i),
     });
   }
 
@@ -1858,11 +1860,11 @@
     const blind = Math.min(win * 0.32, Math.max(0, (1.05 - win) * 0.22));
     return {
       blind,
-      strict: win < 0.72 || nkeys >= 3,
+      strict: true,
       flicker: win < 0.5 || nkeys >= 4,
       lock: win >= 0.85 && nkeys <= 2,
       windup: win >= 0.95 ? 0.28 : win >= 0.6 ? 0.12 : 0,
-      slop: Math.max(0, (win - 0.3) * 0.05),
+      slop: 0,
     };
   }
 
@@ -1903,7 +1905,7 @@
     if (!q || player.dead || player.win || q.phase !== "go") return false;
     const got = String(key || "").toUpperCase();
     if (got !== q.keys[q.index]) {
-      if (q.strict && got.length === 1 && got >= "A" && got <= "Z") failQte();
+      if (got.length === 1 && got >= "A" && got <= "Z") failQte();
       return false;
     }
     q.index += 1;
@@ -1944,8 +1946,7 @@
       return;
     }
     if (q.left > 0) return;
-    q.slop -= FIXED;
-    if (q.slop <= 0) failQte();
+    failQte();
   }
 
   function drawQte() {
@@ -4837,7 +4838,11 @@
       b.appendChild(num);
       b.appendChild(nm);
       b.appendChild(meta);
-      b.onclick = () => enterDimension(d, 0);
+      b.onclick = () => {
+        const s = loadSave();
+        const resume = d === (s.lastDim || 1) ? (s.lastRoom != null ? s.lastRoom : 0) : 0;
+        enterDimension(d, resume);
+      };
       grid.appendChild(b);
     });
   }
@@ -4852,7 +4857,7 @@
 
   document.getElementById("play-btn").onclick = () => {
     const s = loadSave();
-    enterDimension(s.lastDim || 1, s.lastRoom || 0);
+    enterDimension(s.lastDim || 1, s.lastRoom != null ? s.lastRoom : 0);
   };
   document.getElementById("again-btn").onclick = () => enterDimension(dimIndex, 0);
   const nextDimBtn = document.getElementById("next-dim-btn");
@@ -4909,7 +4914,7 @@
     }
     if (mode === "title" && (e.key === "Enter" || e.key === " ")) {
       const s = loadSave();
-      enterDimension(s.lastDim || 1, s.lastRoom || 0);
+      enterDimension(s.lastDim || 1, s.lastRoom != null ? s.lastRoom : 0);
     }
     else if (mode === "levels" && e.key === "Escape") quitToTitle();
     else if (mode === "clear") nextLevel();
@@ -5140,15 +5145,19 @@
           pressQte("K");
           assert(!world.qte && !player.dead, "qte clears", fails);
           runAction(["qte", 1.1, 74]);
-          assert(world.qte && world.qte.phase === "arm" && !world.qte.strict && world.qte.lock, "easy qte winds up", fails);
+          assert(world.qte && world.qte.phase === "arm" && world.qte.strict && world.qte.lock, "easy qte winds up", fails);
           pressQte("J");
           assert(world.qte && world.qte.phase === "arm", "qte ignores keys while arming", fails);
           world.qte.phase = "go";
           world.qte.left = world.qte.window;
           pressQte("Q");
-          assert(world.qte && !player.dead, "easy qte forgives a miss", fails);
+          assert(player.dead && !world.qte, "easy qte miss kills", fails);
+          player.dead = false;
+          runAction(["qte", 1.1, 74]);
+          world.qte.phase = "go";
+          world.qte.left = world.qte.window;
           pressQte("J");
-          assert(!world.qte, "easy qte accepts the key", fails);
+          assert(!world.qte && !player.dead, "easy qte accepts the key", fails);
           runAction(["qte", 0.4, 74]);
           world.qte.left = 0;
           world.qte.slop = 0;
@@ -5472,7 +5481,11 @@
         bestDeaths: 1,
         runs: 1,
       }));
-      if (loadSave().unlockedDim) fails.push("unsigned unlock accepted");
+      const legacy = loadSave();
+      if (legacy.unlockedDim !== 20 || legacy.bestDeaths !== 1) fails.push("legacy save was not migrated");
+      const legacySealed = localStorage.getItem(SAVE_KEY) || "";
+      if (legacySealed.indexOf('"m"') < 0) fails.push("legacy save was not resealed");
+      if (G.openProgress(JSON.stringify({ unlockedDim: 9 })).unlockedDim) fails.push("raw unsigned open accepted");
       const merged = writeSave({
         unlockedDim: 3,
         lastDim: 3,
@@ -5503,7 +5516,7 @@
         + "\"__proto__\":{\"polluted\":true}"
         + "}");
       const save = loadSave();
-      if (save.unlockedDim) fails.push("unsigned unlock accepted");
+      if (save.unlockedDim !== 4) fails.push("legacy unlock was not migrated");
       if (typeof save.bestDeaths !== "undefined") fails.push("string bestDeaths kept");
       if (save.dimRecords && save.dimRecords[1] && Object.prototype.hasOwnProperty.call(save.dimRecords[1], "bestDeaths")) {
         fails.push("html deaths kept");
@@ -5513,6 +5526,7 @@
       if (stored.indexOf("<") >= 0 || stored.indexOf("onerror") >= 0 || stored.indexOf("__proto__") >= 0) {
         fails.push("poison persisted");
       }
+      if (stored.indexOf('"m"') < 0) fails.push("poisoned legacy was not resealed");
       fillLevelGrid();
       const grid = document.getElementById("level-grid");
       const bag = [];

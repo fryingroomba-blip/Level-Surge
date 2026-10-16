@@ -489,9 +489,17 @@
     const host = loc.hostname != null ? String(loc.hostname) : "";
     if (host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]") return true;
     if (loc.protocol === "file:") return true;
-    if (p.indexOf("/Level-Surge/") >= 0 || /\/Level-Surge$/.test(p)) return true;
-    if (/Level Surge|Level%20Surge/.test(p) && /\/(?:index|about)\.html$/.test(p)) return true;
+    let decoded = p;
+    try { decoded = decodeURIComponent(p); } catch (_) { decoded = p; }
+    const compact = decoded.toLowerCase().replace(/\s+/g, "-");
+    if (compact.indexOf("/level-surge/") >= 0 || /\/level-surge$/.test(compact)) return true;
+    if (/level-surge/.test(compact) && /\/(?:index|about)\.html$/.test(compact)) return true;
     return false;
+  }
+
+  function isLegacyEnvelope(raw) {
+    return !!(raw && typeof raw === "object" && !Array.isArray(raw)
+      && raw.v == null && typeof raw.m !== "string" && raw.d == null);
   }
 
   function packSealed(purpose, body) {
@@ -537,6 +545,44 @@
     return data.rooms || [];
   }
 
+  /* Game read path: valid seal wins; else one-time migrate pre-guard JSON.
+     Tampered seals are never treated as legacy. */
+  function readProgress(text) {
+    if (text == null || text === "") {
+      return { data: {}, encoded: packProgress({}), legacy: false, ok: true };
+    }
+    const sealed = openProgress(text);
+    if (sealed && typeof sealed === "object" && Object.keys(sealed).length) {
+      return { data: sealed, encoded: packProgress(sealed), legacy: false, ok: true };
+    }
+    const raw = parseStore(text);
+    if (isLegacyEnvelope(raw)) {
+      const data = sanitizeSave(raw);
+      return { data: data, encoded: packProgress(data), legacy: true, ok: true };
+    }
+    return { data: {}, encoded: packProgress({}), legacy: false, ok: false };
+  }
+
+  function readRooms(text) {
+    if (text == null || text === "") {
+      return { rooms: [], encoded: packRooms([]), legacy: false, ok: true };
+    }
+    const sealed = openRooms(text);
+    if (sealed && sealed.length) {
+      return { rooms: sealed, encoded: packRooms(sealed), legacy: false, ok: true };
+    }
+    const raw = parseStore(text);
+    if (isLegacyEnvelope(raw)) {
+      const rooms = sanitizeRooms(raw.rooms);
+      return { rooms: rooms, encoded: packRooms(rooms), legacy: true, ok: true };
+    }
+    if (Array.isArray(raw)) {
+      const rooms = sanitizeRooms(raw);
+      return { rooms: rooms, encoded: packRooms(rooms), legacy: true, ok: true };
+    }
+    return { rooms: [], encoded: packRooms([]), legacy: false, ok: false };
+  }
+
   root.SURGE_GUARD = {
     parseStore: parseStore,
     sanitizeSave: sanitizeSave,
@@ -547,6 +593,8 @@
     openProgress: openProgress,
     packRooms: packRooms,
     openRooms: openRooms,
+    readProgress: readProgress,
+    readRooms: readRooms,
     auditLog: function () { return audit.map(function (e) { return { code: e.code, t: e.t }; }); },
     clearAudit: function () { audit.length = 0; },
   };

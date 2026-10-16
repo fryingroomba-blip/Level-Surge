@@ -170,6 +170,11 @@ assert(opened.unlockedDim === 2 && opened.bestDeaths === 3 && opened.runs === 1,
 assert(!G.openProgress('{"unlockedDim":20,"bestDeaths":1}').unlockedDim, "unsigned progress was accepted");
 const flipped = sealed.replace('"unlockedDim":2', '"unlockedDim":20');
 assert(!G.openProgress(flipped).unlockedDim, "edited seal was accepted");
+const migrated = G.readProgress('{"unlockedDim":5,"bestDeaths":2,"runs":1}');
+assert(migrated.legacy && migrated.data.unlockedDim === 5 && migrated.data.bestDeaths === 2, "legacy progress was not migrated");
+assert(migrated.encoded && migrated.encoded.indexOf('"m"') >= 0, "legacy progress was not resealed");
+const tamperRead = G.readProgress(flipped);
+assert(!tamperRead.data.unlockedDim && !tamperRead.legacy, "tampered seal was migrated as legacy");
 const roomPack = G.packRooms([{ id: "ok", name: "DOOR", map: ["S"], events: [{ if: { x: 1 }, once: true, do: [["shake", 1]] }] }]);
 assert(G.openRooms(roomPack).length === 1, "sealed creator room dropped");
 assert(G.openRooms('{"rooms":[{"name":"<img src=x onerror=alert(1)>"}]}').length === 0, "unsigned creator room accepted");
@@ -182,6 +187,10 @@ sandbox.location = { hostname: "fryingroomba-blip.github.io", pathname: "/index.
 assert(G.packProgress({ unlockedDim: 9 }) == null, "the user-site index was allowed to seal progress");
 sandbox.location = { hostname: "fryingroomba-blip.github.io", pathname: "/Level-Surge/" };
 assert(G.packProgress({ unlockedDim: 2 }) && G.packProgress({ unlockedDim: 2 }).indexOf('"m"') >= 0, "the game path could not seal progress");
+sandbox.location = { hostname: "fryingroomba-blip.github.io", pathname: "/level-surge/" };
+assert(G.packProgress({ unlockedDim: 2 }), "lowercase game path could not seal progress");
+sandbox.location = { hostname: "fryingroomba-blip.github.io", pathname: "/Level%20Surge/" };
+assert(G.packProgress({ unlockedDim: 2 }), "encoded-space game path could not seal progress");
 sandbox.location = { hostname: "127.0.0.1", pathname: "/" };
 assert(G.packProgress({ unlockedDim: 1 }), "local preview could not seal progress");
 delete sandbox.location;
@@ -271,9 +280,13 @@ assert(dom.__CREATOR && dom.__CREATOR.open, "creator did not boot");
 dom.__CREATOR.open();
 const library = els["creator-library"];
 let buttons = (library.children || []).filter(function (el) { return el.tagName === "BUTTON"; });
-assert(buttons.length === 0, "unsigned creator room rendered");
+assert(buttons.length === 1, "legacy creator room was not migrated");
 const storedUnsigned = store["level-surge-creator-v1"] || "";
 assert(storedUnsigned.indexOf("<") < 0, "poison markup persisted in creator storage");
+assert(storedUnsigned.indexOf('"m"') >= 0, "legacy creator room was not resealed");
+buttons.forEach(function (btn) {
+  assert(String(btn.innerHTML).indexOf("<") < 0, "migrated library button innerHTML contains markup");
+});
 store["level-surge-creator-v1"] = dom.SURGE_GUARD.packRooms([{
   id: "evil",
   name: "<img src=x onerror=alert(1)>",

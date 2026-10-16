@@ -206,10 +206,19 @@ if (SURGE_WORLDS) {
       prevPress = presses;
     }
   }
+  for (var early = 1; early <= 2; early++) {
+    SURGE_WORLDS.generate(early).forEach(function (lvl, i) {
+      (lvl.events || []).forEach(function (ev) {
+        (ev.do || []).forEach(function (a) {
+          if (a[0] === "qte") fail("D" + early + " room " + i + " has a qte");
+        });
+      });
+    });
+  }
   var qteRooms = 0;
   var qteTotal = 0;
   var multi = 0;
-  for (var qd2 = 2; qd2 <= 20; qd2++) {
+  for (var qd2 = 3; qd2 <= 20; qd2++) {
     var pack = SURGE_WORLDS.generate(qd2);
     pack.forEach(function (lvl) {
       qteTotal++;

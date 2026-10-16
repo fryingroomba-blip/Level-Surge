@@ -100,28 +100,52 @@ if (WORLDS) {
     const wantFirst = d === 1 ? 12 : t;
     checkLevel(sample, `D${d} ${sample.name}`, wantFirst);
     checkLevel(last, `D${d} ${last.name}`, d === 1 ? 12 : t + 4);
-    if (d > 1) {
-      lvls.forEach((lvl) => {
-        if (!lvl.surface) return;
-        const floor = lvl.surface.slice();
-        (lvl.events || []).forEach((ev) => {
-          (ev.do || []).forEach((a) => {
-            if (a[0] === "hole" && a[1] >= 0 && a[1] < floor.length) floor[a[1]] = -1;
-          });
+    lvls.forEach((lvl) => {
+      const width = (lvl.map && lvl.map[0] && lvl.map[0].length) || WORLDS.stageWidth(d);
+      if (d > 1 && width !== WORLDS.stageWidth(d)) {
+        errors.push(`D${d} ${lvl.name}: width ${width} != ${WORLDS.stageWidth(d)}`);
+      }
+      const floor = (lvl.surface ? lvl.surface.slice() : (WORLDS.surfaceFromMap ? WORLDS.surfaceFromMap(lvl.map) : []));
+      if (!floor.length) return;
+      (lvl.events || []).forEach((ev) => {
+        (ev.do || []).forEach((a) => {
+          if (a[0] === "hole" && a[1] >= 0 && a[1] < floor.length) floor[a[1]] = -1;
         });
-        const doorAt = floor.length - 2;
-        if (floor[1] < 0 || floor[doorAt] < 0) errors.push(`D${d} ${lvl.name}: hole ate spawn or door`);
-        if (lvl.map[0].length !== WORLDS.stageWidth(d)) {
-          errors.push(`D${d} ${lvl.name}: width ${lvl.map[0].length} != ${WORLDS.stageWidth(d)}`);
-        }
-        let run = 0;
-        let max = 0;
-        floor.forEach((cell) => {
-          if (cell < 0) { run += 1; if (run > max) max = run; }
-          else run = 0;
-        });
-        if (max > 3) errors.push(`D${d} ${lvl.name}: open gap ${max} is wider than a jump`);
       });
+      const doorAt = floor.length - 2;
+      if (floor[1] < 0 || floor[doorAt] < 0) errors.push(`D${d} ${lvl.name}: hole ate spawn or door`);
+      let run = 0;
+      let max = 0;
+      floor.forEach((cell) => {
+        if (cell < 0) { run += 1; if (run > max) max = run; }
+        else run = 0;
+      });
+      if (max > 3) errors.push(`D${d} ${lvl.name}: open gap ${max} is wider than a jump`);
+    });
+    if (d > 1) {
+      const labels = (WORLDS.signatureTraps(d) || []).map((t) => t.label);
+      let sigRooms = 0;
+      let bossFakeOk = true;
+      lvls.forEach((lvl) => {
+        const text = JSON.stringify(lvl.events || []);
+        if (labels.length && labels.every((lab) => text.indexOf(lab) >= 0)) sigRooms += 1;
+        if (lvl.boss) {
+          const W = lvl.map[0].length;
+          const want = WORLDS.bossFakeX(W);
+          const joined = (lvl.map || []).join("");
+          // Fake door must sit near the scaled mid-run column, not the old x=13.
+          if (joined.indexOf("F") < 0) bossFakeOk = false;
+          else {
+            const row = lvl.map.find((r) => r.indexOf("F") >= 0) || "";
+            const fx = row.indexOf("F");
+            if (Math.abs(fx - want) > 2) bossFakeOk = false;
+          }
+        }
+      });
+      if (labels.length && sigRooms < lvls.length) {
+        errors.push(`D${d}: signature traps in ${sigRooms}/${lvls.length} rooms`);
+      }
+      if (!bossFakeOk) errors.push(`D${d}: boss fake door not on scaled mid-run column`);
     }
     let fourRooms = 0;
     let repeatRooms = 0;

@@ -178,15 +178,15 @@
 
   function loadStore() {
     const G = window.SURGE_GUARD;
-    if (!G || !G.openRooms) return [];
+    if (!G || !G.readRooms) return [];
     let text = null;
     try { text = localStorage.getItem(STORE_KEY); } catch (_) { return []; }
-    const rooms = G.openRooms(text);
-    const encoded = G.packRooms(rooms);
-    if (text != null && encoded && text !== encoded) {
+    const got = G.readRooms(text);
+    const encoded = got.encoded;
+    if (encoded && (got.legacy || got.ok === false || (text != null && text !== encoded))) {
       try { localStorage.setItem(STORE_KEY, encoded); } catch (_) { /* quota */ }
     }
-    return rooms;
+    return got.rooms || [];
   }
 
   function writeStore(rooms) {

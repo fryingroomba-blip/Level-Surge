@@ -38,6 +38,15 @@
   function activationCap(d) {
     return 4 + 10 * Math.max(0, d - 1);
   }
+  // Fake-door ledge for boss rooms — always mid-run, never glued to the old 32-wide columns.
+  function bossFakeX(W) {
+    return Math.max(10, Math.min(W - 8, Math.floor(W * 0.42)));
+  }
+  // Bounce / crumble landmarks scale with stage width so later dims aren't empty past x=20.
+  function landmarkX(seed, W, start, minSpan) {
+    const span = Math.max(minSpan || 14, W - start - 6);
+    return start + (seed % span);
+  }
   function roomCount(d) { return 15 + d; }
   function trapCount(d) {
     let n = 10;
@@ -699,20 +708,21 @@
       }
     }
     if ((room + d) % 4 === 1) {
-      const bx = 8 + ((room * 3 + d) % 14);
-      if (surface[bx] >= 0 && g[surface[bx] - 1][bx] === ".") g[surface[bx]][bx] = "B";
+      const bx = landmarkX(room * 3 + d, W, 8, 14);
+      if (bx < W && surface[bx] >= 0 && g[surface[bx] - 1][bx] === ".") g[surface[bx]][bx] = "B";
     }
     if ((room + d) % 5 === 2) {
-      const cx = 6 + ((room * 2) % 12);
-      if (surface[cx] === 9) g[9][cx] = "=";
+      const cx = landmarkX(room * 2 + d, W, 6, 12);
+      if (cx < W && surface[cx] === 9) g[9][cx] = "=";
     }
     if (boss) {
-      const fy = surface[13] >= 0 ? surface[13] : 8;
+      const fx = bossFakeX(W);
+      const fy = surface[fx] >= 0 ? surface[fx] : (surface[fx - 1] >= 0 ? surface[fx - 1] : 8);
       const py = Math.max(2, fy - 3);
-      g[py][12] = "#";
-      g[py][13] = "#";
-      g[py][14] = "#";
-      if (py > 0) g[py - 1][13] = "F";
+      g[py][fx - 1] = "#";
+      g[py][fx] = "#";
+      g[py][fx + 1] = "#";
+      if (py > 0) g[py - 1][fx] = "F";
     }
     g[surface[1] - 1][1] = "S";
     g[surface[W - 2] - 1][W - 2] = "E";
@@ -880,8 +890,8 @@
       ["gate", "hole", "push", "gate", "saw", "hole", "reverse"],
     ];
     const order = roster[(room + d) % roster.length];
-    const bounceX = (room + d) % 4 === 1 ? 8 + ((room * 3 + d) % 14) : -1;
-    const crumbleX = (room + d) % 5 === 2 ? 6 + ((room * 2) % 12) : -1;
+    const bounceX = (room + d) % 4 === 1 ? landmarkX(room * 3 + d, roomW, 8, 14) : -1;
+    const crumbleX = (room + d) % 5 === 2 ? landmarkX(room * 2 + d, roomW, 6, 12) : -1;
     const LONG = { hole: 1, laser: 1, saw: 1, drop: 1, ceiling: 1, side: 1, teleport: 1, blink: 1, clamp: 1, rift: 1, echo: 1, stalker: 1, drone: 1, rocket: 1, swarm: 1, crushBot: 1, huntLight: 1, reaper: 1, salvo: 1, pincer: 1, guillotine: 1, abyss: 1, eclipse: 1, snare: 1, orbitSaw: 1, crossfire: 1, leech: 1, shardRain: 1, wraith: 1, mineLine: 1, gravLock: 1, seeker: 1, collapse: 1, barbedWind: 1, mirrorBolt: 1, pitBeast: 1, judgment: 1 };
 
     function span(x, dir) {
@@ -947,7 +957,7 @@
       if (family === "drop") return y >= 4 && L >= 1 && R >= 1;
       if (family === "lock") return L >= 1 && R >= 1;
       if (family === "wind") return L + R >= 3;
-      if (family === "side") return x <= 24 && surface[x + 1] >= 0 && L >= 1 && R >= 1;
+      if (family === "side") return x <= roomW - 8 && surface[x + 1] >= 0 && L >= 1 && R >= 1;
       if (family === "ceiling") return y >= 4 && L >= 1 && R >= 1;
       if (family === "gravity") return L >= 2 && R >= 2;
       if (family === "teleport") return L >= 1 && R >= 1 && x >= 10;
@@ -962,7 +972,7 @@
       if (events.length >= n || !allows(x, type)) return false;
       const y = surface[x];
       if (type === "gate") {
-        const wide = mid && x < 24 && surface[x + 1] === y && span(x, 1) >= 4;
+        const wide = mid && x < roomW - 8 && surface[x + 1] === y && span(x, 1) >= 4;
         const w = wide ? 2 : 1;
         const lead = late ? 1.35 : 1.65;
         const up = wide ? (late ? 0.58 : 0.7) : (late ? 0.52 : 0.65);
@@ -1062,6 +1072,17 @@
       const y = surface[x];
       const ev = buildSig(sig.id, x, y, late);
       if (!ev) return false;
+      // Every dimension stamps its two signature rules so they can be verified.
+      ev.sig = sig.id;
+      let labeled = false;
+      for (let ai = 0; ai < (ev.do || []).length; ai++) {
+        if (ev.do[ai][0] === "lie") {
+          ev.do[ai][1] = sig.label;
+          labeled = true;
+          break;
+        }
+      }
+      if (!labeled) ev.do = (ev.do || []).concat([["lie", sig.label]]);
       events.push(ev);
       realAt.push({ x, t: sig.family, id: sig.id });
       used[sig.family] += 1;
@@ -1385,9 +1406,9 @@
     fillGimmick("rare", caps.rare || 0);
     fillGimmick("entity", caps.entity || 0);
 
-    // Quick-time prompt. Seeded 1-in-10, so the same room always rolls the same way.
+    // Quick-time prompt starts in dimension 3. Seeded 1-in-10, so the same room always rolls the same way.
     const qteRng = rng((d * 6151 + room * 2741 + 91) >>> 0);
-    if (qteRng() < 0.1 && events.length < n) {
+    if (d >= 3 && qteRng() < 0.1 && events.length < n) {
       const spec = qteAction(d, qteRng);
       let placed = false;
       const tryQ = (x, loose) => {
@@ -1544,16 +1565,17 @@
       for (let i = events.length - 1; i >= 0; i--) {
         if (events[i].quiet) { idx = i; break; }
       }
-      const fy = surface[13] >= 0 ? surface[13] : 8;
+      const fx = bossFakeX(roomW);
+      const fy = surface[fx] >= 0 ? surface[fx] : 8;
       const py = Math.max(2, fy - 3);
       events[idx] = {
         if: { door: "fake" }, once: true, delay: 0.1,
         do: [
-          ["fill", 12, py, 3, 1, "^"],
-          ["saw", 8, py, 1.6, 0],
+          ["fill", fx - 1, py, 3, 1, "^"],
+          ["saw", Math.max(4, fx - 5), py, 1.6, 0],
           ["shake", 7],
           ["sfx", "spike"],
-          ["queue", 0.48, ["fill", 12, py, 3, 1, "#"]],
+          ["queue", 0.48, ["fill", fx - 1, py, 3, 1, "#"]],
         ],
       };
     }
@@ -1564,14 +1586,55 @@
   const NAMES = ["TRUST NONE", "STILL LIES", "SOFT TEETH", "FALSE LIGHT", "COLD OPEN", "SECOND FLOOR", "NO RAILING", "AFTERIMAGE", "LOW CEILING", "THE NUDGE", "EMPTY KIND", "SHIFT RIGHT", "BENEATH", "LATE SPIKE", "HUSH", "CROOKED", "UNNAMED", "AGAIN", "WITHOUT", "CORE"];
   const TAUNTS = ["THE FLOOR SAID BYE", "KEEP WALKING", "NOT A HINT", "YOU ASKED", "STILL NO", "LEFT IS WRONG", "JUMP TAX", "THE LIGHT LIED", "PATIENCE DIES", "NICE TRY"];
 
+  function surfaceFromMap(map) {
+    const rows = (map || []).map((r) => String(r).replace(/ /g, "."));
+    if (!rows.length) return [];
+    const W = Math.max(...rows.map((r) => r.length));
+    const surface = new Array(W).fill(-1);
+    for (let x = 0; x < W; x++) {
+      for (let y = 0; y < rows.length; y++) {
+        const ch = (rows[y][x] || ".");
+        if (ch === "#" || ch === "=" || ch === "B" || ch === "i") {
+          surface[x] = y;
+          break;
+        }
+      }
+    }
+    return surface;
+  }
+
+  // Same fairness rules on handmade and generated rooms: no holes on spawn/door,
+  // and no trap may outlive this dimension's activation cap.
+  function applyTrapRules(lvl, d, room, boss) {
+    const map = (lvl.map || []).map((r) => String(r).replace(/ /g, "."));
+    const W = map[0] ? map[0].length : stageWidth(d);
+    const surface = lvl.surface || surfaceFromMap(map);
+    const events = (lvl.events || []).map((ev) => {
+      const copy = Object.assign({}, ev, { do: (ev.do || []).map((a) => a.slice()) });
+      (copy.do || []).forEach((a) => {
+        if (a[0] === "hole" && typeof a[1] === "number") {
+          if (a[1] <= 2) a[1] = 4;
+          if (a[1] >= W - 3) a[1] = Math.max(4, W - 5);
+        }
+      });
+      if (copy.times > activationCap(d)) copy.times = activationCap(d);
+      return copy;
+    });
+    return Object.assign({}, lvl, {
+      dim: d,
+      boss: !!boss,
+      surface: surface.length ? surface : lvl.surface,
+      events,
+    });
+  }
+
   function generate(d) {
     const dim = DIMS[d - 1] || DIMS[0];
     const count = roomCount(d);
     if (d === 1 && root.HAND_LEVELS && root.HAND_LEVELS.length) {
-      return root.HAND_LEVELS.slice(0, count).map((lvl, i) => Object.assign({}, lvl, {
-        dim: 1,
-        boss: i === count - 1,
-      }));
+      return root.HAND_LEVELS.slice(0, count).map((lvl, i) =>
+        applyTrapRules(Object.assign({}, lvl, { dim: 1, boss: i === count - 1 }), 1, i, i === count - 1)
+      );
     }
     const levels = [];
     for (let i = 0; i < count; i++) levels.push(generateOne(d, i, i === count - 1));
@@ -1583,7 +1646,7 @@
     const dim = DIMS[d - 1] || DIMS[0];
     const surface = terrain(d, i, r);
     const layout = LAYOUTS[(d + i) % LAYOUTS.length];
-    return {
+    return applyTrapRules({
       name: boss ? dim.name + " CORE" : dim.name + " " + layout + " " + (i + 1),
       taunt: pick(r, TAUNTS),
       map: paintRoom(surface, d, i, r, boss),
@@ -1594,7 +1657,7 @@
       boss: !!boss,
       layout,
       surface,
-    };
+    }, d, i, boss);
   }
 
   function theme(d) { return DIMS[Math.max(0, Math.min(DIMS.length - 1, d - 1))]; }
@@ -1613,7 +1676,8 @@
   }
 
   root.SURGE_WORLDS = {
-    DIMS, roomCount, trapCount, stageWidth, activationCap, signatureTraps, qteAction, generate, theme, chordsFor, reachable, pathHeat, count: 20,
+    DIMS, roomCount, trapCount, stageWidth, activationCap, bossFakeX, signatureTraps, qteAction,
+    generate, theme, chordsFor, reachable, pathHeat, surfaceFromMap, applyTrapRules, count: 20,
   };
   root.LEVELS = generate(1);
 })(typeof window !== "undefined" ? window : globalThis);

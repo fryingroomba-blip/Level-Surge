@@ -841,6 +841,41 @@
     }
   }
 
+  // Min dimension before a horror / apex action is legal.
+  const ENTITY_MIN_DIM = {
+    stalker: 5, drone: 5, rocket: 5, watcher: 5, sentry: 5, swarm: 5,
+    phantom: 5, crushBot: 5, voidFog: 9, huntLight: 10,
+  };
+  const APEX_MIN_DIM = 8;
+  const APEX_TYPES = {
+    reaper: 1, salvo: 1, pincer: 1, guillotine: 1, abyss: 1, eclipse: 1, snare: 1,
+    orbitSaw: 1, crossfire: 1, leech: 1, shardRain: 1, wraith: 1, mineLine: 1,
+    gravLock: 1, seeker: 1, collapse: 1, barbedWind: 1, mirrorBolt: 1, pitBeast: 1,
+    judgment: 1,
+  };
+  function actionAllowedInDim(type, d) {
+    if (!type) return false;
+    if (ENTITY_MIN_DIM[type] != null) return d >= ENTITY_MIN_DIM[type];
+    if (APEX_TYPES[type]) return d >= APEX_MIN_DIM;
+    return true;
+  }
+
+  function scrubActions(list, d) {
+    const out = [];
+    (list || []).forEach((a) => {
+      if (!Array.isArray(a) || !a.length) return;
+      if (a[0] === "queue") {
+        const rest = scrubActions(a.slice(2), d);
+        if (!rest.length) return;
+        out.push(["queue", a[1]].concat(rest));
+        return;
+      }
+      if (!actionAllowedInDim(a[0], d)) return;
+      out.push(a.slice());
+    });
+    return out;
+  }
+
   function buildEvents(d, surface, boss, room) {
     roomW = surface.length;
     const n = trapCount(d) + (boss ? 4 : 0);
@@ -880,7 +915,8 @@
       drop: 0, lock: 0, wind: 0, side: 0, ceiling: 0, gravity: 0, teleport: 0, rare: 0, entity: 0, sig: 0,
     };
     const RARE = ["slip", "jumpCut", "magnet", "blink", "clamp", "echo", "sticky", "rift", "blackout", "heavy"];
-    const ENTITY = ["stalker", "drone", "rocket", "voidFog", "watcher", "sentry", "swarm", "phantom", "huntLight", "crushBot"];
+    const ENTITY_ALL = ["stalker", "drone", "rocket", "voidFog", "watcher", "sentry", "swarm", "phantom", "huntLight", "crushBot"];
+    const ENTITY = ENTITY_ALL.filter((t) => actionAllowedInDim(t, d));
     const roster = [
       ["gate", "hole", "saw", "gate", "hole", "reverse", "push"],
       ["hole", "gate", "saw", "hole", "gate", "laser", "push"],
@@ -1092,6 +1128,7 @@
 
     function commitRare(x, type, loose) {
       if (events.length >= n || used.rare >= (caps.rare || 0)) return false;
+      if (!actionAllowedInDim(type, d)) return false;
       if (x < 11 || x > roomW - 8 || surface[x] < 0) return false;
       const gap = loose ? 2 : 3;
       for (let i = 0; i < realAt.length; i++) {
@@ -1168,6 +1205,7 @@
 
     function commitEntity(x, type, loose) {
       if (events.length >= n || used.entity >= (caps.entity || 0)) return false;
+      if (!actionAllowedInDim(type, d)) return false;
       if (x < 11 || x > roomW - 8 || surface[x] < 0) return false;
       const gap = loose ? 2 : 3;
       for (let i = 0; i < realAt.length; i++) {
@@ -1264,6 +1302,7 @@
 
     function commitApex(x, type, loose) {
       if (events.length >= n) return false;
+      if (!actionAllowedInDim(type, d)) return false;
       if (x < 10 || x > roomW - 8 || surface[x] < 0) return false;
       for (let i = 0; i < realAt.length; i++) {
         if (Math.abs(realAt[i].x - x) < (loose ? 3 : 4)) return false;
@@ -1401,10 +1440,14 @@
         if (used[kind] === before) break;
       }
     }
-    fillGimmick("rare", 1);
-    fillGimmick("entity", 1);
-    fillGimmick("rare", caps.rare || 0);
-    fillGimmick("entity", caps.entity || 0);
+    if ((caps.rare || 0) > 0) {
+      fillGimmick("rare", 1);
+      fillGimmick("rare", caps.rare || 0);
+    }
+    if ((caps.entity || 0) > 0) {
+      fillGimmick("entity", 1);
+      fillGimmick("entity", caps.entity || 0);
+    }
 
     // Quick-time prompt starts in dimension 3. Seeded 1-in-10, so the same room always rolls the same way.
     const qteRng = rng((d * 6151 + room * 2741 + 91) >>> 0);
@@ -1604,21 +1647,23 @@
   }
 
   // Same fairness rules on handmade and generated rooms: no holes on spawn/door,
-  // and no trap may outlive this dimension's activation cap.
+  // strip early-dim horror/apex, and clamp activation caps.
   function applyTrapRules(lvl, d, room, boss) {
     const map = (lvl.map || []).map((r) => String(r).replace(/ /g, "."));
     const W = map[0] ? map[0].length : stageWidth(d);
     const surface = lvl.surface || surfaceFromMap(map);
-    const events = (lvl.events || []).map((ev) => {
-      const copy = Object.assign({}, ev, { do: (ev.do || []).map((a) => a.slice()) });
-      (copy.do || []).forEach((a) => {
+    const events = [];
+    (lvl.events || []).forEach((ev) => {
+      const copy = Object.assign({}, ev, { do: scrubActions(ev.do || [], d) });
+      if (!copy.do.length) return;
+      copy.do.forEach((a) => {
         if (a[0] === "hole" && typeof a[1] === "number") {
           if (a[1] <= 2) a[1] = 4;
           if (a[1] >= W - 3) a[1] = Math.max(4, W - 5);
         }
       });
       if (copy.times > activationCap(d)) copy.times = activationCap(d);
-      return copy;
+      events.push(copy);
     });
     return Object.assign({}, lvl, {
       dim: d,

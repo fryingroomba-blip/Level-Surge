@@ -107,57 +107,6 @@
       ["rift", dur], ["lie", "HUNGRY"],
     ],
   });
-  // Entity / horror traps — one extra threat that a moving player can clear.
-  const wakeStalker = (when, dist = 95, life = 2.7, speed = 3.15) => ({
-    if: { x: when }, once: true, do: [
-      ["stalker", dist, life, speed], ["lie", "IT SEES YOU"],
-    ],
-  });
-  const callDrone = (when, x, y = 3, life = 3.1) => ({
-    if: { x: when }, once: true, do: [
-      ["drone", x, y, life], ["lie", "TARGET LOCKED"],
-    ],
-  });
-  const launchRocket = (when, fromRight = 1, y = 7, life = 2.4) => ({
-    if: { x: when }, once: true, do: [
-      ["rocket", fromRight, y, life, 0.06], ["lie", "INCOMING"],
-    ],
-  });
-  const risingFog = (when, dur = 2.0) => ({
-    if: { x: when }, once: true, do: [
-      ["voidFog", dur], ["lie", "FOG RISING"],
-    ],
-  });
-  const openEye = (when, x, y = 2, life = 2.8) => ({
-    if: { x: when }, once: true, do: [
-      ["watcher", x, y, life], ["lie", "WATCHING"],
-    ],
-  });
-  const wallSentry = (when, side = 1, y = 8, life = 2.6) => ({
-    if: { x: when }, once: true, do: [
-      ["sentry", side, y, life], ["lie", "SENTRY"],
-    ],
-  });
-  const batSwarm = (when, y = 6, dir = 1, n = 5) => ({
-    if: { x: when }, once: true, do: [
-      ["swarm", y, dir, n], ["lie", "SWARM"],
-    ],
-  });
-  const mirrorGhost = (when, life = 2.4) => ({
-    if: { x: when }, once: true, do: [
-      ["phantom", life], ["lie", "NOT YOU"],
-    ],
-  });
-  const stayLit = (when, dur = 2.2, r = 84) => ({
-    if: { x: when }, once: true, do: [
-      ["huntLight", dur, r], ["lie", "STAY LIT"],
-    ],
-  });
-  const stompBot = (when, x, life = 2.0, floorY = 9) => ({
-    if: { x: when }, once: true, do: [
-      ["crushBot", x, life, floorY], ["lie", "STOMP"],
-    ],
-  });
 
   root.HAND_LEVELS = [
     {
@@ -191,7 +140,6 @@
           ["queue", 0.7, ["fill", 29, 9, 1, 1, "^"], ["sfx", "spike"]],
         ]},
         iceSheet(7.6, 0.7),
-        openEye(16.4, 18, 2, 2.0),
       ],
     },
     {
@@ -272,7 +220,6 @@
           ["dust", 1, 9, 2], ["shake", 2],
         ]},
         blindSpot(8.6, 10.8),
-        openEye(15.4, 16, 3, 2.2),
       ],
     },
     {
@@ -299,13 +246,10 @@
         fakeCrack(8.2, 12, 3),
         sink(9.6, 12, 2, 0.26),
         sneakSaw(14.8, 32, 8, -2.4, 0.9),
-        openEye(16.6, 18, 2, 2.6),
         slice(17.4, 18),
         flip(21.3, 0.28),
         sink(24.4, 26, 2, 0.2),
-        risingFog(26.8, 1.55),
         iceSheet(11.2, 0.55),
-        mirrorGhost(19.6, 1.4),
       ],
     },
     {
@@ -331,7 +275,6 @@
         hangSpikes(10, 8, 14),
         sneakSaw(17.8, 5, 8, 2.2, 0.7),
         sink(19.6, 22, 2, 0.22),
-        callDrone(20.4, 21, 3, 2.8),
         slice(21.1, 21),
         flip(23.5, 0.28),
         doorPop(27.4, 29, 0.14),
@@ -366,7 +309,6 @@
         hangSpikes(15.4, 16, 8),
         sink(17.4, 20, 2, 0.2),
         slice(21.3, 22),
-        mirrorGhost(23.8, 2.0),
         blindSpot(8.4, 10.65),
         weakLegs(22.2, 0.72, 0.45),
       ],
@@ -424,7 +366,6 @@
         // Blink a tile the player can hop — short so a jump clears it.
         phantomFloor(17.8, 20, 9, 1, 0.55),
         sink(19.3, 22, 2, 0.2),
-        launchRocket(22.4, 1, 7, 2.3),
         doorPop(26.4, 28, 0.14),
         blindSpot(8.6, 10.6),
         tarPad(10.6, 0.28),
@@ -455,7 +396,6 @@
           ["fill", 20, 8, 1, 1, "^"], ["sfx", "spike"], ["shake", 4],
           ["queue", 0.55, ["fill", 20, 8, 1, 1, "."]],
         ]},
-        batSwarm(23.2, 5, -1, 4),
         doorPop(27.2, 29, 0.12),
         iceSheet(7.4, 0.5),
         crushWeight(13.4, 1.35, 0.45),
@@ -498,7 +438,6 @@
         ]},
         lateSaw(9, -1, 1, 1.55),
         blindSpot(10.8, 10.7),
-        openEye(17.4, 8, 1, 2.0),
       ],
     },
     {
@@ -527,7 +466,6 @@
           ["reverse", true], ["sfx", "reverse"],
           ["queue", 0.5, ["reverse", false]],
         ]},
-        wakeStalker(23.8, 110, 2.2, 2.95),
         doorPop(27.2, 28, 0.14),
         blindSpot(8.8, 10.75),
         ghostEcho(15.6, 0.85),
@@ -565,9 +503,7 @@
         { if: { time: 3.4, xLess: 9 }, once: true, delay: 0.2, do: [
           ["saw", -1, 8, 2.85, 0],
         ]},
-        launchRocket(7.2, 1, 7, 2.2),
         blindSpot(6.2, 10.7),
-        mirrorGhost(14.8, 1.3),
       ],
     },
     {
@@ -595,10 +531,8 @@
           ["reverse", true], ["sfx", "reverse"],
           ["queue", 0.5, ["reverse", false]],
         ]},
-        stayLit(17.6, 1.85, 92),
         sink(22.4, 24, 2, 0.16),
         doorPop(26.4, 28, 0.12),
-        wakeStalker(9.2, 140, 1.5, 2.4),
         ghostEcho(16.8, 0.7),
       ],
     },
@@ -652,7 +586,6 @@
           ],
         ]},
         iceSheet(6.8, 0.55),
-        openEye(15.8, 17, 3, 2.0),
       ],
     },
     {
@@ -673,7 +606,6 @@
         sneakSaw(10.2, 2, 8, 2.55, 0.4),
         blindSpot(12.8, 11.1),
         slice(14.1, 14),
-        wallSentry(18.4, 1, 7, 2.1),
         sink(19.3, 22, 2, 0.2),
         { if: { x: 24.2 }, once: true, delay: 0.22, do: [
           ["reverse", true], ["sfx", "reverse"],
@@ -718,9 +650,6 @@
         { if: { beenPast: 24, xLess: 16 }, once: true, delay: 0.45, do: [
           ["saw", 33, 8, -2.9, 0], ["sfx", "saw"],
         ]},
-        { if: { beenPast: 24, xLess: 13 }, once: true, do: [
-          ["crushBot", 10, 2.0, 9], ["sfx", "near"], ["lie", "STOMP"],
-        ]},
         { if: { beenPast: 24, xLess: 7 }, once: true, delay: 0.1, do: [
           ["fill", 0, 7, 5, 1, "v"],
           ["sfx", "spike"],
@@ -734,7 +663,6 @@
           ],
         ]},
         iceSheet(6.2, 0.55),
-        openEye(14.2, 16, 4, 2.0),
       ],
     },
   ];

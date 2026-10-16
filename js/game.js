@@ -1297,10 +1297,25 @@
     }
   }
 
+  const ENTITY_MIN_DIM = {
+    stalker: 5, drone: 5, rocket: 5, watcher: 5, sentry: 5, swarm: 5,
+    phantom: 5, crushBot: 5, voidFog: 9, huntLight: 10,
+  };
+  const APEX_MIN_DIM = 8;
+  const APEX_ACTION = {
+    reaper: 1, salvo: 1, pincer: 1, guillotine: 1, abyss: 1, eclipse: 1, snare: 1,
+    orbitSaw: 1, crossfire: 1, leech: 1, shardRain: 1, wraith: 1, mineLine: 1,
+    gravLock: 1, seeker: 1, collapse: 1, barbedWind: 1, mirrorBolt: 1, pitBeast: 1,
+    judgment: 1,
+  };
+
   function runAction(a) {
     if (!a || !a.length) return;
     const type = a[0];
     if (!ACTIONS.has(type)) throw new Error("Unknown action " + type);
+    const dimNow = dimIndex || 1;
+    if (ENTITY_MIN_DIM[type] != null && dimNow < ENTITY_MIN_DIM[type]) return;
+    if (APEX_ACTION[type] && dimNow < APEX_MIN_DIM) return;
     if (type === "hole") {
       fxTiles(a[1], a[2], a[3], a[4], ".");
       setTiles(a[1], a[2], a[3], a[4], ".");

@@ -8,7 +8,7 @@
   <title>LEVEL SURGE · ABOUT</title>
   <link rel="icon" type="image/svg+xml" href="img/logo-g.svg" />
   <link rel="stylesheet" href="css/fonts.css?v=sec2" />
-  <link rel="stylesheet" href="css/about.css?v=finish1" />
+  <link rel="stylesheet" href="css/about.css?v=traps2" />
 </head>
 <body>
   <canvas id="sky" aria-hidden="true"></canvas>
@@ -284,7 +284,7 @@
 
     <section id="worlds">
       <h2>TWENTY WORLDS</h2>
-      <p class="lead">From D2 on, the last room is a core: four extra traps and a fake door. Trap count starts at 10, then each world adds the old climb plus 10 more. Rooms grow by 5 blocks every world. From Dimension 10 the cruel traps stop being rare. Each world still gets two signature traps that only live there. I wanted every world to feel like a different kind of bad mood.</p>
+      <p class="lead">From D2 on, the last room is a core: four extra traps and a fake door. Trap count starts at 10, then each world adds the old climb plus 10 more. Rooms grow by 5 blocks every world. Rare gimmicks from D2, horror from D5, apex from D8 — and from D10 the cruel ones stop being lonely. Each world still gets two signature traps that only live there. Full roster and unlock curve live under <a href="#traps">Traps</a>.</p>
       <div class="worlds" id="world-a"></div>
       <div class="row2">
         <figure class="shot">
@@ -406,29 +406,123 @@
 
     <section id="traps">
       <h2>WHAT FIRES</h2>
-      <p class="lead">A trap waits for something you do, then answers. Sometimes late, so you think you're safe. You're not. That delay is me being funny on purpose.</p>
+      <p class="lead">A trap waits for something you do, then answers. Sometimes late, so you think you're safe. You're not. Use this page as the scaling sheet — unlock tiers, caps, and every trap name the generator can stamp.</p>
+
+      <h3 class="band-title">SCALING</h3>
+      <ul class="specs" id="scale-sheet">
+        <li><span>Rooms</span><em><strong>15 + D</strong> D1 handmade 16 rooms. Seeded worlds: roomCount(d) = 15 + d.</em></li>
+        <li><span>Width</span><em><strong>+5 / dim</strong> stageWidth = 32 + 5×(D−1). Later floors stretch so traps aren't glued to the old 32-wide map.</em></li>
+        <li><span>Trap budget</span><em><strong>10 + climb</strong> Starts at 10. Each world adds (2 or 3) + 10. Core rooms (D2+) get +4. Live numbers sit on the world cards above.</em></li>
+        <li><span>Activations</span><em><strong>+10 / dim</strong> activationCap = 4 + 10×(D−1). How many times a multi-fire event can still bite before it's spent.</em></li>
+        <li><span>Rare</span><em><strong>D2+</strong> 1 movement gimmick per room. <strong>D10+</strong> up to 2. Cap lives in worlds.js caps.rare.</em></li>
+        <li><span>Entity</span><em><strong>D5+</strong> 1 horror gimmick. <strong>D10+</strong> up to 2. voidFog needs D9+, huntLight D10+.</em></li>
+        <li><span>Apex</span><em><strong>D8+</strong> sparse (seeded 1-in-8). <strong>D10+</strong> common: tier = 1 + floor((D−10)/3), sometimes tier−1. Harder params from D15.</em></li>
+        <li><span>QTE</span><em><strong>D3+</strong> ~10% of rooms. Presses scale 1→6 by dimension; window shrinks ~0.045s per dim (floor 0.28s).</em></li>
+        <li><span>Signatures</span><em><strong>2 / world</strong> Always stamped first so every dimension owns a unique lie label. Family reuses core placement rules.</em></li>
+      </ul>
+      <div class="scale-table-wrap">
+        <table class="scale-table" id="scale-table" aria-label="Per-dimension trap scaling">
+          <thead>
+            <tr><th>D</th><th>Rooms</th><th>Width</th><th>Traps</th><th>Core</th><th>Act</th><th>Rare</th><th>Ent</th><th>Apex</th><th>Signatures</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
       <div class="cols">
         <div>
           <h3>IT WAITS</h3>
           <ul class="beats">
-            <li class="beat"><b>Walk</b><em>You pass a column. Most of the game is this. Walking into my bad ideas.</em></li>
-            <li class="beat"><b>Jump</b><em>Too soon, too early, or just because you jumped. I punish hope.</em></li>
-            <li class="beat"><b>Still</b><em>DON'T STOP drops the floor if you hesitate. 0.4 seconds of standing and it's gone. Keep moving. Please.</em></li>
-            <li class="beat"><b>Door</b><em>The fake one. PSYCH and LAST LAUGH start the long walk home here. My favorite betrayal.</em></li>
-            <li class="beat"><b>Time</b><em>WAIT FOR IT holds the ceiling for 1.9 seconds, then the floor teeth turn into brick. Patience. Or don't.</em></li>
+            <li class="beat"><b>Walk</b><em>Pass a column (<code>if.x</code>). Most of the roster.</em></li>
+            <li class="beat"><b>Jump</b><em>Air tax near spawn. Hope is a trigger.</em></li>
+            <li class="beat"><b>Ground</b><em>Slip/ice only while grounded.</em></li>
+            <li class="beat"><b>Still</b><em>DON'T STOP — 0.4s hesitation drops floor.</em></li>
+            <li class="beat"><b>Door</b><em>Fake door events (PSYCH / LAST LAUGH / cores).</em></li>
+            <li class="beat"><b>Time</b><em>WAIT FOR IT ceiling hold → brick at 1.9s.</em></li>
+            <li class="beat"><b>BeenPast</b><em>Backtrack traps fire after you cleared a mark.</em></li>
           </ul>
         </div>
         <div>
-          <h3>IT ANSWERS</h3>
+          <h3>CORE ANSWERS</h3>
           <ul class="beats">
-            <li class="beat"><b>Hole</b><em>Brick gone, spikes under. Sometimes the spikes pop back into floor. I like that little hope-crush.</em></li>
-            <li class="beat"><b>Teeth</b><em>A row from the ceiling, or one spike under a door. Small. Personal.</em></li>
-            <li class="beat"><b>Saw</b><em>From offscreen, on a delay, or chasing once BUZZ wakes it. I hear the beep in my sleep.</em></li>
-            <li class="beat"><b>Beam</b><em>A real laser, or a glow that means nothing. The glow is quiet. The glow is a liar. Like me.</em></li>
-            <li class="beat"><b>Lie</b><em>Controls flip. A shove. The door moves. Gravity reverses. A brick falls. Pick your heartbreak.</em></li>
+            <li class="beat"><b>gate</b><em>Floor spikes, then brick returns. Wide 2-tile variant mid-run.</em></li>
+            <li class="beat"><b>hole</b><em>Floor deleted, spikes under. Classic betrayal.</em></li>
+            <li class="beat"><b>laser</b><em>Real beam across the path. Glow decoys don't count.</em></li>
+            <li class="beat"><b>saw</b><em>Offscreen blade. Chase variants on handmade + signatures.</em></li>
+            <li class="beat"><b>reverse</b><em>Flip left/right briefly. Cap opens D6+.</em></li>
+            <li class="beat"><b>push</b><em>Instant shove toward the open side.</em></li>
+            <li class="beat"><b>drop</b><em>Ceiling brick falls on your lane.</em></li>
+            <li class="beat"><b>lock</b><em>Controls freeze for a beat.</em></li>
+            <li class="beat"><b>wind</b><em>Constant shove, then clears on a queue.</em></li>
+            <li class="beat"><b>side</b><em>Side teeth <code>&gt;</code><code>&lt;</code> pinch the lane.</em></li>
+            <li class="beat"><b>ceiling</b><em>Down spikes from above, then air again.</em></li>
+            <li class="beat"><b>gravity</b><em>Flip gravity. Cap from D5+.</em></li>
+            <li class="beat"><b>teleport</b><em>Snap you backward. Cap from D10+.</em></li>
           </ul>
         </div>
       </div>
+
+      <h3 class="band-title">RARE · MOVEMENT</h3>
+      <p class="band-note">D2+ · up to 2 from D10. Spaced off other real hits. Blackout is the darkness trap — ~11s, tiny sight cone.</p>
+      <ul class="trap-grid">
+        <li><b>slip</b><em>ICE — low friction while grounded.</em></li>
+        <li><b>jumpCut</b><em>HEAVY LEGS — jump height chopped.</em></li>
+        <li><b>magnet</b><em>PULL — drag you back along X.</em></li>
+        <li><b>blink</b><em>GONE — floor vanishes for a beat.</em></li>
+        <li><b>clamp</b><em>JAWS — ceiling and floor teeth close.</em></li>
+        <li><b>echo</b><em>Delayed copy of your last move threat.</em></li>
+        <li><b>sticky</b><em>TAR — glue on flat floor.</em></li>
+        <li><b>rift</b><em>HUNGRY — gap opens (D6+).</em></li>
+        <li><b>blackout</b><em>BLIND — near-total dark ~11.15–11.35s.</em></li>
+        <li><b>heavy</b><em>CRUSH — gravity multiplier for ~1s.</em></li>
+      </ul>
+
+      <h3 class="band-title">ENTITY · HORROR</h3>
+      <p class="band-note">D5+ · up to 2 from D10. Late params tighten from D14.</p>
+      <ul class="trap-grid">
+        <li><b>stalker</b><em>IT SEES YOU — pursues behind/beside you.</em></li>
+        <li><b>drone</b><em>TARGET LOCKED — hover unit that fires.</em></li>
+        <li><b>rocket</b><em>INCOMING — horizontal missile.</em></li>
+        <li><b>voidFog</b><em>FOG RISING — rising death fog (D9+).</em></li>
+        <li><b>watcher</b><em>WATCHING — ceiling eye that tracks.</em></li>
+        <li><b>sentry</b><em>SENTRY — side turret pulse.</em></li>
+        <li><b>swarm</b><em>SWARM — pack of small chasers.</em></li>
+        <li><b>phantom</b><em>NOT YOU — false player / decoy threat.</em></li>
+        <li><b>huntLight</b><em>STAY LIT — moving safe circle (D10+).</em></li>
+        <li><b>crushBot</b><em>STOMP — descending crusher.</em></li>
+      </ul>
+
+      <h3 class="band-title">APEX · CRUEL</h3>
+      <p class="band-note">D8 sparse · D10+ common · harder from D15. These are the ones that stack with the budget, not quiet tells.</p>
+      <ul class="trap-grid">
+        <li><b>reaper</b><em>REAPER — fast chase silhouette from behind.</em></li>
+        <li><b>salvo</b><em>SALVO — triple staggered rockets.</em></li>
+        <li><b>pincer</b><em>PINCER — dual saws close the lane.</em></li>
+        <li><b>guillotine</b><em>DROP — ceiling teeth slam a wide row.</em></li>
+        <li><b>abyss</b><em>ABYSS — wide floor delete + spikes under.</em></li>
+        <li><b>eclipse</b><em>ECLIPSE — blackout + hunt light combo.</em></li>
+        <li><b>snare</b><em>SNARE — brief lock then floor teeth.</em></li>
+        <li><b>orbitSaw</b><em>ORBIT — saw on a vertical bob.</em></li>
+        <li><b>crossfire</b><em>CROSSFIRE — dual sentries opposite sides.</em></li>
+        <li><b>leech</b><em>LEECH — hard magnet pull + teeth.</em></li>
+        <li><b>shardRain</b><em>RAIN — falling spike columns.</em></li>
+        <li><b>wraith</b><em>WRAITH — phase chase entity.</em></li>
+        <li><b>mineLine</b><em>MINES — delayed floor teeth ahead.</em></li>
+        <li><b>gravLock</b><em>FLIP — gravity reverse + lock mashup.</em></li>
+        <li><b>seeker</b><em>SEEKER — homing threat on your X.</em></li>
+        <li><b>collapse</b><em>BETWEEN — floor sandwich / crush lane.</em></li>
+        <li><b>barbedWind</b><em>BARBS — wind plus hazard spray.</em></li>
+        <li><b>mirrorBolt</b><em>MIRROR — reverse-side laser bolt.</em></li>
+        <li><b>pitBeast</b><em>PIT BEAST — rising threat from a gap.</em></li>
+        <li><b>judgment</b><em>JUDGMENT — wide delayed sentence on the lane.</em></li>
+      </ul>
+
+      <h3 class="band-title">QTE</h3>
+      <p class="band-note">D3+ · ~1-in-10 rooms. Keys from a pool that grows with dimension. Fail = death. Window = max(0.28, 1.15 − 0.045×(D−1)). Presses: D3=1, D4=2, D8=3, D12=4, D16=5, D19=6.</p>
+
+      <h3 class="band-title">SIGNATURES · 2 PER WORLD</h3>
+      <p class="band-note">Placed first every room. Lie text is forced to the signature label so you can tell which world bit you.</p>
+      <ul class="trap-grid sigs" id="sig-list"></ul>
     </section>
 
     <section id="sound">
@@ -456,11 +550,11 @@
   </main>
 
   <script src="js/guard.js?v=save1"></script>
-  <script src="js/levels.js?v=gimmick1"></script>
-  <script src="js/worlds.js?v=rules1"></script>
+  <script src="js/levels.js?v=gate1"></script>
+  <script src="js/worlds.js?v=gate1"></script>
   <script src="js/void-sky.js?v=classic1"></script>
   <script src="js/about-sky.js?v=classic1"></script>
   <script src="js/about-music.js?v=classic1"></script>
-  <script src="js/about-page.js?v=finish1"></script>
+  <script src="js/about-page.js?v=traps2"></script>
 </body>
 </html>

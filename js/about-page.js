@@ -96,6 +96,25 @@
     document.getElementById("world-c"),
     document.getElementById("world-d")
   ];
+  function apexHint(d) {
+    if (d < 8) return "—";
+    if (d < 10) return "~1/8";
+    const tier = 1 + Math.floor((d - 10) / 3);
+    return String(tier) + "±";
+  }
+
+  function rareCap(d) {
+    if (d >= 10) return 2;
+    if (d >= 2) return 1;
+    return 0;
+  }
+
+  function entityCap(d) {
+    if (d >= 10) return 2;
+    if (d >= 5) return 1;
+    return 0;
+  }
+
   if (pack) {
     pack.DIMS.forEach((dim, i) => {
       const d = i + 1;
@@ -130,6 +149,54 @@
       card.append(pip, idx, who, meta);
       bins[Math.floor(i / 5)].appendChild(card);
     });
+
+    const scaleBody = document.querySelector("#scale-table tbody");
+    if (scaleBody) {
+      pack.DIMS.forEach((dim, i) => {
+        const d = i + 1;
+        const roomsN = pack.roomCount(d);
+        const traps = pack.trapCount(d);
+        const width = pack.stageWidth ? pack.stageWidth(d) : 32 + 5 * Math.max(0, d - 1);
+        const act = pack.activationCap ? pack.activationCap(d) : 4 + 10 * Math.max(0, d - 1);
+        const sigs = (pack.signatureTraps && pack.signatureTraps(d)) || [];
+        const tr = document.createElement("tr");
+        const cells = [
+          "D" + String(d).padStart(2, "0"),
+          String(roomsN),
+          String(width),
+          String(traps),
+          d === 1 ? "—" : String(traps + 4),
+          String(act),
+          String(rareCap(d)),
+          String(entityCap(d)),
+          apexHint(d),
+          sigs.map((t) => t.label).join(" / ") || "—",
+        ];
+        cells.forEach((text, ci) => {
+          const td = document.createElement("td");
+          if (ci === cells.length - 1) td.className = "sig";
+          td.textContent = text;
+          tr.appendChild(td);
+        });
+        scaleBody.appendChild(tr);
+      });
+    }
+
+    const sigList = document.getElementById("sig-list");
+    if (sigList) {
+      pack.DIMS.forEach((dim, i) => {
+        const d = i + 1;
+        const sigs = (pack.signatureTraps && pack.signatureTraps(d)) || [];
+        if (!sigs.length) return;
+        const li = document.createElement("li");
+        const b = document.createElement("b");
+        b.textContent = "D" + String(d).padStart(2, "0");
+        const em = document.createElement("em");
+        em.textContent = dim.name + " — " + sigs.map((t) => t.label + " (" + t.family + ")").join(" · ");
+        li.append(b, em);
+        sigList.appendChild(li);
+      });
+    }
   }
 
   const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;

@@ -36,7 +36,7 @@ html, body {
   inset: -2px;
   pointer-events: none;
   z-index: 20;
-  opacity: 0.13;
+  opacity: 0.045;
   background-image:
     repeating-linear-gradient(
       0deg,
@@ -118,11 +118,6 @@ html, body {
 }
 
 #level-num { color: var(--red); }
-#scene-slate {
-  color: #e7c56a;
-  font-size: 11px;
-  letter-spacing: 0.16em;
-}
 #level-name { color: var(--cream); }
 #dim-name { color: #9ec4ff; font-size: 12px; letter-spacing: 0.16em; }
 #deaths { color: #ffb4b4; }
@@ -190,35 +185,10 @@ html, body {
     radial-gradient(ellipse at 50% 36%, rgba(8, 12, 22, 0.22) 0%, rgba(5, 7, 12, 0.52) 72%);
 }
 
-.screen::before,
-.screen::after,
-#dim-card::before,
-#dim-card::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 5.6vh;
-  background: #000;
-  pointer-events: none;
-  z-index: 4;
-}
-
-.screen::before,
-#dim-card::before {
-  top: 0;
-  box-shadow: inset 0 -1px 0 rgba(231, 197, 106, 0.55);
-}
-
-.screen::after,
-#dim-card::after {
-  bottom: 0;
-  box-shadow: inset 0 1px 0 rgba(231, 197, 106, 0.55);
-}
-
-.creator-screen::before,
-.creator-screen::after {
-  display: none;
+#title-screen,
+#levels-screen {
+  background:
+    radial-gradient(ellipse at 50% 42%, rgba(6, 7, 12, 0.5) 0%, rgba(6, 7, 12, 0.1) 34%, rgba(6, 7, 12, 0) 64%);
 }
 
 .title-tape {
@@ -559,7 +529,7 @@ a.ghost-btn {
 
 @media (max-width: 640px) {
   #level-grid, #level-grid.world-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .hud-brand, #scene-slate { display: none; }
+  .hud-brand { display: none; }
   .hud-left, .hud-right { gap: 8px; }
   #hud { padding: 0 12px; font-size: 12px; }
   #room-pips { display: none; }
@@ -924,4 +894,80 @@ a.ghost-btn {
   .creator-body { grid-template-columns: 1fr; }
   .creator-tools { max-height: none; flex-direction: row; flex-wrap: wrap; }
   .creator-library { width: 100%; flex-direction: row; flex-wrap: wrap; }
+}
+
+#hud {
+  top: max(14px, env(safe-area-inset-top));
+  padding-left: max(22px, env(safe-area-inset-left));
+  padding-right: max(22px, env(safe-area-inset-right));
+}
+.title-dust {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.title-dust i {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  background: rgba(244, 234, 216, 0.45);
+  animation: dustFloat 7s linear infinite;
+}
+.title-dust i:nth-child(1) { left: 12%; top: 70%; animation-duration: 6s; }
+.title-dust i:nth-child(2) { left: 28%; top: 40%; animation-duration: 8s; }
+.title-dust i:nth-child(3) { left: 46%; top: 78%; animation-duration: 5.5s; }
+.title-dust i:nth-child(4) { left: 63%; top: 36%; animation-duration: 9s; }
+.title-dust i:nth-child(5) { left: 74%; top: 68%; animation-duration: 7.4s; }
+.title-dust i:nth-child(6) { left: 88%; top: 48%; animation-duration: 6.6s; }
+@keyframes dustFloat {
+  from { transform: translateY(12px); opacity: 0; }
+  20% { opacity: 0.7; }
+  to { transform: translateY(-80px); opacity: 0; }
+}
+.sprocket {
+  position: absolute;
+  top: 8vh;
+  bottom: 8vh;
+  width: 10px;
+  z-index: 5;
+  pointer-events: none;
+  background: repeating-linear-gradient(#000 0 12px, transparent 12px 16px, #000 16px 28px);
+  opacity: 0.55;
+}
+.sprocket.left { left: 14px; }
+.sprocket.right { right: 14px; }
+#win-screen .title-laurels {
+  animation: laurelPulse 2.8s ease-in-out infinite;
+}
+@keyframes laurelPulse {
+  50% { color: #fff6d0; text-shadow: 0 0 12px rgba(255, 210, 120, 0.45); }
+}
+.big-btn, .ghost-btn, #mute-btn, #pause-btn {
+  position: relative;
+}
+.big-btn::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 3px;
+  height: 6px;
+  background: linear-gradient(rgba(255,255,255,0.28), transparent);
+  pointer-events: none;
+}
+button:focus-visible, a:focus-visible {
+  outline: 2px solid #ffd27a;
+  outline-offset: 3px;
+}
+#creator-map:focus { outline: 2px solid #ffd27a; }
+#mobile button {
+  box-shadow: inset 0 -4px 0 rgba(0,0,0,0.35);
+}
+#dim-card {
+  box-shadow: 0 0 0 1px rgba(255, 210, 120, 0.25), 0 18px 40px rgba(0,0,0,0.45);
+}
+::selection { background: #e31b1b; color: #f4ead8; }
+@media (prefers-reduced-motion: reduce) {
+  #app::after, .title-dust i, #win-screen .title-laurels { animation: none; }
 }

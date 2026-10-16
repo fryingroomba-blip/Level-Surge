@@ -688,7 +688,6 @@
   let nearCool = 0;
   let introT = 0;
   let dimIntro = 0;
-  let cineBar = 0.2;
   let clearBloom = 0;
   let lastView = { scale: 1, ox: 0, oy: 0, rot: 0 };
   let runTraps = 0;
@@ -926,11 +925,6 @@
       } else {
         trapCountEl.textContent = "????";
       }
-    }
-    const slate = document.getElementById("scene-slate");
-    if (slate && window.LEVELS) {
-      const sc = String(levelIndex + 1).padStart(2, "0");
-      slate.textContent = `SC ${sc} · TK ${deaths + 1}`;
     }
     if (timerEl) timerEl.textContent = world.time.toFixed(1);
     if (deathsEl) deathsEl.textContent = `☠ ${deaths}`;
@@ -4134,38 +4128,6 @@
     drawCinema();
   }
 
-  function cinemaAmount() {
-    if (deathShow || mode !== "play") return 0;
-    if (dimIntro > 0.2 || player.win || clearBloom > 0.05) return 1;
-    if (introT > 0) return 0.42 + Math.min(1, introT) * 0.58;
-    return 0.2;
-  }
-
-  function drawLetterbox(amt) {
-    const h = Math.round(VIEW_H * (0.016 + amt * 0.05));
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, VIEW_W, h);
-    ctx.fillRect(0, VIEW_H - h, VIEW_W, h);
-    const flicker = 0.32 + Math.sin(performance.now() / 170) * 0.08;
-    ctx.fillStyle = `rgba(231,197,106,${flicker})`;
-    ctx.fillRect(0, h - 1, VIEW_W, 1);
-    ctx.fillRect(0, VIEW_H - h, VIEW_W, 1);
-  }
-
-  function drawGrain(strength) {
-    const t = (performance.now() / 80) | 0;
-    const n = mode === "play" ? 80 : 42;
-    for (let i = 0; i < n; i++) {
-      const x = (frac(i * 12.989 + t * 0.17) * VIEW_W) | 0;
-      const y = (frac(i * 78.233 + t * 0.11) * VIEW_H) | 0;
-      const dark = frac(i * 4.2 + t) > 0.55;
-      ctx.fillStyle = dark
-        ? `rgba(0,0,0,${0.16 * strength})`
-        : `rgba(255,255,255,${0.07 * strength})`;
-      ctx.fillRect(x, y, 2, 2);
-    }
-  }
-
   function drawFlare() {
     const flare = beatGlow();
     if (flare < 0.08) return;
@@ -4216,44 +4178,51 @@
     ctx.fillRect(px - rad, py - rad, rad * 2, rad * 2);
   }
 
-  function drawSceneSlate() {
-    if (mode !== "play" || introT <= 0 || deathShow || dimIntro > 0.35) return;
-    const a = introT > 0.72 ? 1 : introT / 0.72;
-    const total = (window.LEVELS && window.LEVELS.length) || 1;
-    const sc = String(levelIndex + 1).padStart(2, "0");
-    const of = String(total).padStart(2, "0");
-    const kicker = Math.max(12, Math.round(VIEW_H * 0.02));
-    const namePx = Math.max(20, Math.round(VIEW_H * 0.042));
-    const y = Math.round(VIEW_H * 0.105);
-    const boxH = kicker + namePx + 22;
-    ctx.save();
-    ctx.globalAlpha = Math.max(0, a);
-    ctx.fillStyle = "rgba(0,0,0,0.55)";
-    ctx.fillRect(VIEW_W * 0.24, y, VIEW_W * 0.52, boxH);
-    ctx.textAlign = "center";
-    ctx.fillStyle = "#e7c56a";
-    ctx.font = `800 ${kicker}px Rubik, sans-serif`;
-    ctx.fillText(`SCENE ${sc}  /  ${of}    ·    TAKE ${deaths + 1}`, VIEW_W / 2, y + kicker + 6);
-    ctx.fillStyle = "#f4ead8";
-    ctx.font = `800 ${namePx}px Bungee, Rubik, sans-serif`;
-    ctx.fillText(world.name || "", VIEW_W / 2, y + kicker + namePx + 10);
-    ctx.restore();
-  }
-
   function drawCinema() {
     if (mode === "creator") return;
-    const target = cinemaAmount();
-    cineBar += (target - cineBar) * 0.08;
     if (clearBloom > 0) {
-      ctx.fillStyle = `rgba(255,214,140,${clearBloom * 0.34})`;
+      ctx.fillStyle = `rgba(255,214,140,${clearBloom * 0.22})`;
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     }
     drawDoorPull();
     drawSpeedLines();
-    drawFlare();
-    if (mode === "play" || mode === "title" || mode === "levels") drawGrain(mode === "play" ? 0.85 : 0.45);
-    if (cineBar > 0.03 && mode === "play") drawLetterbox(cineBar);
-    drawSceneSlate();
+    if (mode === "play") drawFlare();
+    if (window.SURGE_FINISH && !testMode && mode === "play") window.SURGE_FINISH.paint(ctx, finishSnap());
+  }
+
+  function finishSnap() {
+    const th = currentTheme();
+    let near = 0;
+    if (mode === "play" && world.door && !world.doorHidden && !player.dead) {
+      const dx = (player.x + player.w / 2) - (world.door.x + 16);
+      const dy = (player.y + 10) - (world.door.y + 8);
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      near = dist < 220 ? 1 - dist / 220 : 0;
+    }
+    return {
+      w: VIEW_W, h: VIEW_H, mode,
+      t: world.time || 0,
+      now: performance.now(),
+      combo, deaths,
+      traps: world.trapsFired || 0,
+      reverse: !!world.reverse,
+      wind: world.wind || 0,
+      grav: world.gravity,
+      shake: world.shake || 0,
+      flash: world.flash || 0,
+      dash: dashT,
+      dashReady: dimIndex >= 3 && dashCool <= 0,
+      ground: !!player.onGround,
+      vx: player.vx, vy: player.vy,
+      weather: th.weather || "",
+      accent: th.accent || [227, 27, 27],
+      dim: dimIndex,
+      intro: introT,
+      win: !!player.win,
+      dead: !!player.dead,
+      clear: clearBloom,
+      near,
+    };
   }
 
   function drawDashReady() {
@@ -4273,38 +4242,293 @@
     ctx.restore();
   }
 
+  function drawTitleShard(x, y, spin) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(spin);
+    ctx.fillStyle = "rgba(255,210,74,0.28)";
+    ctx.beginPath();
+    ctx.arc(0, 0, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffd24a";
+    ctx.beginPath();
+    ctx.moveTo(0, -8);
+    ctx.lineTo(5, -1);
+    ctx.lineTo(3, 6);
+    ctx.lineTo(-3, 6);
+    ctx.lineTo(-5, -1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#fff6c8";
+    ctx.beginPath();
+    ctx.moveTo(0, -5);
+    ctx.lineTo(2, -1);
+    ctx.lineTo(0, 2);
+    ctx.lineTo(-1.4, -1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
   function drawTitleDemo() {
     drawBackground();
     const t = performance.now() / 1000;
-    const W = 960;
-    const H = 540;
-    const scale = Math.min(VIEW_W / W, VIEW_H / H);
-    ctx.save();
-    ctx.translate((VIEW_W - W * scale) / 2, (VIEW_H - H * scale) / 2);
-    ctx.scale(scale, scale);
-    const floorY = H * 0.78;
     const pal = themeBricks("#");
-    for (let i = 0; i < Math.ceil(W / TILE) + 1; i++) {
-      drawBrickFace(i * TILE, floorY, pal[0], pal[1], false);
+    const accent = (currentTheme().accent || [210, 220, 255]);
+    const ar = accent[0];
+    const ag = accent[1];
+    const ab = accent[2];
+    const sc = Math.max(2.2, Math.min(VIEW_W / 720, VIEW_H / 420));
+    const W = VIEW_W / sc;
+    const H = VIEW_H / sc;
+    const floorY = H * (mode === "levels" ? 0.92 : 0.8);
+    const doorX = W * 0.86;
+    const driftX = Math.sin(t * 0.12) * 6;
+    const driftY = Math.cos(t * 0.09) * 3;
+    ctx.save();
+    ctx.scale(sc, sc);
+    ctx.translate(driftX, driftY);
+
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 3; i++) {
+      const x = doorX - 4 + i * 16 + Math.sin(t * 0.25 + i) * 4;
+      ctx.fillStyle = `rgba(255,214,150,${0.045 + i * 0.012})`;
+      ctx.beginPath();
+      ctx.moveTo(x, -20);
+      ctx.lineTo(x + 14, -20);
+      ctx.lineTo(x + 36, floorY);
+      ctx.lineTo(x + 8, floorY);
+      ctx.closePath();
+      ctx.fill();
     }
-    const holeX = W * 0.52;
-    if ((t % 5) > 2.2) {
-      ctx.fillStyle = "#07050a";
-      ctx.fillRect(holeX, floorY, 96, TILE);
-      drawSpikePair(holeX, floorY + TILE, "up");
-      drawSpikePair(holeX + 32, floorY + TILE, "up");
-      drawSpikePair(holeX + 64, floorY + TILE, "up");
-    }
-    const walk = (t % 5) / 2.15;
-    const px = W * 0.18 + Math.min(walk, 1) * W * 0.28;
-    const py = floorY - 28 + ((t % 5) > 2.25 && walk > 1 ? (t % 5 - 2.25) * 90 : 0);
-    drawDevilBody(px, py, 1, 1, (t % 5) > 2.2 && walk <= 1 ? 0.12 : 0);
-    drawSaw({ x: px - 70, y: floorY - 18, spin: t * 8, chase: (t % 5) > 1.6 });
-    drawDoorShell(W * 0.8, floorY - 50, (t % 7) > 4.6);
     ctx.restore();
-    drawSkullMark(VIEW_W * 0.16, VIEW_H * 0.22, 1.6);
-    drawSkullMark(VIEW_W * 0.84, VIEW_H * 0.2, 1.3);
-    drawOverlay();
+
+    const brick = (x, y) => drawBrickFace(x, y, pal[0], pal[1], false);
+    ctx.save();
+    ctx.globalAlpha = 0.42;
+    const farY = H * 0.16;
+    for (let i = -1; i < 4; i++) brick(i * TILE - 8, farY);
+    for (let i = 0; i < 4; i++) brick(W - (i + 1) * TILE, farY - TILE);
+    ctx.restore();
+
+    const tower = (x, h) => {
+      for (let i = 1; i <= h; i++) brick(x, floorY - i * TILE);
+    };
+    tower(0, 2);
+    tower(TILE, 1);
+    tower(W - TILE, 2);
+    drawSpikePair(0, floorY - TILE * 3, "up");
+
+    const islands = [
+      { x: W * 0.03, y: H * 0.36, n: 3, ph: 0.2 },
+      { x: W * 0.8, y: H * 0.28, n: 3, ph: 1.4 },
+    ];
+    for (const isl of islands) {
+      const bob = Math.sin(t * 1.1 + isl.ph) * 7;
+      for (let i = 0; i < isl.n; i++) brick(isl.x + i * TILE, isl.y + bob);
+      drawTitleShard(isl.x + TILE, isl.y + bob - 16, Math.sin(t * 0.9 + isl.ph) * 0.4);
+    }
+
+    const cols = Math.ceil(W / TILE) + 3;
+    const depth = Math.ceil((H - floorY) / TILE) + 2;
+    const hole = Math.max(2, Math.floor(W * 0.16 / TILE));
+    const open = (t % 7) > 2.5;
+    for (let row = 0; row < depth; row++) {
+      for (let i = -1; i < cols; i++) {
+        if (open && row === 0 && i >= hole && i < hole + 3) continue;
+        brick(i * TILE, floorY + row * TILE);
+      }
+    }
+    if (open) {
+      ctx.fillStyle = "#07050a";
+      ctx.fillRect(hole * TILE, floorY, TILE * 3, TILE);
+      for (let s = 0; s < 3; s++) drawSpikePair((hole + s) * TILE, floorY + TILE, "up");
+    }
+
+    const aura = ctx.createRadialGradient(doorX + 16, floorY - 8, 6, doorX + 16, floorY - 8, 72);
+    aura.addColorStop(0, "rgba(255,200,90,0.38)");
+    aura.addColorStop(1, "rgba(255,200,90,0)");
+    ctx.fillStyle = aura;
+    ctx.beginPath();
+    ctx.arc(doorX + 16, floorY - 8, 72, 0, Math.PI * 2);
+    ctx.fill();
+    drawDoorShell(doorX, floorY - 50, (t % 9) > 6.4);
+
+    const cycle = t % 7;
+    const walk = Math.min(1, cycle / 2.4);
+    const px = W * 0.04 + walk * (hole * TILE - W * 0.04 - 8);
+    const falling = open && cycle > 2.55 && walk > 0.9;
+    const py = floorY - 28 + (falling ? Math.min(86, (cycle - 2.55) * 95) : 0);
+    drawSaw({
+      x: px - 72,
+      y: floorY - 24 + Math.sin(t * 3) * 5,
+      spin: t * 8,
+      chase: cycle > 1.15,
+    });
+    if (py < floorY + 36) {
+      drawDevilBody(px, py, 1, falling ? 0.8 : 1, (!falling && cycle > 2.2 && cycle < 2.55) ? 0.16 : 0);
+    }
+
+    for (let i = 0; i < 26; i++) {
+      const n = frac(i * 5.3);
+      const x = (frac(i * 11.7) * (W + 40) + t * (8 + n * 16)) % (W + 40) - 20;
+      const y = H + 10 - ((t * (12 + n * 18) + n * 200) % (H + 30));
+      ctx.fillStyle = `rgba(${Math.min(255, ar + 40)},${80 + n * 90},${40},${0.22 + n * 0.4})`;
+      const s = n > 0.78 ? 2.4 : 1.3;
+      ctx.fillRect(x, y, s, s);
+    }
+    ctx.restore();
+
+    const vig = ctx.createRadialGradient(VIEW_W * 0.5, VIEW_H * 0.4, VIEW_H * 0.08, VIEW_W * 0.5, VIEW_H * 0.42, VIEW_H * 0.78);
+    vig.addColorStop(0, "rgba(5,6,10,0.34)");
+    vig.addColorStop(0.5, "rgba(5,6,10,0.06)");
+    vig.addColorStop(1, "rgba(5,6,10,0)");
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  }
+
+  function drawPit(view) {
+    if (!view || !world.rows || mode !== "play") return;
+    const bottom = view.oy + world.rows * TILE * view.scale;
+    if (bottom > VIEW_H - 24) return;
+    const top = Math.max(0, bottom);
+    const gap = VIEW_H - top;
+    const th = currentTheme();
+    const accent = th.accent || [210, 225, 255];
+    const t = world.time || 0;
+    ctx.save();
+    const fog = ctx.createLinearGradient(0, top, 0, VIEW_H);
+    fog.addColorStop(0, "rgba(0,0,0,0)");
+    fog.addColorStop(0.3, `rgba(${accent[0]},${accent[1]},${accent[2]},0.06)`);
+    fog.addColorStop(1, "rgba(0,0,0,0.5)");
+    ctx.fillStyle = fog;
+    ctx.fillRect(0, top, VIEW_W, gap);
+    for (let i = 0; i < 12; i++) {
+      const n = frac(i * 3.7 + 1.1);
+      const x = ((i + 0.4) / 12) * VIEW_W + Math.sin(t * 0.12 + i) * 5;
+      const rise = gap * (0.42 + n * 0.5);
+      const half = 26 + n * 34;
+      ctx.beginPath();
+      ctx.moveTo(x - half, VIEW_H + 6);
+      ctx.lineTo(x - half * 0.2, VIEW_H - rise);
+      ctx.lineTo(x + half * 0.28, VIEW_H - rise * 0.8);
+      ctx.lineTo(x + half, VIEW_H + 6);
+      ctx.closePath();
+      ctx.fillStyle = `rgb(${accent[0] * 0.16 | 0},${accent[1] * 0.16 | 0},${accent[2] * 0.22 | 0})`;
+      ctx.fill();
+      ctx.strokeStyle = `rgba(${accent[0]},${accent[1]},${accent[2]},0.55)`;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(x - half * 0.2, VIEW_H - rise);
+      ctx.lineTo(x - half, VIEW_H + 6);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawAirFront(view) {
+    if (mode !== "play") return;
+    const th = currentTheme();
+    const accent = th.accent || [210, 225, 255];
+    const t = world.time || 0;
+    ctx.save();
+    for (let i = 0; i < 22; i++) {
+      const n = frac(i * 5.1 + 0.4);
+      const x = (frac(i * 2.7) * (VIEW_W + 40) + t * (16 + n * 28)) % (VIEW_W + 40) - 20;
+      const y = (frac(i * 8.3) * VIEW_H + Math.sin(t * 0.7 + i) * 18 + VIEW_H) % VIEW_H;
+      const s = n > 0.86 ? 11 : n > 0.55 ? 5 : 2.5;
+      ctx.fillStyle = `rgba(${accent[0]},${accent[1]},${accent[2]},${0.16 + n * 0.28})`;
+      ctx.fillRect(x, y, s, s);
+    }
+    if (view && world.door && !world.doorHidden) {
+      const x = (world.door.x + 16) * view.scale + view.ox;
+      const y = (world.door.y + 20) * view.scale + view.oy;
+      const reach = 240 * view.scale;
+      const beam = ctx.createLinearGradient(x, y - reach, x, y + 10);
+      beam.addColorStop(0, "rgba(255,220,160,0)");
+      beam.addColorStop(1, "rgba(255,206,110,0.2)");
+      ctx.fillStyle = beam;
+      ctx.fillRect(x - 18 * view.scale, y - reach, 36 * view.scale, reach + 16);
+    }
+    ctx.restore();
+  }
+
+  function drawRoomAir() {
+    if (!world.cols || !world.rows) return;
+    const th = currentTheme();
+    const accent = th.accent || [200, 210, 230];
+    const t = world.time || 0;
+    const spanX = world.cols * TILE;
+    const spanY = world.rows * TILE;
+    const weather = th.weather || "shards";
+    const ar = accent[0];
+    const ag = accent[1];
+    const ab = accent[2];
+    for (let i = 0; i < 34; i++) {
+      const u = frac(i * 6.1 + 1.7);
+      const v = frac(i * 3.9);
+      let x = v * spanX;
+      let y = frac(i * 8.2) * spanY;
+      let s = 1.2;
+      let a = 0.14;
+      if (weather === "rain") {
+        x = (v * (spanX + 48) + t * (36 + u * 18)) % (spanX + 48) - 24;
+        y = (i * 41 + t * (86 + u * 36)) % (spanY + 16);
+        ctx.strokeStyle = `rgba(${ar},${ag},${ab},${0.14 + u * 0.2})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - 2.5, y + 9);
+        ctx.stroke();
+        continue;
+      }
+      if (weather === "snow") {
+        x = (v * spanX + Math.sin(t * 0.55 + i) * 7 + spanX) % spanX;
+        y = (y + t * (7 + u * 9)) % spanY;
+        s = u > 0.72 ? 2.3 : 1.35;
+        a = 0.22 + u * 0.32;
+      } else if (weather === "ember" || weather === "sparks") {
+        x = (x + t * (5 + u * 9)) % spanX;
+        y = spanY - ((y + t * (16 + u * 24)) % spanY);
+        s = u > 0.84 ? 2.2 : 1.35;
+        a = 0.16 + u * 0.38;
+      } else if (weather === "spores") {
+        x = (x + Math.sin(t * 0.35 + i) * 16 + spanX) % spanX;
+        y = (y + Math.sin(t * 0.5 + i * 0.7) * 12 + spanY) % spanY;
+        s = 1.5 + u * 1.4;
+        a = 0.1 + u * 0.16;
+      } else if (weather === "static") {
+        if (u < 0.78) continue;
+        y = frac(i * 4.4 + Math.floor(t * 9) * 0.17) * spanY;
+        s = 1.3;
+        a = 0.42;
+      } else {
+        x = (x + t * (4 + u * 8)) % spanX;
+        y = (y + Math.sin(t * 0.7 + i) * 8 + spanY) % spanY;
+        s = u > 0.82 ? 2.1 : 1.15;
+        a = 0.1 + u * 0.18;
+      }
+      ctx.fillStyle = `rgba(${ar},${ag},${ab},${a})`;
+      ctx.fillRect(x, y, s, s);
+    }
+    if (world.door && !world.doorHidden) {
+      const x = world.door.x + 16;
+      const y = world.door.y + 18;
+      const g = ctx.createLinearGradient(x, y - 220, x, y + 48);
+      g.addColorStop(0, "rgba(255,220,150,0)");
+      g.addColorStop(0.72, "rgba(255,210,120,0.05)");
+      g.addColorStop(1, "rgba(255,210,120,0.2)");
+      ctx.fillStyle = g;
+      ctx.fillRect(x - 16, y - 220, 36, 268);
+      const pool = ctx.createRadialGradient(x, world.door.y + 52, 4, x, world.door.y + 52, 56);
+      pool.addColorStop(0, "rgba(255,200,90,0.28)");
+      pool.addColorStop(1, "rgba(255,200,90,0)");
+      ctx.fillStyle = pool;
+      ctx.beginPath();
+      ctx.ellipse(x, world.door.y + 50, 50, 11, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   function render() {
@@ -4324,9 +4548,18 @@
     ctx.translate(view.ox, view.oy);
     ctx.scale(view.scale, view.scale);
     drawContactShadows();
-    for (let y = 0; y < world.rows; y++) {
-      for (let x = 0; x < world.cols; x++) drawTile(world.tiles[y][x], x, y);
-      }
+    const inv = view.scale > 0 ? 1 / view.scale : 1;
+    const pad = 3;
+    const x0 = Math.max(0, (Math.floor((-view.ox) * inv / TILE) - pad) | 0);
+    const x1 = Math.min(world.cols, (Math.ceil((VIEW_W - view.ox) * inv / TILE) + pad) | 0);
+    const y0 = Math.max(0, (Math.floor((-view.oy) * inv / TILE) - pad) | 0);
+    const y1 = Math.min(world.rows, (Math.ceil((VIEW_H - view.oy) * inv / TILE) + pad) | 0);
+    for (let y = y0; y < y1; y++) {
+      const row = world.tiles[y];
+      if (!row) continue;
+      for (let x = x0; x < x1; x++) drawTile(row[x], x, y);
+    }
+    drawRoomAir();
     drawBlood();
     for (const p of world.platforms) {
       drawBrickFace(p.x, p.y, "#6a4030", "#e0b090", false);
@@ -4381,6 +4614,8 @@
     drawParticles();
     ctx.restore();
     drawLighting(view);
+    drawPit(view);
+    drawAirFront(view);
     drawOverlay();
     drawQte();
     if (deathShow && window.DeathRoast) window.DeathRoast.drawScreen(ctx, deathShow, roastApi());
@@ -4440,6 +4675,12 @@
 
   function loop(ts) {
     if (!last) last = ts;
+    if (typeof document !== "undefined" && document.hidden) {
+      last = ts;
+      acc = 0;
+      requestAnimationFrame(loop);
+      return;
+    }
     let dt = (ts - last) / 1000;
     last = ts;
     if (dt > 0.05) dt = 0.05;
@@ -4479,7 +4720,7 @@
     if (pauseScreen) pauseScreen.classList.remove("hidden");
     if (dimCard) dimCard.classList.add("hidden");
     const pauseName = document.getElementById("pause-name");
-    if (pauseName) pauseName.textContent = `${world.name} · TAKE ${deaths + 1}`;
+    if (pauseName) pauseName.textContent = world.name;
     audio.play("pause");
   }
 

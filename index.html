@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="referrer" content="no-referrer" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; worker-src 'none'; frame-src 'none'" />
   <title>LEVEL SURGE</title>
   <link rel="icon" type="image/svg+xml" href="img/logo-g.svg" />
   <link rel="stylesheet" href="css/fonts.css?v=sec2" />
-  <link rel="stylesheet" href="css/style.css?v=cine2" />
+  <link rel="stylesheet" href="css/style.css?v=look1" />
 </head>
 <body>
   <div id="app">
@@ -22,7 +22,6 @@
         <span id="dim-name">D1 NULLSCAPE</span>
         <span id="level-num">1 / 16</span>
         <span id="level-name">TRUST ME</span>
-        <span id="scene-slate">SC 01 · TK 1</span>
         <span id="room-pips" aria-hidden="true"></span>
       </div>
       <div class="hud-right">
@@ -39,11 +38,11 @@
     <div id="toast"></div>
 
     <div id="title-screen" class="screen">
+      <div class="title-dust" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
       <div class="title-tape">WARNING · THE FLOOR IS LYING · WARNING · THE DOOR IS LYING</div>
       <div class="title-frame">
         <div class="title-ornament left" aria-hidden="true"></div>
         <div class="title-ornament right" aria-hidden="true"></div>
-        <p class="title-credit">A MOTION PICTURE IN TWENTY ACTS</p>
         <div class="title-mark">NOT A TROLL GAME.</div>
         <h1 class="logo" aria-label="Level Surge">
           <span class="logo-level">LEVEL</span>
@@ -51,8 +50,6 @@
             <span>SUR</span><span class="logo-g" aria-hidden="true"><img src="img/logo-g.svg" alt="" /></span><span>E</span>
           </span>
         </h1>
-        <p class="title-laurels">★ 2,398,427 GRAMMYS ★</p>
-        <p class="laurels-sub">BEST PICTURE · BEST LIE · BEST FLOOR · BEST DOOR THAT WASN'T</p>
         <p class="tagline">I made the floor lie. I made the door lie.<br />If you get mad, good — that means it's working.</p>
         <ul class="title-facts">
           <li>20 dimensions</li>
@@ -124,7 +121,6 @@
     </div>
 
     <div id="clear-screen" class="screen hidden">
-      <p class="cut-mark">CUT</p>
       <div class="stamp">CLEARED</div>
       <p id="clear-name"></p>
       <p id="clear-stats" class="hint"></p>
@@ -136,8 +132,6 @@
         <span class="logo-level">YOU WIN</span>
         <span class="logo-surge"><span class="win-q">?</span></span>
       </h1>
-      <p class="title-laurels">★ 2,398,427 GRAMMYS ★</p>
-      <p class="laurels-sub">BEST PICTURE · THE FLOOR ACCEPTS</p>
       <p id="win-rating" class="surge-rating"></p>
       <p id="win-stats"></p>
       <p id="win-best" class="hint"></p>
@@ -148,7 +142,6 @@
     </div>
 
     <div id="dim-card" class="hidden">
-      <div class="cine-kicker">NOW SHOWING</div>
       <div id="dim-card-num">DIMENSION 1</div>
       <div id="dim-card-name">NULLSCAPE</div>
       <p id="dim-card-lore">I learned your name. Sorry.</p>
@@ -168,7 +161,8 @@
   <script src="js/worlds.js?v=apex2"></script>
   <script src="js/void-sky.js?v=music3"></script>
   <script src="js/roast.js?v=text2"></script>
-  <script src="js/game.js?v=apex2"></script>
+  <script src="js/finish.js?v=finish1"></script>
+  <script src="js/game.js?v=look5"></script>
   <script src="js/creator.js?v=sec2"></script>
 </body>
 </html>

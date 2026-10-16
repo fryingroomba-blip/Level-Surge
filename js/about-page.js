@@ -131,4 +131,49 @@
       bins[Math.floor(i / 5)].appendChild(card);
     });
   }
+
+  const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const small = window.matchMedia && window.matchMedia("(max-width: 900px)").matches;
+  const props = document.querySelectorAll(".edge-stage .prop");
+  const hair = document.getElementById("scroll-hair");
+  const navLinks = [];
+  document.querySelectorAll(".nav a[href^='#']").forEach((a) => {
+    const sec = document.getElementById(a.getAttribute("href").slice(1));
+    if (sec) navLinks.push({ a, sec });
+  });
+
+  function placeProps() {
+    const y = window.scrollY || 0;
+    const scale = small ? 0.72 : 1;
+    props.forEach((el) => {
+      if (reduced) return;
+      const depth = Number(el.getAttribute("data-depth")) || 0;
+      const bob = Math.sin(y * 0.008 + depth * 4) * 5;
+      const shift = y * depth * 0.06 + bob;
+      el.style.transform = "translate3d(0," + shift.toFixed(1) + "px,0) scale(" + scale + ")";
+    });
+    if (hair) {
+      const full = document.documentElement.scrollHeight - window.innerHeight;
+      const p = full > 0 ? Math.min(1, y / full) : 0;
+      hair.style.width = (p * 100).toFixed(2) + "%";
+    }
+    const mark = y + 140;
+    let current = navLinks[0];
+    navLinks.forEach((item) => {
+      if (item.sec.offsetTop <= mark) current = item;
+    });
+    navLinks.forEach((item) => item.a.classList.toggle("on", item === current));
+  }
+
+  let propQueued = false;
+  function queueProps() {
+    if (propQueued) return;
+    propQueued = true;
+    window.requestAnimationFrame(() => {
+      propQueued = false;
+      placeProps();
+    });
+  }
+  window.addEventListener("scroll", queueProps, { passive: true });
+  placeProps();
 })();

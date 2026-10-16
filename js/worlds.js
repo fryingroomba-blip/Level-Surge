@@ -1153,7 +1153,7 @@
       } else if (type === "blackout") {
         events.push({
           if: { x: +(x - 0.4).toFixed(2) }, once: true,
-          do: [["blackout", late ? 6.35 : 6.15], ["sfx", "glitch"], ["lie", "BLIND"]],
+          do: [["blackout", late ? 11.35 : 11.15], ["sfx", "glitch"], ["lie", "BLIND"]],
         });
       } else if (type === "heavy") {
         events.push({

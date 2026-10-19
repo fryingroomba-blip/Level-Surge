@@ -92,6 +92,7 @@
       this.musicComp.release.value = 0.16;
       this.musicGain.connect(this.musicComp);
       this.musicComp.connect(this.master);
+      this.ensureBus();
       this.unlocked = true;
       if (this.ctx.state === "suspended") this.ctx.resume();
       this.ambience();
@@ -162,6 +163,7 @@
         this.musicGain.gain.cancelScheduledValues(this.ctx.currentTime);
         this.musicGain.gain.setTargetAtTime(on ? 0 : 0.32, this.ctx.currentTime, 0.04);
       }
+      if (on) this.silenceSpace();
     },
     voice(freq, t, dur, type, vol, slide) {
       if (!this.ctx || !this.musicGain) return;
@@ -661,6 +663,228 @@
         });
         setTimeout(() => this.beep(196, 0.7, "sine", 0.05), 280);
         setTimeout(() => this.noise(0.25, 0.05, 1800), 160);
+      }
+    },
+    // Continuous voices for things that keep moving. Related hazards share a
+    // timbre: blades buzz, stone rattles, jets roar, beams sing, hunters thump.
+    spacePresets: {
+      saw: { reach: 700, peak: 0.07, filter: 2600, layers: [
+        { osc: "sawtooth", freq: 74, vol: 0.62, lfo: 24, depth: 20 },
+        { noise: 1700, vol: 0.32 },
+      ]},
+      platform: { reach: 620, peak: 0.05, filter: 780, layers: [
+        { osc: "triangle", freq: 46, vol: 0.7, lfo: 3, depth: 5 },
+        { noise: 220, vol: 0.4, ampLfo: 5.5, ampDepth: 0.7 },
+      ]},
+      brick: { reach: 680, peak: 0.06, filter: 1700, layers: [
+        { osc: "sine", freq: 190, vol: 0.5 },
+        { noise: 480, vol: 0.38 },
+      ]},
+      rocket: { reach: 860, peak: 0.08, filter: 980, layers: [
+        { osc: "sawtooth", freq: 58, vol: 0.55, lfo: 13, depth: 12 },
+        { noise: 380, vol: 0.72 },
+      ]},
+      laser: { reach: 660, peak: 0.055, filter: 5200, layers: [
+        { osc: "sine", freq: 760, vol: 0.48 },
+        { osc: "square", freq: 1520, vol: 0.12 },
+      ]},
+      glow: { reach: 520, peak: 0.022, filter: 2400, layers: [
+        { osc: "sine", freq: 520, vol: 0.4 },
+      ]},
+      bolt: { reach: 640, peak: 0.05, filter: 4400, layers: [
+        { osc: "square", freq: 540, vol: 0.42, lfo: 34, depth: 90 },
+        { noise: 3400, vol: 0.3 },
+      ]},
+      sweep: { reach: 760, peak: 0.06, filter: 3000, layers: [
+        { osc: "sawtooth", freq: 200, vol: 0.34 },
+        { osc: "sine", freq: 1200, vol: 0.28 },
+      ]},
+      drone: { reach: 720, peak: 0.058, filter: 2100, layers: [
+        { osc: "triangle", freq: 126, vol: 0.55, lfo: 22, depth: 16 },
+        { noise: 1400, vol: 0.28 },
+      ]},
+      seeker: { reach: 740, peak: 0.06, filter: 2700, layers: [
+        { osc: "sawtooth", freq: 172, vol: 0.4, lfo: 17, depth: 14 },
+        { osc: "sine", freq: 688, vol: 0.16 },
+      ]},
+      sentry: { reach: 640, peak: 0.042, filter: 1500, layers: [
+        { osc: "square", freq: 92, vol: 0.36, ampLfo: 7, ampDepth: 0.55 },
+        { noise: 460, vol: 0.18 },
+      ]},
+      watcher: { reach: 680, peak: 0.048, filter: 3400, layers: [
+        { osc: "sine", freq: 210, vol: 0.5 },
+        { osc: "triangle", freq: 420, vol: 0.16 },
+      ]},
+      stalker: { reach: 800, peak: 0.072, filter: 520, layers: [
+        { osc: "sine", freq: 40, vol: 0.85, ampLfo: 1.7, ampDepth: 0.72 },
+        { osc: "triangle", freq: 80, vol: 0.22 },
+      ]},
+      reaper: { reach: 860, peak: 0.078, filter: 420, layers: [
+        { osc: "sine", freq: 30, vol: 0.9, ampLfo: 2.5, ampDepth: 0.75 },
+        { osc: "sawtooth", freq: 60, vol: 0.12 },
+      ]},
+      phantom: { reach: 700, peak: 0.046, filter: 1900, layers: [
+        { osc: "sine", freq: 286, vol: 0.4 },
+        { osc: "sine", freq: 304, vol: 0.32 },
+      ]},
+      wraith: { reach: 740, peak: 0.05, filter: 2300, layers: [
+        { osc: "sine", freq: 420, vol: 0.36 },
+        { noise: 760, vol: 0.2 },
+      ]},
+      swarm: { reach: 540, peak: 0.02, filter: 3600, layers: [
+        { osc: "sawtooth", freq: 490, vol: 0.45, lfo: 38, depth: 36 },
+        { osc: "square", freq: 740, vol: 0.18 },
+      ]},
+      crushWarn: { reach: 780, peak: 0.062, filter: 860, layers: [
+        { osc: "square", freq: 132, vol: 0.38, ampLfo: 5.2, ampDepth: 0.82 },
+        { osc: "sine", freq: 66, vol: 0.48 },
+      ]},
+      crushFall: { reach: 820, peak: 0.08, filter: 640, layers: [
+        { noise: 280, vol: 0.75 },
+        { osc: "sine", freq: 84, vol: 0.4 },
+      ]},
+    },
+    ensureBus() {
+      if (!this.ctx || this.spaceGain) return;
+      this.spaceGain = this.ctx.createGain();
+      this.spaceGain.gain.value = 1;
+      this.spaceGain.connect(this.master || this.ctx.destination);
+      this._live = [];
+      this._bind = new WeakMap();
+    },
+    noiseBuf() {
+      if (this._noiseBuf) return this._noiseBuf;
+      const len = this.ctx.sampleRate;
+      const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      this._noiseBuf = buf;
+      return buf;
+    },
+    beginSpace() { this._stamp = (this._stamp || 0) + 1; },
+    endSpace() {
+      const live = this._live;
+      if (!live || !live.length) return;
+      const stamp = this._stamp;
+      const keep = [];
+      for (let i = 0; i < live.length; i++) {
+        const tone = live[i];
+        if (tone.stamp === stamp && !tone.dead) keep.push(tone);
+        else this.killTone(tone);
+      }
+      this._live = keep;
+    },
+    silenceSpace() {
+      const live = this._live;
+      if (!live) return;
+      for (let i = 0; i < live.length; i++) this.killTone(live[i]);
+      this._live = [];
+    },
+    killTone(tone) {
+      if (!tone || tone.dead || !this.ctx) return;
+      tone.dead = true;
+      const t = this.ctx.currentTime;
+      try {
+        tone.out.gain.cancelScheduledValues(t);
+        tone.out.gain.setTargetAtTime(0.0001, t, 0.02);
+      } catch (_) { /* already stopped */ }
+      const stopAt = t + 0.08;
+      for (let i = 0; i < tone.nodes.length; i++) {
+        try { tone.nodes[i].stop(stopAt); } catch (_) { /* already stopped */ }
+      }
+    },
+    makeTone(name, spec) {
+      const ctx = this.ctx;
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = spec.filter;
+      filter.Q.value = 0.7;
+      let panner = null;
+      try { panner = ctx.createStereoPanner(); } catch (_) { panner = null; }
+      const out = ctx.createGain();
+      out.gain.value = 0.0001;
+      if (panner) { filter.connect(panner); panner.connect(out); }
+      else filter.connect(out);
+      out.connect(this.spaceGain);
+      const nodes = [];
+      const oscs = [];
+      for (let i = 0; i < spec.layers.length; i++) {
+        const layer = spec.layers[i];
+        const amp = ctx.createGain();
+        amp.gain.value = layer.vol;
+        amp.connect(filter);
+        if (layer.noise) {
+          const src = ctx.createBufferSource();
+          src.buffer = this.noiseBuf();
+          src.loop = true;
+          const bp = ctx.createBiquadFilter();
+          bp.type = "bandpass";
+          bp.frequency.value = layer.noise;
+          bp.Q.value = 0.8;
+          src.connect(bp);
+          bp.connect(amp);
+          src.start();
+          nodes.push(src);
+        } else {
+          const osc = ctx.createOscillator();
+          osc.type = layer.osc || "sine";
+          const base = layer.freq * (0.97 + Math.random() * 0.06);
+          osc.frequency.value = base;
+          if (layer.lfo) {
+            const lfo = ctx.createOscillator();
+            const lg = ctx.createGain();
+            lfo.frequency.value = layer.lfo;
+            lg.gain.value = layer.depth || 8;
+            lfo.connect(lg);
+            lg.connect(osc.frequency);
+            lfo.start();
+            nodes.push(lfo);
+          }
+          osc.connect(amp);
+          osc.start();
+          nodes.push(osc);
+          oscs.push({ osc, base });
+        }
+        if (layer.ampLfo) {
+          const lfo = ctx.createOscillator();
+          const lg = ctx.createGain();
+          lfo.frequency.value = layer.ampLfo;
+          lg.gain.value = layer.vol * (layer.ampDepth || 0.5);
+          lfo.connect(lg);
+          lg.connect(amp.gain);
+          lfo.start();
+          nodes.push(lfo);
+        }
+      }
+      return { name, out, filter, panner, nodes, oscs, stamp: this._stamp || 0, dead: false };
+    },
+    hear(obj, name, x, y, opts) {
+      if (!this.ctx || this.muted || testMode || !obj) return;
+      const spec = this.spacePresets[name];
+      if (!spec || !player) return;
+      this.ensureBus();
+      let tone = this._bind.get(obj);
+      if (!tone || tone.dead || tone.name !== name) {
+        if (tone) this.killTone(tone);
+        tone = this.makeTone(name, spec);
+        this._bind.set(obj, tone);
+        this._live.push(tone);
+      }
+      tone.stamp = this._stamp;
+      const dx = x - (player.x + player.w / 2);
+      const dy = y - (player.y + player.h / 2);
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const near = Math.max(0, 1 - dist / spec.reach);
+      const amount = Math.pow(near, 1.4);
+      const now = this.ctx.currentTime;
+      tone.out.gain.setTargetAtTime(Math.max(0.0001, amount * spec.peak), now, 0.045);
+      tone.filter.frequency.setTargetAtTime(240 + near * (spec.filter - 240), now, 0.06);
+      if (tone.panner) tone.panner.pan.setTargetAtTime(Math.max(-1, Math.min(1, dx / 300)), now, 0.05);
+      const rate = opts && opts.rate ? opts.rate : 1;
+      if (Math.abs(rate - 1) > 0.02) {
+        for (let i = 0; i < tone.oscs.length; i++) {
+          tone.oscs[i].osc.frequency.setTargetAtTime(Math.max(20, tone.oscs[i].base * rate), now, 0.05);
+        }
       }
     },
   };
@@ -2654,13 +2878,18 @@
         saw.phase = (saw.phase || 0) + FIXED * 6.5;
         saw.y = saw.baseY + Math.sin(saw.phase) * saw.orbit;
       } else saw.y += saw.vy;
+      audio.hear(saw, "saw", saw.x, saw.y, {
+        rate: 0.84 + Math.min(0.5, Math.hypot(saw.vx, saw.vy) / 5),
+      });
     }
   }
 
   function tickLasers() {
     for (let i = world.lasers.length - 1; i >= 0; i--) {
-      world.lasers[i].life -= FIXED;
-      if (world.lasers[i].life <= 0) world.lasers.splice(i, 1);
+      const laser = world.lasers[i];
+      laser.life -= FIXED;
+      if (laser.life <= 0) { world.lasers.splice(i, 1); continue; }
+      audio.hear(laser, laser.fake ? "glow" : "laser", laser.x + laser.w / 2, laser.y + laser.h / 2);
     }
   }
 
@@ -2672,6 +2901,9 @@
         { x: player.x, y: player.y + player.h - 2, w: player.w, h: 6 },
         p
       )) player.x += p.vx;
+      audio.hear(p, "platform", p.x + p.w / 2, p.y + p.h / 2, {
+        rate: 0.86 + Math.min(0.4, Math.abs(p.vx) / 3),
+      });
     }
   }
 
@@ -2679,7 +2911,24 @@
     for (const d of world.drops) {
       d.vy += 0.4;
       d.y += d.vy;
+      audio.hear(d, "brick", d.x + d.w / 2, d.y + d.h / 2, {
+        rate: 0.7 + Math.min(1.5, Math.abs(d.vy) / 8),
+      });
     }
+  }
+
+  function hearEntity(e) {
+    let name = e.kind;
+    const opts = {};
+    if (e.kind === "crushBot") {
+      name = (e.state === "fall" || e.state === "slam") ? "crushFall" : "crushWarn";
+      if (e.state === "fall") opts.rate = 0.75 + Math.min(1.3, (e.vy || 0) / 9);
+    } else if (e.kind === "watcher") {
+      opts.rate = 1 + Math.min(1.2, (e.charge || 0) * 2.4);
+    } else if (e.kind === "rocket") {
+      opts.rate = 0.92 + Math.min(0.35, Math.abs(e.vx || 0) / 14);
+    }
+    audio.hear(e, name, e.x + (e.w || 0) / 2, e.y + (e.h || 0) / 2, opts);
   }
 
   function entityHit(e, pad) {
@@ -2848,6 +3097,7 @@
         if (e.x >= e.maxX) e.life = 0;
         if (entityHit(e, 0)) { die("BEAM"); return; }
       }
+      if (e.life > 0) hearEntity(e);
     }
   }
 
@@ -2879,8 +3129,12 @@
     const lw = world.cols * TILE;
     const lh = world.rows * TILE;
     const fitCols = Math.min(world.cols, 32);
-    const scale = Math.min(VIEW_W / (fitCols * TILE + 36), VIEW_H / (lh + 70));
-    const oy = (VIEW_H - lh * scale) / 2 + 8;
+    // Shaft rooms are taller than a corridor. Fit the usual 12 rows so the
+    // player stays the same size, then follow them if the map is actually taller
+    // than the view.
+    const fitRows = Math.min(world.rows, 12);
+    const scale = Math.min(VIEW_W / (fitCols * TILE + 36), VIEW_H / (fitRows * TILE + 70));
+    let oy = (VIEW_H - lh * scale) / 2 + 8;
     let ox = (VIEW_W - Math.min(lw, fitCols * TILE) * scale) / 2;
     if (world.cols > 32) {
       const focus = player.x + player.w / 2;
@@ -2890,6 +3144,17 @@
       if (cam < 0) cam = 0;
       if (cam > maxCam) cam = maxCam;
       ox = -cam * scale;
+    }
+    if (world.rows > 12) {
+      const viewH = VIEW_H / scale;
+      if (lh > viewH) {
+        const focusY = player.y + player.h * 0.5;
+        let camY = focusY - viewH * 0.62;
+        const maxCamY = lh - viewH;
+        if (camY < 0) camY = 0;
+        if (camY > maxCamY) camY = maxCamY;
+        oy = -camY * scale;
+      }
     }
     camFX.phase += 1.37;
     camFX.punch *= 0.82;
@@ -4698,7 +4963,9 @@
     if (player.dead && deathTimer > 0) {
       deathTimer -= FIXED;
       tickParticles();
+      audio.beginSpace();
       tickSaws();
+      audio.endSpace();
       if (deathShow && window.DeathRoast) window.DeathRoast.tick(deathShow, roastApi());
       if (deathTimer <= 0) {
         deathShow = null;
@@ -4707,11 +4974,13 @@
       return;
     }
     tickPlayer();
+    audio.beginSpace();
     tickSaws();
     tickLasers();
     tickPlatforms();
     tickDrops();
     tickEntities();
+    audio.endSpace();
     tickParticles();
     tickEvents();
     tickRareEffects();
@@ -4721,9 +4990,11 @@
 
   function loop(ts) {
     if (!last) last = ts;
+    if (mode !== "play") audio.silenceSpace();
     if (typeof document !== "undefined" && document.hidden) {
       last = ts;
       acc = 0;
+      audio.silenceSpace();
       requestAnimationFrame(loop);
       return;
     }
@@ -5334,7 +5605,7 @@
     return { ix, jump };
   }
 
-  function playtestLevel(i) {
+  function playtestLevel(i, maxFrames) {
     const def = window.LEVELS[i];
     const saved = { mode, levelIndex, deaths, testMode };
     testMode = true;
@@ -5343,7 +5614,7 @@
     mode = "play";
     loadLevel(i);
     let frames = 0;
-    const max = 60 * 16;
+    const max = maxFrames || 60 * 16;
     while (frames < max && !player.win && !player.dead) {
       const thought = botThink();
       botIx = thought.ix;
@@ -5358,6 +5629,7 @@
       dead: !!player.dead,
       reason: world.deathReason,
       x: Math.round(player.x),
+      y: Math.round(player.y),
       frames,
       traps: world.trapsFired,
     };

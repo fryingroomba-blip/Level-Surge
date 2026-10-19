@@ -5306,11 +5306,20 @@
     pressQte(world.qte.keys[world.qte.index]);
   });
   function trackKey(e, down) {
-    /* Track by code so Shift+A/D never leaves a stuck uppercase e.key in the set. */
+    /* Physical codes only — e.key casing breaks under Shift (A vs a) and sticks movement. */
     const code = e.code || "";
     if (!code) return;
-    if (down) keys.add(code);
-    else keys.delete(code);
+    if (down) {
+      keys.add(code);
+      return;
+    }
+    keys.delete(code);
+    if (code === "KeyA") { keys.delete("a"); keys.delete("A"); }
+    if (code === "KeyD") { keys.delete("d"); keys.delete("D"); }
+    if (code === "KeyW") { keys.delete("w"); keys.delete("W"); }
+    if (code === "KeyS") { keys.delete("s"); keys.delete("S"); }
+    if (code === "Space") keys.delete(" ");
+    if (code === "ShiftLeft" || code === "ShiftRight") keys.delete("Shift");
   }
 
   window.addEventListener("keydown", (e) => {

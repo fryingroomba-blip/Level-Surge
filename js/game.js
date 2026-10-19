@@ -2695,9 +2695,9 @@
       ix = botIx;
       jumpDown = botJump;
     } else {
-    if (keys.has("ArrowLeft") || keys.has("a") || keys.has("A") || hold.left) ix -= 1;
-    if (keys.has("ArrowRight") || keys.has("d") || keys.has("D") || hold.right) ix += 1;
-      jumpDown = keys.has(" ") || keys.has("ArrowUp") || keys.has("w") || keys.has("W") || hold.jump;
+    if (keys.has("ArrowLeft") || keys.has("KeyA") || hold.left) ix -= 1;
+    if (keys.has("ArrowRight") || keys.has("KeyD") || hold.right) ix += 1;
+      jumpDown = keys.has("Space") || keys.has("ArrowUp") || keys.has("KeyW") || hold.jump;
     }
     if (lockTimer > 0) { ix = 0; jumpDown = false; lockTimer -= FIXED; }
     if (world.qte && world.qte.lock) { ix = 0; jumpDown = false; }
@@ -2727,7 +2727,7 @@
 
     dashCool = Math.max(0, dashCool - FIXED);
     dashT = Math.max(0, dashT - FIXED);
-    const wantDash = keys.has("Shift") || hold.dash;
+    const wantDash = keys.has("ShiftLeft") || keys.has("ShiftRight") || hold.dash;
     const dashEdge = wantDash && !dashHeld;
     dashHeld = wantDash;
     if (
@@ -5306,24 +5306,17 @@
     pressQte(world.qte.keys[world.qte.index]);
   });
   function trackKey(e, down) {
-    const isShift = e.code === "ShiftLeft" || e.code === "ShiftRight" || e.key === "Shift";
-    if (down) {
-      keys.add(e.key);
-      if (isShift) {
-        keys.add("Shift");
-        if (e.code) keys.add(e.code);
-      }
-    } else if (isShift) {
-      if (e.code) keys.delete(e.code);
-      if (!keys.has("ShiftLeft") && !keys.has("ShiftRight")) keys.delete("Shift");
-    } else {
-      keys.delete(e.key);
-    }
+    /* Track by code so Shift+A/D never leaves a stuck uppercase e.key in the set. */
+    const code = e.code || "";
+    if (!code) return;
+    if (down) keys.add(code);
+    else keys.delete(code);
   }
 
   window.addEventListener("keydown", (e) => {
     audio.unlock();
-    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "Shift"].includes(e.key)) e.preventDefault();
+    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "Shift"].includes(e.key) ||
+        e.code === "Space" || e.code.startsWith("Shift")) e.preventDefault();
     if (mode === "pause") {
       if (e.key === "Escape") resumeGame();
       return;

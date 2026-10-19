@@ -827,6 +827,7 @@
     world.jumpMulT = 0;
     world.magnet = null;
     world.blackout = 0;
+    world.blackoutMax = 0;
     world.riftUntil = 0;
     world.riftNext = 0;
     world.riftGap = 0;
@@ -1314,6 +1315,7 @@
     const type = a[0];
     if (!ACTIONS.has(type)) throw new Error("Unknown action " + type);
     const dimNow = dimIndex || 1;
+    if (type === "blackout" && dimNow < 3) return;
     if (ENTITY_MIN_DIM[type] != null && dimNow < ENTITY_MIN_DIM[type]) return;
     if (APEX_ACTION[type] && dimNow < APEX_MIN_DIM) return;
     if (type === "hole") {
@@ -1475,11 +1477,14 @@
       audio.play("crumble");
     }
     if (type === "blackout") {
-      world.blackout = Math.max(world.blackout || 0, a[1] || 11.5);
+      const dur = a[1] || 11.5;
+      world.blackout = Math.max(world.blackout || 0, dur);
+      world.blackoutMax = Math.max(world.blackoutMax || 0, world.blackout);
       world.flash = 0.22;
       world.chromatic = Math.max(world.chromatic || 0, 0.55);
       world.shake = Math.max(world.shake, 7);
       world.hudGlitch = Math.max(world.hudGlitch || 0, 1.4);
+      audio.play("glitch");
     }
     if (type === "heavy") {
       world.heavyMul = a[1] == null ? 1.55 : a[1];
@@ -1710,6 +1715,7 @@
     } else if (type === "eclipse") {
       const dur = a[1] || 1.7;
       world.blackout = Math.max(world.blackout || 0, dur);
+      world.blackoutMax = Math.max(world.blackoutMax || 0, world.blackout);
       world.huntLight = {
         until: world.time + dur,
         x: player.x + player.w / 2,
@@ -2023,7 +2029,10 @@
       if (world.jumpMulT <= 0) world.jumpMul = 1;
     }
     if (world.magnet && world.time >= world.magnet.until) world.magnet = null;
-    if (world.blackout > 0) world.blackout = Math.max(0, world.blackout - FIXED);
+    if (world.blackout > 0) {
+      world.blackout = Math.max(0, world.blackout - FIXED);
+      if (world.blackout <= 0) world.blackoutMax = 0;
+    }
     if (world.heavyT > 0) {
       world.heavyT = Math.max(0, world.heavyT - FIXED);
       if (world.heavyT <= 0) {
@@ -4055,26 +4064,47 @@
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     }
     if ((world.blackout || 0) > 0) {
-      const view = camera();
-      const px = (player.x + player.w / 2) * view.scale + view.ox;
-      const py = (player.y + player.h / 2) * view.scale + view.oy;
-      const pulse = 0.06 + Math.sin(world.time * 14) * 0.05;
-      const a = Math.min(0.995, 0.92 + Math.min(world.blackout, 8) * 0.01 + pulse);
-      const sight = Math.max(4, 9 - Math.min(world.blackout, 5) * 0.9);
-      const reach = Math.max(VIEW_W, VIEW_H) * 0.55;
-      const g = ctx.createRadialGradient(px, py, sight, px, py, reach);
-      g.addColorStop(0, "rgba(0,0,0,0.08)");
-      g.addColorStop(0.08, `rgba(0,0,0,${a * 0.72})`);
-      g.addColorStop(0.22, `rgba(0,0,0,${a * 0.94})`);
-      g.addColorStop(0.55, `rgba(0,0,0,${a})`);
-      g.addColorStop(1, `rgba(0,0,0,${a})`);
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-      ctx.fillStyle = `rgba(4,0,8,${0.42 + pulse * 1.4})`;
-      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-      ctx.fillStyle = `rgba(20,0,28,${0.16 + Math.sin(world.time * 22) * 0.08})`;
-      ctx.fillRect(0, 0, VIEW_W, VIEW_H * 0.18);
-      ctx.fillRect(0, VIEW_H * 0.82, VIEW_W, VIEW_H * 0.18);
+      const rem = world.blackout;
+      const max = Math.max(rem, world.blackoutMax || rem);
+      const elapsed = Math.max(0, max - rem);
+      // Stutter: dark/lit/dark… then settle. Outro: flicker then lights return.
+      const stutter = (t, pulses, darkSec, litSec, afterOn) => {
+        let u = t;
+        for (let i = 0; i < pulses; i++) {
+          if (u < darkSec) return 1;
+          u -= darkSec;
+          if (u < litSec) return 0.05;
+          u -= litSec;
+        }
+        return afterOn ? 1 : 0;
+      };
+      let darkMul = 1;
+      const intro = 1.25;
+      const outro = 1.05;
+      if (elapsed < intro) darkMul = stutter(elapsed, 4, 0.13, 0.1, true);
+      else if (rem < outro) darkMul = stutter(outro - rem, 3, 0.14, 0.12, false);
+      if (darkMul > 0.08) {
+        const view = camera();
+        const px = (player.x + player.w / 2) * view.scale + view.ox;
+        const py = (player.y + player.h / 2) * view.scale + view.oy;
+        const pulse = 0.06 + Math.sin(world.time * 14) * 0.05;
+        const a = Math.min(0.995, 0.92 + Math.min(rem, 8) * 0.01 + pulse) * darkMul;
+        const sight = Math.max(4, 9 - Math.min(rem, 5) * 0.9);
+        const reach = Math.max(VIEW_W, VIEW_H) * 0.55;
+        const g = ctx.createRadialGradient(px, py, sight, px, py, reach);
+        g.addColorStop(0, "rgba(0,0,0,0.08)");
+        g.addColorStop(0.08, `rgba(0,0,0,${a * 0.72})`);
+        g.addColorStop(0.22, `rgba(0,0,0,${a * 0.94})`);
+        g.addColorStop(0.55, `rgba(0,0,0,${a})`);
+        g.addColorStop(1, `rgba(0,0,0,${a})`);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+        ctx.fillStyle = `rgba(4,0,8,${(0.42 + pulse * 1.4) * darkMul})`;
+        ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+        ctx.fillStyle = `rgba(20,0,28,${(0.16 + Math.sin(world.time * 22) * 0.08) * darkMul})`;
+        ctx.fillRect(0, 0, VIEW_W, VIEW_H * 0.18);
+        ctx.fillRect(0, VIEW_H * 0.82, VIEW_W, VIEW_H * 0.18);
+      }
     }
     if (world.huntLight && world.time < world.huntLight.until) {
       const view = camera();

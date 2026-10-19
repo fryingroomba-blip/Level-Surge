@@ -82,11 +82,6 @@
       ["sticky", dur], ["sfx", "land"], ["lie", "TAR"],
     ],
   });
-  const blindSpot = (when, dur = 11.2) => ({
-    if: { x: when }, once: true, do: [
-      ["blackout", dur], ["sfx", "glitch"], ["lie", "BLIND"],
-    ],
-  });
   const crushWeight = (when, mul = 1.5, dur = 1.0) => ({
     if: { x: when }, once: true, do: [
       ["heavy", mul, dur], ["sfx", "land"], ["lie", "CRUSH"],
@@ -169,7 +164,6 @@
         { if: { x: 11.2 }, once: true, delay: 0.26, do: [["push", 0, -2.4]] },
         slice(17.4, 18),
         doorPop(26.8, 28, 0.14),
-        blindSpot(13.2, 10.75),
         ghostEcho(16.2, 0.8),
       ],
     },
@@ -219,7 +213,6 @@
         { if: { beenPast: 24, xLess: 3 }, once: true, quiet: true, do: [
           ["dust", 1, 9, 2], ["shake", 2],
         ]},
-        blindSpot(8.6, 10.8),
       ],
     },
     {
@@ -278,7 +271,6 @@
         slice(21.1, 21),
         flip(23.5, 0.28),
         doorPop(27.4, 29, 0.14),
-        blindSpot(12.2, 10.8),
         pullBack(18.6, 14, 0.1, 0.45),
       ],
     },
@@ -309,7 +301,6 @@
         hangSpikes(15.4, 16, 8),
         sink(17.4, 20, 2, 0.2),
         slice(21.3, 22),
-        blindSpot(8.4, 10.65),
         weakLegs(22.2, 0.72, 0.45),
       ],
     },
@@ -338,7 +329,6 @@
         flip(18.3, 0.28),
         sink(26.2, 28, 1, 0.16),
         doorPop(23.6, 25, 0.14),
-        blindSpot(8.4, 10.7),
         ghostEcho(16.6, 0.75),
       ],
     },
@@ -367,7 +357,6 @@
         phantomFloor(17.8, 20, 9, 1, 0.55),
         sink(19.3, 22, 2, 0.2),
         doorPop(26.4, 28, 0.14),
-        blindSpot(8.6, 10.6),
         tarPad(10.6, 0.28),
       ],
     },
@@ -437,7 +426,6 @@
           ["dust", 22, 2, 2], ["shake", 3],
         ]},
         lateSaw(9, -1, 1, 1.55),
-        blindSpot(10.8, 10.7),
       ],
     },
     {
@@ -467,7 +455,6 @@
           ["queue", 0.5, ["reverse", false]],
         ]},
         doorPop(27.2, 28, 0.14),
-        blindSpot(8.8, 10.75),
         ghostEcho(15.6, 0.85),
       ],
     },
@@ -503,7 +490,6 @@
         { if: { time: 3.4, xLess: 9 }, once: true, delay: 0.2, do: [
           ["saw", -1, 8, 2.85, 0],
         ]},
-        blindSpot(6.2, 10.7),
       ],
     },
     {
@@ -570,9 +556,6 @@
         { if: { beenPast: 24, xLess: 16 }, once: true, delay: 0.45, do: [
           ["saw", 33, 8, -2.9, 0], ["sfx", "saw"],
         ]},
-        { if: { beenPast: 24, xLess: 14 }, once: true, do: [
-          ["blackout", 11.15], ["sfx", "glitch"], ["lie", "BLIND"],
-        ]},
         { if: { beenPast: 24, xLess: 7 }, once: true, delay: 0.1, do: [
           ["fill", 0, 7, 5, 1, "v"],
           ["sfx", "spike"],
@@ -604,7 +587,6 @@
         fakeCrack(7.2),
         hangSpikes(9.5, 10, 10),
         sneakSaw(10.2, 2, 8, 2.55, 0.4),
-        blindSpot(12.8, 11.1),
         slice(14.1, 14),
         sink(19.3, 22, 2, 0.2),
         { if: { x: 24.2 }, once: true, delay: 0.22, do: [

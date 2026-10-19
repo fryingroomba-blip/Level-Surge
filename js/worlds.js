@@ -853,8 +853,11 @@
     gravLock: 1, seeker: 1, collapse: 1, barbedWind: 1, mirrorBolt: 1, pitBeast: 1,
     judgment: 1,
   };
+  const BLACKOUT_MIN_DIM = 3;
+
   function actionAllowedInDim(type, d) {
     if (!type) return false;
+    if (type === "blackout") return d >= BLACKOUT_MIN_DIM;
     if (ENTITY_MIN_DIM[type] != null) return d >= ENTITY_MIN_DIM[type];
     if (APEX_TYPES[type]) return d >= APEX_MIN_DIM;
     return true;
@@ -914,7 +917,8 @@
       gate: 0, hole: 0, laser: 0, saw: 0, reverse: 0, push: 0,
       drop: 0, lock: 0, wind: 0, side: 0, ceiling: 0, gravity: 0, teleport: 0, rare: 0, entity: 0, sig: 0,
     };
-    const RARE = ["slip", "jumpCut", "magnet", "blink", "clamp", "echo", "sticky", "rift", "blackout", "heavy"];
+    // blackout is not in the rare rotation — it rolls separately at 1-in-10 from D3+.
+    const RARE = ["slip", "jumpCut", "magnet", "blink", "clamp", "echo", "sticky", "rift", "heavy"];
     const ENTITY_ALL = ["stalker", "drone", "rocket", "voidFog", "watcher", "sentry", "swarm", "phantom", "huntLight", "crushBot"];
     const ENTITY = ENTITY_ALL.filter((t) => actionAllowedInDim(t, d));
     const roster = [
@@ -1187,11 +1191,6 @@
           if: { x: +(x - 0.6).toFixed(2) }, once: true,
           do: [["rift", late ? 1.15 : 1.0], ["lie", "HUNGRY"]],
         });
-      } else if (type === "blackout") {
-        events.push({
-          if: { x: +(x - 0.4).toFixed(2) }, once: true,
-          do: [["blackout", late ? 11.35 : 11.15], ["sfx", "glitch"], ["lie", "BLIND"]],
-        });
       } else if (type === "heavy") {
         events.push({
           if: { x: +(x - 0.3).toFixed(2) }, once: true,
@@ -1200,6 +1199,22 @@
       } else return false;
       realAt.push({ x, t: type });
       used.rare += 1;
+      return true;
+    }
+
+    function commitBlackout(x, loose) {
+      if (d < BLACKOUT_MIN_DIM || events.length >= n) return false;
+      if (x < 11 || x > roomW - 8 || surface[x] < 0) return false;
+      const gap = loose ? 2 : 3;
+      for (let i = 0; i < realAt.length; i++) {
+        if (Math.abs(realAt[i].x - x) < gap) return false;
+      }
+      if (nearPit(x, 2) && !loose) return false;
+      events.push({
+        if: { x: +(x - 0.4).toFixed(2) }, once: true,
+        do: [["blackout", late ? 11.35 : 11.15], ["sfx", "glitch"], ["lie", "BLIND"]],
+      });
+      realAt.push({ x, t: "blackout" });
       return true;
     }
 
@@ -1447,6 +1462,16 @@
     if ((caps.entity || 0) > 0) {
       fillGimmick("entity", 1);
       fillGimmick("entity", caps.entity || 0);
+    }
+
+    // Darkness: D3+, seeded 1-in-10 per room (not every level).
+    const blackRng = rng((d * 9029 + room * 4813 + 53) >>> 0);
+    if (d >= BLACKOUT_MIN_DIM && blackRng() < 0.1 && events.length < n) {
+      let placed = false;
+      for (let hi = 0; hi < hot.length && !placed; hi++) placed = commitBlackout(hot[hi], false);
+      for (let c = 11; c <= roomW - 8 && !placed; c++) placed = commitBlackout(c, false);
+      for (let hi = 0; hi < hot.length && !placed; hi++) placed = commitBlackout(hot[hi], true);
+      for (let c = 11; c <= roomW - 8 && !placed; c++) placed = commitBlackout(c, true);
     }
 
     // Quick-time prompt starts in dimension 3. Seeded 1-in-10, so the same room always rolls the same way.

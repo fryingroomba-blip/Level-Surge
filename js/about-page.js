@@ -119,11 +119,8 @@
     pack.DIMS.forEach((dim, i) => {
       const d = i + 1;
       const roomsN = pack.roomCount(d);
-      const handTraps = d === 1 && window.HAND_LEVELS && window.HAND_LEVELS[0] && window.HAND_LEVELS[0].events
-        ? window.HAND_LEVELS[0].events.length
-        : 0;
-      const traps = handTraps || pack.trapCount(d);
-      const boss = d === 1 ? traps : traps + 4;
+      const traps = pack.trapCount(d);
+      const boss = traps + 4;
       const color = rgb(dim.accent);
       const card = document.createElement("article");
       card.className = "world";
@@ -143,7 +140,9 @@
       who.append(name, lore);
       const meta = document.createElement("span");
       meta.className = "meta";
-      meta.textContent = roomsN + " rooms · " + traps + " traps" + (d > 1 ? " · last room " + boss : "");
+      meta.textContent = d === 1
+        ? roomsN + " rooms · handmade"
+        : roomsN + " rooms · " + traps + " traps · last room " + boss;
       card.append(pip, idx, who, meta);
       bins[Math.floor(i / 5)].appendChild(card);
     });

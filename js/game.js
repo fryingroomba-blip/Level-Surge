@@ -5124,12 +5124,26 @@
     el.textContent = bits.join(" · ");
   }
 
+  let levelsView = "worlds";
+  let levelsPickDim = 1;
+
+  function setLevelsChrome(stamp, hint) {
+    const stampEl = document.getElementById("levels-stamp");
+    const hintEl = document.getElementById("levels-hint");
+    if (stampEl) stampEl.textContent = stamp;
+    if (hintEl) hintEl.textContent = hint;
+  }
+
   function fillLevelGrid() {
     const grid = document.getElementById("level-grid");
     if (!grid || !window.SURGE_WORLDS) return;
+    levelsView = "worlds";
+    setLevelsChrome("WORLDS", "Clear a dimension to wake the next. Pick a world, then a room.");
     const unlocked = loadSave().unlockedDim || 1;
     const rec = loadSave().dimRecords || {};
+    const progress = loadSave().rooms || {};
     grid.innerHTML = "";
+    grid.classList.remove("room-grid");
     grid.classList.add("world-grid");
     window.SURGE_WORLDS.DIMS.forEach((dim, i) => {
       const d = i + 1;
@@ -5140,6 +5154,7 @@
       b.disabled = locked;
       const rooms = window.SURGE_WORLDS.roomCount(d);
       const traps = window.SURGE_WORLDS.trapCount(d);
+      const reached = progress[d] != null ? progress[d] : (locked ? -1 : 0);
       const deathsN = rec[d] && typeof rec[d].bestDeaths === "number" ? rec[d].bestDeaths : null;
       const recLine = deathsN == null ? "" : " · " + deathsN + "☠";
       const num = document.createElement("span");
@@ -5150,17 +5165,66 @@
       nm.textContent = locked ? "LOCKED" : String(dim.name || "");
       const meta = document.createElement("span");
       meta.className = "meta";
-      meta.textContent = rooms + " rooms · " + traps + " traps" + recLine;
+      meta.textContent = locked
+        ? rooms + " rooms · " + traps + " traps"
+        : "room " + Math.min(rooms, reached + 1) + "/" + rooms + " · " + traps + " traps" + recLine;
       b.appendChild(num);
       b.appendChild(nm);
       b.appendChild(meta);
-      b.onclick = () => {
-        const s = loadSave();
-        const resume = d === (s.lastDim || 1) ? (s.lastRoom != null ? s.lastRoom : 0) : 0;
-        enterDimension(d, resume);
-      };
+      b.onclick = () => showRoomSelect(d);
       grid.appendChild(b);
     });
+  }
+
+  function showRoomSelect(d) {
+    const grid = document.getElementById("level-grid");
+    const pack = window.SURGE_WORLDS;
+    if (!grid || !pack) return;
+    const unlocked = loadSave().unlockedDim || 1;
+    if (d > unlocked) return;
+    levelsView = "rooms";
+    levelsPickDim = d;
+    const dim = pack.DIMS[d - 1] || { name: "NULLSCAPE" };
+    const roomsN = pack.roomCount(d);
+    setLevelsChrome(
+      "D" + String(d).padStart(2, "0") + " " + String(dim.name || ""),
+      "Pick a room. Cleared rooms stay open. Locked rooms wait until you reach them."
+    );
+    const s = loadSave();
+    const reached = s.rooms && s.rooms[d] != null ? s.rooms[d] : 0;
+    const lastRoom = (s.lastDim === d && s.lastRoom != null) ? s.lastRoom : -1;
+    const packLevels = pack.generate(d);
+    grid.innerHTML = "";
+    grid.classList.remove("world-grid");
+    grid.classList.add("room-grid");
+    for (let i = 0; i < roomsN; i++) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "level-cell room-cell";
+      const locked = i > reached;
+      const cleared = i < reached || (reached >= roomsN - 1 && i <= reached);
+      if (i === lastRoom) b.classList.add("now");
+      if (!locked && cleared && i < reached) b.classList.add("cleared");
+      b.disabled = locked;
+      const lvl = packLevels[i] || {};
+      const num = document.createElement("span");
+      num.className = "n";
+      num.textContent = (i === roomsN - 1 && d > 1 ? "CORE " : "ROOM ") + String(i + 1).padStart(2, "0");
+      const nm = document.createElement("span");
+      nm.className = "nm";
+      nm.textContent = locked ? "LOCKED" : String(lvl.name || ("ROOM " + (i + 1)));
+      const meta = document.createElement("span");
+      meta.className = "meta";
+      if (locked) meta.textContent = "reach room " + (reached + 1) + " first";
+      else if (i === lastRoom) meta.textContent = "last played";
+      else if (i < reached) meta.textContent = "cleared";
+      else meta.textContent = "open";
+      b.appendChild(num);
+      b.appendChild(nm);
+      b.appendChild(meta);
+      b.onclick = () => enterDimension(d, i);
+      grid.appendChild(b);
+    }
   }
 
   function showLevels() {
@@ -5169,6 +5233,14 @@
     if (levelsScreen) levelsScreen.classList.remove("hidden");
     mode = "levels";
     fillLevelGrid();
+  }
+
+  function levelsGoBack() {
+    if (levelsView === "rooms") {
+      fillLevelGrid();
+      return;
+    }
+    quitToTitle();
   }
 
   document.getElementById("play-btn").onclick = () => {
@@ -5181,7 +5253,7 @@
   const levelsBtn = document.getElementById("levels-btn");
   if (levelsBtn) levelsBtn.onclick = showLevels;
   const levelsBack = document.getElementById("levels-back");
-  if (levelsBack) levelsBack.onclick = quitToTitle;
+  if (levelsBack) levelsBack.onclick = levelsGoBack;
   const resumeBtn = document.getElementById("resume-btn");
   if (resumeBtn) resumeBtn.onclick = resumeGame;
   const retryBtn = document.getElementById("retry-btn");
@@ -5232,7 +5304,7 @@
       const s = loadSave();
       enterDimension(s.lastDim || 1, s.lastRoom != null ? s.lastRoom : 0);
     }
-    else if (mode === "levels" && e.key === "Escape") quitToTitle();
+    else if (mode === "levels" && e.key === "Escape") levelsGoBack();
     else if (mode === "clear") nextLevel();
     else if (mode === "win" && e.key === "Enter") enterDimension(dimIndex >= 20 ? 1 : dimIndex + 1, 0);
     else if (mode === "play" && deathShow) {

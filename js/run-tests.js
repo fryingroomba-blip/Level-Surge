@@ -355,6 +355,63 @@ if (__GAME) {
   }
 }
 
+if (SURGE_WORLDS && __GAME) {
+  out("Playtesting shaft geometry (D4+)...");
+  var savedLevels = window.LEVELS;
+  var shaftN = 0;
+  var lateN = 0;
+  var ascendN = 0;
+  var descendN = 0;
+  var geomFail = [];
+  var trapWins = 0;
+  var trapDead = 0;
+  var stairDeaths = 0;
+  for (var sd = 4; sd <= 20; sd++) {
+    var pack = SURGE_WORLDS.generate(sd);
+    lateN += pack.length;
+    for (var si = 0; si < pack.length; si++) {
+      var lvl = pack[si];
+      if (!lvl.shaft) continue;
+      shaftN++;
+      if (lvl.shaft === "ascend") ascendN++;
+      else descendN++;
+      var bare = {
+        name: lvl.name,
+        taunt: lvl.taunt || "NICE TRY",
+        map: lvl.map,
+        events: [],
+        explodeCoins: false,
+        crumbleIfStill: 0,
+      };
+      window.LEVELS = [bare];
+      var width = lvl.map[0].length;
+      var geo = __GAME.playtestLevel(0, 60 * (16 + Math.ceil(width / 3)));
+      if (!geo.win) {
+        geomFail.push(lvl.shaft + " D" + sd + " #" + si + " " + lvl.name
+          + " dead=" + geo.dead + " " + (geo.reason || "stuck")
+          + " x=" + geo.x + " y=" + geo.y + " f=" + geo.frames);
+        continue;
+      }
+      window.LEVELS = [lvl];
+      var trapped = __GAME.playtestLevel(0, 60 * (16 + Math.ceil(width / 3)));
+      if (trapped.win) trapWins++;
+      else if (trapped.dead) {
+        trapDead++;
+        var sx = (trapped.x || 0) / 32;
+        if (sx >= lvl.surface.stairLo && sx <= lvl.surface.stairHi) stairDeaths++;
+      }
+    }
+  }
+  window.LEVELS = savedLevels;
+  var rate = lateN ? shaftN / lateN : 0;
+  out("shafts " + shaftN + "/" + lateN + " (" + (rate * 100).toFixed(1) + "%) ascend=" + ascendN + " descend=" + descendN);
+  out("shaft traps: bot wins=" + trapWins + " deaths=" + trapDead + " died on stair=" + stairDeaths);
+  if (rate < 0.18 || rate > 0.32) fail("shaft rate " + rate.toFixed(3));
+  if (!ascendN || !descendN) fail("shafts missing a direction");
+  geomFail.forEach(function (g) { fail("shaft geometry " + g); });
+  if (!geomFail.length) out("shaft geometry: OK (" + shaftN + " rooms)");
+}
+
 out("---");
 if (__TEST_ERRORS.length) {
   out("RESULT: FAIL (" + __TEST_ERRORS.length + " issues)");

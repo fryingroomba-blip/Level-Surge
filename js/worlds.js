@@ -32,6 +32,11 @@
   ];
 
   let roomW = 32;
+  let roomH = 12;
+  // Spike row under a opened floor. Normal rooms are 12 tall, so this stays row 11.
+  function underSpike(y) {
+    return Math.min(roomH - 1, y + 1);
+  }
   function stageWidth(d) {
     return 32 + 5 * Math.max(0, d - 1);
   }
@@ -229,9 +234,9 @@
       return {
         if: { x: +(x - lead).toFixed(2) }, once: true,
         do: [
-          ["hole", x, y, 1, 1], ["spikes", x, Math.min(11, y + 1), 1],
+          ["hole", x, y, 1, 1], ["spikes", x, underSpike(y), 1],
           ["shake", 6], ["sfx", "crumble"],
-          ["queue", late ? 0.85 : 1.05, ["fill", x, y, 1, 1, "#"], ["fill", x, Math.min(11, y + 1), 1, 1, "#"]],
+          ["queue", late ? 0.85 : 1.05, ["fill", x, y, 1, 1, "#"], ["fill", x, underSpike(y), 1, 1, "#"]],
         ],
       };
     }
@@ -306,7 +311,7 @@
         if: { x: +(x - 1.5).toFixed(2) }, once: true,
         do: [
           ["dust", x, y, 2], ["shake", 4], ["sfx", "crumble"],
-          ["queue", 0.2, ["hole", x, y, 1, 1], ["spikes", x, Math.min(11, y + 1), 1]],
+          ["queue", 0.2, ["hole", x, y, 1, 1], ["spikes", x, underSpike(y), 1]],
         ],
       };
     }
@@ -358,7 +363,7 @@
     if (id === "worshipGap") {
       return {
         if: { x: +(x - lead).toFixed(2) }, once: true,
-        do: [["hole", x, y, 1, 1], ["spikes", x, Math.min(11, y + 1), 1], ["shake", 5], ["sfx", "crumble"]],
+        do: [["hole", x, y, 1, 1], ["spikes", x, underSpike(y), 1], ["shake", 5], ["sfx", "crumble"]],
       };
     }
     if (id === "stretchBeam") {
@@ -605,8 +610,106 @@
     return heat;
   }
 
+  // Seeded quarter of D4+ rooms. Boss cores stay corridors.
+  function shaftKind(d, room, boss) {
+    if (d < 4 || boss) return null;
+    const n = (d * 17 + room * 13 + 7) % 16;
+    if (n >= 4) return null;
+    return (n & 1) ? "descend" : "ascend";
+  }
+
+  // One staircase the route cannot skip. Steps are one tile, treads are two,
+  // which is the hop the physics already clears. Traps are kept off this span.
+  function shaftTerrain(d, room, r, kind) {
+    roomW = stageWidth(d);
+    const W = roomW;
+    const bandLo = 8;
+    const bandHi = W - 7;
+    const band = bandHi - bandLo + 1;
+    const tread = 2;
+    let steps = 6;
+    if (band >= 32) steps = 8;
+    if (band >= 52) steps = 10;
+    const high = 6;
+    const low = high + steps;
+    const startY = kind === "ascend" ? low : high;
+    const endY = kind === "ascend" ? high : low;
+    const dir = kind === "ascend" ? -1 : 1;
+    const stairW = steps * tread;
+    const minLo = bandLo;
+    const maxLo = Math.max(minLo, W - 6 - stairW);
+    const slot = (d + room * 3) % 5;
+    const stairLo = minLo + Math.floor((maxLo - minLo) * slot / 4);
+    const surface = new Array(W);
+    for (let x = 0; x < W; x++) surface[x] = startY;
+    let y = startY;
+    let x = stairLo;
+    for (let s = 0; s < steps; s++) {
+      y += dir;
+      for (let t = 0; t < tread && x < W; t++, x++) surface[x] = y;
+    }
+    for (; x < W; x++) surface[x] = endY;
+    // Lip you commit from, the steps, and the first tile you land on.
+    surface.stairLo = stairLo - 1;
+    surface.stairHi = Math.min(W - 5, stairLo + stairW);
+    surface.roomH = low + 3;
+    surface.shaft = kind;
+
+    if (r() < 0.55) {
+      let runA = -1;
+      let bestA = -1;
+      let bestB = -1;
+      let bestLen = 0;
+      let bestY = -1;
+      for (let i = 0; i <= W; i++) {
+        const yHere = i < W ? surface[i] : -2;
+        const inRun = i < W && yHere >= 0 && (i < surface.stairLo || i > surface.stairHi)
+          && i >= 10 && i <= W - 8
+          && (runA < 0 || yHere === surface[runA]);
+        if (inRun && runA < 0) runA = i;
+        if (!inRun && runA >= 0) {
+          const len = i - runA;
+          if (len > bestLen) {
+            bestLen = len;
+            bestA = runA;
+            bestB = i - 1;
+            bestY = surface[runA];
+          }
+          runA = -1;
+        }
+      }
+      if (bestLen >= 8 && bestY >= 0) {
+        const gap = 2;
+        let at = bestA + 2 + ((r() * Math.max(1, bestLen - 4 - gap)) | 0);
+        if (at + gap - 1 > bestB - 2) at = bestB - 1 - gap;
+        const before = surface[at - 1];
+        const before2 = surface[at - 2];
+        const after = surface[at + gap];
+        const after2 = surface[at + gap + 1];
+        const approach = before === bestY && before2 === before;
+        const landing = after === bestY && after2 === after;
+        if (approach && landing) {
+          for (let g = 0; g < gap; g++) surface[at + g] = -1;
+        }
+      }
+    }
+
+    const door = W - 2;
+    if (!reachable(surface, 1, door)) {
+      for (let i = 0; i < W; i++) {
+        if (surface[i] >= 0) continue;
+        const left = i > 0 ? surface[i - 1] : -1;
+        surface[i] = left >= 0 ? left : startY;
+      }
+    }
+    surface[1] = startY;
+    surface[door] = endY;
+    return surface;
+  }
+
   function terrain(d, room, r) {
     roomW = stageWidth(d);
+    roomH = 12;
     const W = roomW;
     const surface = new Array(W);
     let y = 7 + (room % 3);
@@ -685,13 +788,15 @@
   }
 
   function paintRoom(surface, d, room, r, boss) {
-    const H = 12;
+    const H = surface.roomH || 12;
+    roomH = H;
     const W = surface.length;
     const g = Array.from({ length: H }, () => Array(W).fill("."));
+    const onStair = (x) => surface.stairLo != null && x >= surface.stairLo && x <= surface.stairHi;
     for (let x = 0; x < W; x++) {
       if (surface[x] < 0) {
-        g[10][x] = "^";
-        g[11][x] = "#";
+        g[H - 2][x] = "^";
+        g[H - 1][x] = "#";
         continue;
       }
       for (let y = surface[x]; y < H; y++) g[y][x] = "#";
@@ -703,17 +808,17 @@
       const nearGap = (x > 0 && surface[x - 1] < 0) || (x + 1 < W && surface[x + 1] < 0)
         || (x > 1 && surface[x - 2] < 0) || (x + 2 < W && surface[x + 2] < 0);
       const headroom = surface[x] - lip;
-      if (!nearGap && surface[x] >= 8 && headroom >= 6 && r() < 0.16 && x % (3 + (room % 3)) === 0) {
+      if (!onStair(x) && !nearGap && surface[x] >= 8 && headroom >= 6 && r() < 0.16 && x % (3 + (room % 3)) === 0) {
         g[lip][x] = "v";
       }
     }
     if ((room + d) % 4 === 1) {
       const bx = landmarkX(room * 3 + d, W, 8, 14);
-      if (bx < W && surface[bx] >= 0 && g[surface[bx] - 1][bx] === ".") g[surface[bx]][bx] = "B";
+      if (bx < W && !onStair(bx) && surface[bx] >= 0 && !(surface.shaft && surface[bx] < 10) && g[surface[bx] - 1][bx] === ".") g[surface[bx]][bx] = "B";
     }
     if ((room + d) % 5 === 2) {
       const cx = landmarkX(room * 2 + d, W, 6, 12);
-      if (cx < W && surface[cx] === 9) g[9][cx] = "=";
+      if (cx < W && !onStair(cx) && surface[cx] === 9) g[9][cx] = "=";
     }
     if (boss) {
       const fx = bossFakeX(W);
@@ -977,8 +1082,22 @@
       return surface[x - 1] === surface[x] && surface[x + 1] === surface[x];
     }
 
+    function offStair(x) {
+      if (surface.stairLo == null) return true;
+      // One tile early so a 2-wide gate can't clip the lip you jump from.
+      return x < surface.stairLo - 1 || x > surface.stairHi;
+    }
+
+    function hitsStair(from, to) {
+      if (surface.stairLo == null) return false;
+      if (from > to) { const swap = from; from = to; to = swap; }
+      return to >= surface.stairLo && from <= surface.stairHi;
+    }
+
     function allowsFamily(x, family, forSig) {
-      if (x < 8 || x > roomW - 7 || surface[x] < 0) return false;
+      if (x < 8 || x > roomW - 7 || surface[x] < 0 || !offStair(x)) return false;
+      // Saws spawn ahead and come back. Lasers have width. Neither may cover a step.
+      if ((family === "saw" || family === "laser") && hitsStair(x - 2, x + 6)) return false;
       if (busy(x, family)) return false;
       if (nearPit(x, LONG[family] ? 2 : 1)) return false;
       // Signature traps always get at least one slot of their family.
@@ -1026,7 +1145,7 @@
       } else if (type === "hole") {
         events.push({
           if: { x: +(x - (late ? 1.35 : 1.65)).toFixed(2) }, once: true,
-          do: [["hole", x, y, 1, 1], ["spikes", x, Math.min(11, y + 1), 1], ["shake", 6], ["sfx", "crumble"]],
+          do: [["hole", x, y, 1, 1], ["spikes", x, underSpike(y), 1], ["shake", 6], ["sfx", "crumble"]],
         });
       } else if (type === "laser") {
         events.push({
@@ -1133,7 +1252,7 @@
     function commitRare(x, type, loose) {
       if (events.length >= n || used.rare >= (caps.rare || 0)) return false;
       if (!actionAllowedInDim(type, d)) return false;
-      if (x < 11 || x > roomW - 8 || surface[x] < 0) return false;
+      if (x < 11 || x > roomW - 8 || surface[x] < 0 || !offStair(x)) return false;
       const gap = loose ? 2 : 3;
       for (let i = 0; i < realAt.length; i++) {
         if (Math.abs(realAt[i].x - x) < gap) return false;
@@ -1204,7 +1323,7 @@
 
     function commitBlackout(x, loose) {
       if (d < BLACKOUT_MIN_DIM || events.length >= n) return false;
-      if (x < 11 || x > roomW - 8 || surface[x] < 0) return false;
+      if (x < 11 || x > roomW - 8 || surface[x] < 0 || !offStair(x)) return false;
       const gap = loose ? 2 : 3;
       for (let i = 0; i < realAt.length; i++) {
         if (Math.abs(realAt[i].x - x) < gap) return false;
@@ -1221,7 +1340,7 @@
     function commitEntity(x, type, loose) {
       if (events.length >= n || used.entity >= (caps.entity || 0)) return false;
       if (!actionAllowedInDim(type, d)) return false;
-      if (x < 11 || x > roomW - 8 || surface[x] < 0) return false;
+      if (x < 11 || x > roomW - 8 || surface[x] < 0 || !offStair(x)) return false;
       const gap = loose ? 2 : 3;
       for (let i = 0; i < realAt.length; i++) {
         if (Math.abs(realAt[i].x - x) < gap) return false;
@@ -1297,6 +1416,11 @@
     });
 
     const heat = pathHeat(surface, 1, roomW - 2);
+    if (surface.stairLo != null) {
+      for (let x = surface.stairLo; x <= surface.stairHi; x++) {
+        if (x >= 0 && x < heat.length) heat[x] = 0;
+      }
+    }
     const hot = [];
     for (let c = 8; c <= roomW - 7; c++) {
       if (surface[c] < 0 || heat[c] <= 0) continue;
@@ -1318,7 +1442,8 @@
     function commitApex(x, type, loose) {
       if (events.length >= n) return false;
       if (!actionAllowedInDim(type, d)) return false;
-      if (x < 10 || x > roomW - 8 || surface[x] < 0) return false;
+      if (x < 10 || x > roomW - 8 || surface[x] < 0 || !offStair(x)) return false;
+      if (type === "orbitSaw" && hitsStair(x - 2, x + 6)) return false;
       for (let i = 0; i < realAt.length; i++) {
         if (Math.abs(realAt[i].x - x) < (loose ? 3 : 4)) return false;
       }
@@ -1481,7 +1606,7 @@
       let placed = false;
       const tryQ = (x, loose) => {
         if (placed || events.length >= n) return;
-        if (x < 10 || x > roomW - 8 || surface[x] < 0) return;
+        if (x < 10 || x > roomW - 8 || surface[x] < 0 || !offStair(x)) return;
         if (!loose && (busy(x, "qte") || nearPit(x, 1))) return;
         if (loose && busy(x, "qte")) return;
         events.push({
@@ -1541,7 +1666,7 @@
     if (realAt.length < budget) {
       const force = ["gate", "push", "saw", "lock", "wind", "hole"];
       for (let c = 8; c <= roomW - 7 && realAt.length < budget && events.length < n; c++) {
-        if (surface[c] < 0 || busy(c, "gate")) continue;
+        if (surface[c] < 0 || !offStair(c) || busy(c, "gate")) continue;
         for (let fi = 0; fi < force.length; fi++) {
           const type = force[fi];
           if ((caps[type] || 0) <= used[type]) continue;
@@ -1558,9 +1683,11 @@
               do: [["push", 1.0, 0], ["shake", 3]],
             });
           } else if (type === "saw") {
+            const sawAt = Math.min(roomW - 3, c + 4);
+            if (hitsStair(c - 1, sawAt)) continue;
             events.push({
               if: { x: +(c - 1.3).toFixed(2) }, once: true,
-              do: [["saw", Math.min(roomW - 3, c + 4), y - 1, late ? -3.0 : -2.6, 0], ["sfx", "saw"]],
+              do: [["saw", sawAt, y - 1, late ? -3.0 : -2.6, 0], ["sfx", "saw"]],
             });
           } else if (type === "lock") {
             events.push({
@@ -1575,7 +1702,7 @@
           } else if (type === "hole") {
             events.push({
               if: { x: +(c - 1.4).toFixed(2) }, once: true,
-              do: [["hole", c, y, 1, 1], ["spikes", c, Math.min(11, y + 1), 1], ["shake", 6], ["sfx", "crumble"]],
+              do: [["hole", c, y, 1, 1], ["spikes", c, underSpike(y), 1], ["shake", 6], ["sfx", "crumble"]],
             });
           } else continue;
           realAt.push({ x: c, t: type });
@@ -1714,12 +1841,14 @@
   function generateOne(d, i, boss) {
     const r = rng((d * 7919 + i * 104729 + 13) >>> 0);
     const dim = DIMS[d - 1] || DIMS[0];
-    const surface = terrain(d, i, r);
-    const layout = LAYOUTS[(d + i) % LAYOUTS.length];
+    const shaft = shaftKind(d, i, boss);
+    const surface = shaft ? shaftTerrain(d, i, r, shaft) : terrain(d, i, r);
+    const map = paintRoom(surface, d, i, r, boss);
+    const layout = shaft === "ascend" ? "ASCENT" : shaft === "descend" ? "DESCENT" : LAYOUTS[(d + i) % LAYOUTS.length];
     return applyTrapRules({
       name: boss ? dim.name + " CORE" : dim.name + " " + layout + " " + (i + 1),
       taunt: pick(r, TAUNTS),
-      map: paintRoom(surface, d, i, r, boss),
+      map,
       events: buildEvents(d, surface, boss, i),
       explodeCoins: false,
       crumbleIfStill: 0,
@@ -1727,6 +1856,7 @@
       boss: !!boss,
       layout,
       surface,
+      shaft: shaft || "",
     }, d, i, boss);
   }
 
@@ -1747,7 +1877,7 @@
 
   root.SURGE_WORLDS = {
     DIMS, roomCount, trapCount, stageWidth, activationCap, bossFakeX, signatureTraps, qteAction,
-    generate, theme, chordsFor, reachable, pathHeat, surfaceFromMap, applyTrapRules, count: 20,
+    generate, theme, chordsFor, reachable, pathHeat, surfaceFromMap, applyTrapRules, shaftKind, count: 20,
   };
   root.LEVELS = generate(1);
 })(typeof window !== "undefined" ? window : globalThis);

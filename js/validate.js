@@ -122,6 +122,53 @@ if (WORLDS) {
       });
       if (max > 3) errors.push(`D${d} ${lvl.name}: open gap ${max} is wider than a jump`);
     });
+    let shafts = 0;
+    let ascents = 0;
+    let descents = 0;
+    lvls.forEach((lvl) => {
+      if (d < 4 && lvl.shaft) errors.push(`D${d} ${lvl.name}: shaft before dimension 4`);
+      if (lvl.boss && lvl.shaft) errors.push(`D${d} ${lvl.name}: boss is a shaft`);
+      if (!lvl.shaft) {
+        if (d > 1 && lvl.map.length !== 12) errors.push(`D${d} ${lvl.name}: corridor height ${lvl.map.length}`);
+        return;
+      }
+      shafts += 1;
+      if (lvl.shaft === "ascend") ascents += 1;
+      else if (lvl.shaft === "descend") descents += 1;
+      else errors.push(`D${d} ${lvl.name}: unknown shaft ${lvl.shaft}`);
+      const s = lvl.surface || [];
+      const dy = (s[1] || 0) - (s[s.length - 2] || 0);
+      if (lvl.shaft === "ascend" && dy < 6) errors.push(`D${d} ${lvl.name}: ascent only rises ${dy}`);
+      if (lvl.shaft === "descend" && dy > -6) errors.push(`D${d} ${lvl.name}: descent only drops ${-dy}`);
+      if (lvl.map.length <= 12) errors.push(`D${d} ${lvl.name}: shaft is not taller than a corridor`);
+      for (let x = 1; x < s.length; x++) {
+        if (s[x] < 0 || s[x - 1] < 0) continue;
+        if (Math.abs(s[x] - s[x - 1]) > 1) errors.push(`D${d} ${lvl.name}: step ${Math.abs(s[x] - s[x - 1])} at ${x}`);
+      }
+      const lo = s.stairLo;
+      const hi = s.stairHi;
+      if (!(lo >= 0) || !(hi > lo)) errors.push(`D${d} ${lvl.name}: stair span missing`);
+      (lvl.events || []).forEach((ev) => {
+        const walk = (a) => {
+          if (!Array.isArray(a)) return;
+          if (a[0] === "queue") {
+            a.slice(2).forEach(walk);
+            return;
+          }
+          if ((a[0] === "hole" || a[0] === "fill" || a[0] === "spikes") && a[1] >= lo && a[1] <= hi) {
+            errors.push(`D${d} ${lvl.name}: ${a[0]} on the stair at ${a[1]}`);
+          }
+        };
+        (ev.do || []).forEach(walk);
+      });
+    });
+    if (d >= 4) {
+      const rate = shafts / lvls.length;
+      if (rate < 0.15 || rate > 0.36) errors.push(`D${d}: shaft rate ${rate.toFixed(3)} (${shafts}/${lvls.length})`);
+      if (!ascents || !descents) errors.push(`D${d}: shafts ascend ${ascents} descend ${descents}`);
+    } else if (shafts) {
+      errors.push(`D${d}: ${shafts} shafts`);
+    }
     if (d > 1) {
       const labels = (WORLDS.signatureTraps(d) || []).map((t) => t.label);
       let sigRooms = 0;

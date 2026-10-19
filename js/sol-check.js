@@ -118,6 +118,7 @@ load("js/levels.js");
 load("js/tracks.js");
 load("js/worlds.js");
 try { load("js/roast.js"); } catch (e) {}
+try { load("js/boss-voice.js"); } catch (e) {}
 load("js/game.js");
 
 print("--- playSolAll ---");

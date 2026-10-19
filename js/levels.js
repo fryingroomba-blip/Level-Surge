@@ -562,7 +562,9 @@
           ["queue", 0.28,
             ["fill", 0, 7, 5, 1, "."],
             ["fill", 2, 5, 12, 1, "."],
-            ["fill", 4, 8, 2, 1, "#"],
+            // Standing cell stays air so the door can be touched. Floor under it stays solid.
+            ["fill", 4, 8, 2, 1, "."],
+            ["fill", 4, 9, 2, 1, "#"],
             ["moveDoor", 4, 8],
             ["shake", 8],
             ["sfx", "crumble"],
@@ -638,7 +640,9 @@
           ["queue", 0.28,
             ["fill", 0, 7, 5, 1, "."],
             ["fill", 2, 5, 10, 1, "."],
-            ["fill", 4, 8, 2, 1, "#"],
+            // Standing cell stays air so the door can be touched. Floor under it stays solid.
+            ["fill", 4, 8, 2, 1, "."],
+            ["fill", 4, 9, 2, 1, "#"],
             ["moveDoor", 4, 8],
             ["shake", 8],
             ["sfx", "crumble"],

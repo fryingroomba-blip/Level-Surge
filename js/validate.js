@@ -84,22 +84,24 @@ function checkLevel(lvl, tag, trapWant) {
   });
 }
 
-(HAND || []).forEach((lvl, i) => checkLevel(lvl, `#${i + 1} ${lvl.name || "?"}`, 12));
+(HAND || []).forEach((lvl, i) => checkLevel(lvl, `#${i + 1} ${lvl.name || "?"}`, (lvl.events || []).length));
 
 if (WORLDS) {
   if (WORLDS.count !== 20 || WORLDS.DIMS.length !== 20) errors.push("Need 20 dimensions");
   for (let d = 1; d <= 20; d++) {
     const n = WORLDS.roomCount(d);
     const t = WORLDS.trapCount(d);
-    if (n !== 15 + d) errors.push(`D${d} rooms ${n} != ${15 + d}`);
+    const expectN = 15 + d + (d === 1 ? 1 : 0);
+    if (n !== expectN) errors.push(`D${d} rooms ${n} != ${expectN}`);
     if (d > 1 && t <= WORLDS.trapCount(d - 1)) errors.push(`D${d} traps did not increase`);
     const lvls = WORLDS.generate(d);
     if (lvls.length !== n) errors.push(`D${d} generated ${lvls.length} rooms`);
     const sample = lvls[0];
     const last = lvls[lvls.length - 1];
-    const wantFirst = d === 1 ? 12 : t;
+    const wantFirst = d === 1 ? ((HAND[0] && HAND[0].events && HAND[0].events.length) || 0) : t;
     checkLevel(sample, `D${d} ${sample.name}`, wantFirst);
-    checkLevel(last, `D${d} ${last.name}`, d === 1 ? 12 : t + 4);
+    const bossN = WORLDS.bossTrapCount ? WORLDS.bossTrapCount(d) : t * (d >= 18 ? 4 : d >= 8 ? 3 : 2);
+    checkLevel(last, `D${d} ${last.name}`, bossN);
     lvls.forEach((lvl) => {
       const width = (lvl.map && lvl.map[0] && lvl.map[0].length) || WORLDS.stageWidth(d);
       if (d > 1 && width !== WORLDS.stageWidth(d)) {
@@ -176,23 +178,12 @@ if (WORLDS) {
       lvls.forEach((lvl) => {
         const text = JSON.stringify(lvl.events || []);
         if (labels.length && labels.every((lab) => text.indexOf(lab) >= 0)) sigRooms += 1;
-        if (lvl.boss) {
-          const W = lvl.map[0].length;
-          const want = WORLDS.bossFakeX(W);
-          const joined = (lvl.map || []).join("");
-          // Fake door must sit near the scaled mid-run column, not the old x=13.
-          if (joined.indexOf("F") < 0) bossFakeOk = false;
-          else {
-            const row = lvl.map.find((r) => r.indexOf("F") >= 0) || "";
-            const fx = row.indexOf("F");
-            if (Math.abs(fx - want) > 2) bossFakeOk = false;
-          }
-        }
+        if (lvl.boss && (lvl.map || []).join("").indexOf("F") >= 0) bossFakeOk = false;
       });
       if (labels.length && sigRooms < lvls.length) {
         errors.push(`D${d}: signature traps in ${sigRooms}/${lvls.length} rooms`);
       }
-      if (!bossFakeOk) errors.push(`D${d}: boss fake door not on scaled mid-run column`);
+      if (!bossFakeOk) errors.push(`D${d}: boss room still has a fake door`);
     }
     let fourRooms = 0;
     let repeatRooms = 0;

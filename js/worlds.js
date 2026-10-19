@@ -52,11 +52,98 @@
     const span = Math.max(minSpan || 14, W - start - 6);
     return start + (seed % span);
   }
-  function roomCount(d) { return 15 + d; }
+  function roomCount(d) { return 15 + d + (d === 1 ? 1 : 0); }
   function trapCount(d) {
     let n = 10;
     for (let i = 2; i <= d; i++) n += (i % 2 === 0 ? 2 : 3) + 10;
     return n;
+  }
+  // Final room only. 2x through world 7, 3x from world 8, 4x from world 18.
+  function bossMult(d) {
+    if (d >= 18) return 4;
+    if (d >= 8) return 3;
+    return 2;
+  }
+  function bossTrapCount(d) {
+    return trapCount(d) * bossMult(d);
+  }
+
+  // Door steals. World 1 moves it 7 times. Each later world adds 2.
+  function bossDoorMoves(d) {
+    return 7 + 2 * (Math.max(1, d | 0) - 1);
+  }
+
+  // The boss's own shots. Not the room trap list.
+  const BOSS_ATTACK_IDS = ["bolt", "pair", "fan", "lob", "rain", "sweep", "line", "ring", "slam", "spit"];
+  function bossAttackIds() { return BOSS_ATTACK_IDS.slice(); }
+
+  function flatBossSurface(d) {
+    const W = stageWidth(d);
+    const surface = new Array(W);
+    for (let x = 0; x < W; x++) surface[x] = 9;
+    return surface;
+  }
+
+  // One floor. Spawn, door, and the fake door sit on it. No steps, no pits.
+  function flattenBossMap(map) {
+    const rows = (map || []).map((r) => String(r).replace(/ /g, "."));
+    if (!rows.length || !rows[0]) return map;
+    const H = rows.length;
+    const W = Math.max.apply(null, rows.map((r) => r.length));
+    const g = [];
+    for (let y = 0; y < H; y++) {
+      g.push((rows[y] || "").padEnd(W, ".").slice(0, W).split(""));
+    }
+    let floor = -1;
+    for (let y = 0; y < H; y++) {
+      let n = 0;
+      for (let x = 0; x < W; x++) if ("#=B".includes(g[y][x])) n += 1;
+      if (n >= W * 0.75) { floor = y; break; }
+    }
+    if (floor < 2) floor = Math.max(2, H - 3);
+    let sX = 1;
+    let eX = W - 2;
+    const coins = [];
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const ch = g[y][x];
+        if (ch === "S") sX = x;
+        if (ch === "E") eX = x;
+        if (ch === "C") coins.push(x);
+      }
+    }
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) g[y][x] = y >= floor ? "#" : ".";
+    }
+    const row = floor - 1;
+    sX = Math.max(1, Math.min(2, sX || 1));
+    if (Math.abs(eX - sX) < 4) eX = W - 2;
+    eX = Math.max(4, Math.min(W - 2, eX));
+    g[row][sX] = "S";
+    g[row][eX] = "E";
+    const coinRow = Math.max(1, row - 2);
+    coins.slice(0, 3).forEach((x) => {
+      if (x > 2 && x < W - 2 && g[coinRow][x] === ".") g[coinRow][x] = "C";
+    });
+    return g.map((r) => r.join(""));
+  }
+
+  function stripDoorMoves(list) {
+    const out = [];
+    (list || []).forEach((a) => {
+      if (!a || !a.length || a[0] === "moveDoor" || a[0] === "hole") return;
+      if (a[0] === "queue") {
+        const rest = [];
+        for (let i = 2; i < a.length; i++) {
+          if (Array.isArray(a[i]) && a[i][0] !== "moveDoor" && a[i][0] !== "hole") rest.push(a[i]);
+        }
+        if (!rest.length) return;
+        out.push(["queue", a[1]].concat(rest));
+        return;
+      }
+      out.push(a);
+    });
+    return out;
   }
 
   // Two signature trap types per dimension. Families reuse placement rules;
@@ -804,6 +891,7 @@
     g[surface[1] - 1][1] = "S";
     g[surface[W - 2] - 1][W - 2] = "E";
     const lip = 2 + ((d + room) % 3);
+    if (boss) return g.map((row) => row.join(""));
     for (let x = 0; x < W; x++) {
       const nearGap = (x > 0 && surface[x - 1] < 0) || (x + 1 < W && surface[x + 1] < 0)
         || (x > 1 && surface[x - 2] < 0) || (x + 2 < W && surface[x + 2] < 0);
@@ -819,15 +907,6 @@
     if ((room + d) % 5 === 2) {
       const cx = landmarkX(room * 2 + d, W, 6, 12);
       if (cx < W && !onStair(cx) && surface[cx] === 9) g[9][cx] = "=";
-    }
-    if (boss) {
-      const fx = bossFakeX(W);
-      const fy = surface[fx] >= 0 ? surface[fx] : (surface[fx - 1] >= 0 ? surface[fx - 1] : 8);
-      const py = Math.max(2, fy - 3);
-      g[py][fx - 1] = "#";
-      g[py][fx] = "#";
-      g[py][fx + 1] = "#";
-      if (py > 0) g[py - 1][fx] = "F";
     }
     g[surface[1] - 1][1] = "S";
     g[surface[W - 2] - 1][W - 2] = "E";
@@ -986,7 +1065,7 @@
 
   function buildEvents(d, surface, boss, room) {
     roomW = surface.length;
-    const n = trapCount(d) + (boss ? 4 : 0);
+    const n = boss ? bossTrapCount(d) : trapCount(d);
     const events = [];
     const realAt = [];
     const late = d >= 12;
@@ -1755,25 +1834,6 @@
       }
     }
 
-    if (boss && events.length) {
-      let idx = events.length - 1;
-      for (let i = events.length - 1; i >= 0; i--) {
-        if (events[i].quiet) { idx = i; break; }
-      }
-      const fx = bossFakeX(roomW);
-      const fy = surface[fx] >= 0 ? surface[fx] : 8;
-      const py = Math.max(2, fy - 3);
-      events[idx] = {
-        if: { door: "fake" }, once: true, delay: 0.1,
-        do: [
-          ["fill", fx - 1, py, 3, 1, "^"],
-          ["saw", Math.max(4, fx - 5), py, 1.6, 0],
-          ["shake", 7],
-          ["sfx", "spike"],
-          ["queue", 0.48, ["fill", fx - 1, py, 3, 1, "#"]],
-        ],
-      };
-    }
     stampRepeats(events, d, room);
     return events.slice(0, n);
   }
@@ -1798,15 +1858,129 @@
     return surface;
   }
 
+  function mapDoorX(map, surface) {
+    const rows = map || [];
+    for (let y = 0; y < rows.length; y++) {
+      const x = String(rows[y]).indexOf("E");
+      if (x >= 0) return x;
+    }
+    return Math.max(2, (surface.length || 2) - 2);
+  }
+
+  function bossReach(surface) {
+    const seen = new Array(surface.length).fill(false);
+    if (!(surface[1] >= 0)) return seen;
+    const q = [1];
+    seen[1] = true;
+    while (q.length) {
+      const x = q.pop();
+      for (let nx = 0; nx < surface.length; nx++) {
+        if (seen[nx] || !canStep(surface, x, nx)) continue;
+        seen[nx] = true;
+        q.push(nx);
+      }
+    }
+    return seen;
+  }
+
+  // Flat spots the player can already walk to. Hops stay inside a run, not a teleport.
+  function bossPads(surface) {
+    const W = surface.length;
+    const seen = bossReach(surface);
+    function collect(wide) {
+      const pads = [];
+      for (let x = 6; x <= W - 4; x++) {
+        if (!seen[x] || surface[x] < 0) continue;
+        if (wide && surface[x - 1] !== surface[x]) continue;
+        if (pads.length && x - pads[pads.length - 1].x < 6) continue;
+        pads.push({ x, y: surface[x] - 1 });
+      }
+      return pads;
+    }
+    const wide = collect(true);
+    return wide.length >= 2 ? wide : collect(false);
+  }
+
+  function buildBossScript(d, surface, room, map) {
+    const script = [];
+    const pads = bossPads(surface);
+    if (!pads.length || !surface.length) return { script, times: [] };
+    const r = rng((d * 4241 + room * 97 + 9) >>> 0);
+    const doorX = mapDoorX(map, surface);
+    const hops = bossDoorMoves(d);
+    const route = [{ x: doorX }];
+    let guard = 0;
+    while (route.length < hops + 1 && guard++ < hops + 12) {
+      const cur = route[route.length - 1];
+      const prev = route.length > 1 ? route[route.length - 2] : null;
+      let options = pads.filter((p) => {
+        const dx = Math.abs(p.x - cur.x);
+        return dx >= 6 && dx <= 14;
+      });
+      if (prev && options.length > 1) {
+        const varied = options.filter((p) => p.x !== prev.x);
+        if (varied.length) options = varied;
+      }
+      if (!options.length) break;
+      route.push(options[(r() * options.length) | 0]);
+    }
+    let t = 3.8;
+    for (let i = 1; i < route.length; i++) {
+      const pad = route[i];
+      const prev = route[i - 1];
+      const hop = Math.abs(pad.x - prev.x);
+      script.push({
+        if: { time: +t.toFixed(2) }, once: true,
+        do: [["moveDoor", pad.x, pad.y], ["shake", 7], ["sfx", "crumble"]],
+      });
+      t += 2.6 + hop / 8;
+    }
+    const times = [];
+    script.forEach((ev) => {
+      (ev.do || []).forEach((a) => {
+        if (a[0] === "moveDoor") times.push(ev.if.time);
+      });
+    });
+    return { script, times };
+  }
+
+  // Quiet fillers become the fight so the count hits the multiplier without new permanent holes.
+  function installBossFight(events, d) {
+    const want = bossTrapCount(d);
+    while (events.length < want) {
+      events.push({ if: { x: 4 }, once: true, quiet: true, do: [["dust", 4, 8, 2]] });
+    }
+    while (events.length > want) {
+      let cut = -1;
+      for (let i = events.length - 1; i >= 0; i--) {
+        if (events[i].quiet) { cut = i; break; }
+      }
+      if (cut < 0) break;
+      events.splice(cut, 1);
+    }
+    return [];
+  }
+
   // Same fairness rules on handmade and generated rooms: no holes on spawn/door,
   // strip early-dim horror/apex, and clamp activation caps.
+  // Handmade gag rooms keep their own door script — never flatten them into a boss.
+  function isHandmadeGag(lvl) {
+    const n = lvl && lvl.name;
+    return n === "LAST LAUGH" || n === "PSYCH";
+  }
+
   function applyTrapRules(lvl, d, room, boss) {
-    const map = (lvl.map || []).map((r) => String(r).replace(/ /g, "."));
+    if (boss && isHandmadeGag(lvl)) boss = false;
+    let map = (lvl.map || []).map((r) => String(r).replace(/ /g, "."));
+    if (boss) map = flattenBossMap(map);
     const W = map[0] ? map[0].length : stageWidth(d);
-    const surface = lvl.surface || surfaceFromMap(map);
+    const surface = boss ? surfaceFromMap(map) : (lvl.surface || surfaceFromMap(map));
     const events = [];
     (lvl.events || []).forEach((ev) => {
-      const copy = Object.assign({}, ev, { do: scrubActions(ev.do || [], d) });
+      if (boss && ev.if && ev.if.door === "fake") return;
+      let actions = scrubActions(ev.do || [], d);
+      if (boss) actions = stripDoorMoves(actions);
+      const copy = Object.assign({}, ev, { do: actions });
       if (!copy.do.length) return;
       copy.do.forEach((a) => {
         if (a[0] === "hole" && typeof a[1] === "number") {
@@ -1817,7 +1991,9 @@
       if (copy.times > activationCap(d)) copy.times = activationCap(d);
       events.push(copy);
     });
+    if (boss) installBossFight(events, d);
     return Object.assign({}, lvl, {
+      map,
       dim: d,
       boss: !!boss,
       surface: surface.length ? surface : lvl.surface,
@@ -1829,9 +2005,13 @@
     const dim = DIMS[d - 1] || DIMS[0];
     const count = roomCount(d);
     if (d === 1 && root.HAND_LEVELS && root.HAND_LEVELS.length) {
-      return root.HAND_LEVELS.slice(0, count).map((lvl, i) =>
-        applyTrapRules(Object.assign({}, lvl, { dim: 1, boss: i === count - 1 }), 1, i, i === count - 1)
+      const hand = root.HAND_LEVELS.map((lvl, i) =>
+        applyTrapRules(Object.assign({}, lvl, { dim: 1, boss: false }), 1, i, false)
       );
+      const boss = generateOne(1, hand.length, true);
+      boss.name = "BOSS STAGE 1";
+      hand.push(boss);
+      return hand;
     }
     const levels = [];
     for (let i = 0; i < count; i++) levels.push(generateOne(d, i, i === count - 1));
@@ -1842,11 +2022,11 @@
     const r = rng((d * 7919 + i * 104729 + 13) >>> 0);
     const dim = DIMS[d - 1] || DIMS[0];
     const shaft = shaftKind(d, i, boss);
-    const surface = shaft ? shaftTerrain(d, i, r, shaft) : terrain(d, i, r);
+    const surface = boss ? flatBossSurface(d) : (shaft ? shaftTerrain(d, i, r, shaft) : terrain(d, i, r));
     const map = paintRoom(surface, d, i, r, boss);
     const layout = shaft === "ascend" ? "ASCENT" : shaft === "descend" ? "DESCENT" : LAYOUTS[(d + i) % LAYOUTS.length];
     return applyTrapRules({
-      name: boss ? dim.name + " CORE" : dim.name + " " + layout + " " + (i + 1),
+      name: dim.name + " " + layout + " " + (i + 1),
       taunt: pick(r, TAUNTS),
       map,
       events: buildEvents(d, surface, boss, i),
@@ -1876,7 +2056,7 @@
   }
 
   root.SURGE_WORLDS = {
-    DIMS, roomCount, trapCount, stageWidth, activationCap, bossFakeX, signatureTraps, qteAction,
+    DIMS, roomCount, trapCount, bossMult, bossTrapCount, bossDoorMoves, bossAttackIds, stageWidth, activationCap, bossFakeX, signatureTraps, qteAction,
     generate, theme, chordsFor, reachable, pathHeat, surfaceFromMap, applyTrapRules, shaftKind, count: 20,
   };
   root.LEVELS = generate(1);

@@ -479,6 +479,22 @@ a.ghost-btn {
   color: #ffd27a;
 }
 
+#level-grid.room-grid .level-cell.gate,
+#level-grid.room-grid .level-cell.gate.now {
+  position: relative;
+  border: 3px solid var(--gate, #ffd27a);
+  background: rgba(12, 6, 10, 0.92);
+  box-shadow:
+    inset 0 0 0 3px #12080c,
+    inset 0 0 0 5px var(--gate, #ffd27a),
+    inset 0 0 0 8px #12080c,
+    inset 0 0 0 10px #e31b1b;
+}
+
+#level-grid.room-grid .level-cell.gate:hover:not(:disabled) {
+  border-color: var(--gate, #ffd27a);
+}
+
 .level-cell .meta {
   display: block;
   margin-top: 4px;

@@ -71,7 +71,7 @@
     "DON'T STOP": "Stand still for 0.4 seconds and the floor drops.",
     "PSYCH": "Fake door. Then you walk back.",
     "THROUGH": "The wall in the middle is paint.",
-    "LAST LAUGH": "The coins blow up, and the right door is fake again."
+    "LAST LAUGH": "The coins still blow up. The door on the right is fake. The real one is waiting when you come back."
   };
 
   const rooms = document.getElementById("room-list");
@@ -120,7 +120,7 @@
       const d = i + 1;
       const roomsN = pack.roomCount(d);
       const traps = pack.trapCount(d);
-      const boss = traps + 4;
+      const boss = pack.bossTrapCount ? pack.bossTrapCount(d) : traps * (d >= 18 ? 4 : d >= 8 ? 3 : 2);
       const color = rgb(dim.accent);
       const card = document.createElement("article");
       card.className = "world";
@@ -141,8 +141,8 @@
       const meta = document.createElement("span");
       meta.className = "meta";
       meta.textContent = d === 1
-        ? roomsN + " rooms · handmade"
-        : roomsN + " rooms · " + traps + " traps · last room " + boss;
+        ? roomsN + " rooms · handmade · boss " + boss
+        : roomsN + " rooms · " + traps + " traps · boss " + boss;
       card.append(pip, idx, who, meta);
       bins[Math.floor(i / 5)].appendChild(card);
     });
@@ -162,7 +162,7 @@
           String(roomsN),
           String(width),
           String(traps),
-          d === 1 ? "—" : String(traps + 4),
+          String(pack.bossTrapCount ? pack.bossTrapCount(d) : traps * (d >= 18 ? 4 : d >= 8 ? 3 : 2)),
           String(act),
           String(rareCap(d)),
           String(entityCap(d)),

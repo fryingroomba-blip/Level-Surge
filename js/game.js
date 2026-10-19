@@ -1,4 +1,7 @@
 (() => {
+  if (typeof location !== "undefined" && /#(preview|d1boss)/.test(String(location.hash || ""))) {
+    window.__SURGE_TEST__ = true;
+  }
   const TILE = 32;
   let VIEW_W = 960;
   let VIEW_H = 540;
@@ -240,8 +243,28 @@
       if (window.SURGE_TRACKS) ch = window.SURGE_TRACKS.chordsFor(rootHz, dim)[bar % track.prog.length];
       else ch = [rootHz, rootHz * 1.189, rootHz * 1.498, rootHz * 2];
       const ctx = { step, t, bar, s, rootHz, ch, track, heat, scale: track.scale || [0, 2, 3, 5, 7], motif: track.motif || [0, 2, 4, 5] };
+      if (this.theme && this.theme.boss) this.playBossBed(ctx);
       const fn = this._trk[style] || this._trk.voidAmbient;
       fn.call(this, ctx);
+    },
+    playBossBed(c) {
+      const t = c.t;
+      const s = c.s;
+      const bar = c.bar;
+      const rootHz = c.rootHz;
+      const final = !!(this.theme && this.theme.final);
+      if (s % 8 === 0) {
+        this.voice(final ? 40 : 50, t, 0.34, "sine", final ? 0.48 : 0.32, 18);
+        this.noiseHit(t, 0.08, final ? 0.12 : 0.07, final ? 220 : 460);
+      }
+      if (s === 6 || s === 14) this.noiseHit(t, 0.05, 0.1, final ? 1400 : 2800);
+      if (s === 0) this.voice(rootHz * 0.5, t, final ? 1.6 : 0.42, "sawtooth", final ? 0.09 : 0.05);
+      if (!final && s === 4) this.voice(rootHz * 1.5, t, 0.14, "square", 0.045);
+      if (final && (s === 0 || s === 8)) {
+        this.voice(rootHz * 2, t, 1.7, "sine", 0.05);
+        this.voice(rootHz * 3, t, 1.2, "triangle", 0.022);
+        if (bar % 4 === 3 && s === 8) this.voice(rootHz * 4, t, 0.8, "sine", 0.03);
+      }
     },
     // Each style is a different piece of music — not shared drum/pad skeletons.
     _trk: {
@@ -652,6 +675,36 @@
         setTimeout(() => this.beep(784, 0.28, "triangle", 0.08), 180);
       }
       if (name === "shard") { this.beep(1320, 0.07, "sine", 0.05, 1760); this.beep(880, 0.1, "triangle", 0.03); }
+      if (name === "bossIn") {
+        this.beep(98, 0.2, "sawtooth", 0.08, 48);
+        this.noise(0.18, 0.12, 360);
+        setTimeout(() => this.beep(196, 0.24, "triangle", 0.05), 110);
+      }
+      if (name === "bossGrab") {
+        this.noise(0.12, 0.12, 640);
+        this.beep(170, 0.08, "square", 0.06, 80);
+      }
+      if (name === "bossDrop") {
+        this.beep(480, 0.26, "sine", 0.05, 80);
+        this.noise(0.16, 0.07, 280);
+      }
+      if (name === "bossLand") {
+        this.beep(78, 0.18, "sine", 0.09, 36);
+        this.noise(0.16, 0.14, 220);
+      }
+      if (name === "bossShot") {
+        this.beep(620, 0.05, "square", 0.05, 240);
+        this.noise(0.05, 0.07, 1700);
+      }
+      if (name === "bossFall") {
+        this.beep(280, 0.42, "sawtooth", 0.07, 50);
+        this.noise(0.28, 0.12, 420);
+      }
+      if (name === "bossBoom") {
+        this.noise(0.5, 0.24, 240);
+        this.beep(62, 0.55, "sine", 0.11, 28);
+        this.beep(160, 0.2, "square", 0.05, 40);
+      }
       if (name === "whoosh") {
         this.noise(0.42, 0.11, 420);
         this.beep(70, 0.55, "sine", 0.06, 36);
@@ -902,6 +955,9 @@
   let slowmo = 1;
   let stickyNext = 0;
   let testMode = false;
+  if (typeof location !== "undefined" && /#(preview|d1boss)/.test(String(location.hash || ""))) {
+    testMode = true;
+  }
   let creatorReturn = null;
   let creatorPlay = false;
   let botIx = 0;
@@ -914,6 +970,8 @@
   let dimIntro = 0;
   let clearBloom = 0;
   let lastView = { scale: 1, ox: 0, oy: 0, rot: 0 };
+  let camSmoothX = null;
+  let camSmoothY = null;
   let runTraps = 0;
   let dimIndex = 1;
   let shardsGot = 0;
@@ -1020,6 +1078,7 @@
     vx: 0, vy: 0, onGround: false, facing: 1,
     dead: false, win: false, coyote: 0, buffer: 0,
     jumpHeld: false, anim: 0, bounceLock: 0, justLanded: false,
+    lean: 0, visSq: 0, bob: 0, ghostT: 0,
   };
 
   function padRow(s, cols) {
@@ -1066,6 +1125,13 @@
     world.voidFogUntil = 0;
     world.huntLight = null;
     world.qte = null;
+    world.boss = null;
+    world.bossShots = [];
+    world.nullBeams = [];
+    world.bossFog = 0;
+    world.bossSpikes = {};
+    world.bossCast = false;
+    world.bossCause = "";
     lockTimer = 0;
     slowmo = 1;
     stickyNext = 0;
@@ -1078,11 +1144,13 @@
     const rows = def.map.map((r) => r);
     const cols = Math.max(...rows.map((r) => r.length));
     world.cols = cols;
-    world.rows = rows.length;
     world.tiles = rows.map((r) => padRow(r.replace(/ /g, "."), cols).split(""));
+    world.rows = world.tiles.length;
     world.events = (def.events || []).map((e) => ({ ...e, fired: false }));
     world.rules = def;
     world.time = 0;
+    camSmoothX = null;
+    camSmoothY = null;
     world.reverse = !!def.reverse;
     world.gravity = def.gravity || 0.55;
     world.shake = 0;
@@ -1118,6 +1186,64 @@
       }
     }
     spawnPlayer();
+    world.boss = null;
+    if (def.boss && world.door) {
+      const dim = def.dim || dimIndex || 1;
+      world.bossShots = [];
+      world.boss = {
+        dim,
+        x: dim === 1 ? world.cols * TILE * 0.5 : Math.max(120, Math.min(Math.max(120, world.cols * TILE - 120), world.door.x + 16)),
+        y: dim === 1 ? 88 : Math.max(96, world.door.y - 130),
+        attack: 0,
+        lastDoorX: world.door.x,
+        moves: 0,
+        goal: window.SURGE_WORLDS && window.SURGE_WORLDS.bossDoorMoves
+          ? window.SURGE_WORLDS.bossDoorMoves(dim) : 7,
+        phase: dim === 1 && !useBot ? "intro" : "fight",
+        mood: 0,
+        atkCd: 0.42,
+        doorCd: 0.38,
+        tell: null,
+        beat: 0,
+        fallVy: 0,
+        rot: 0,
+        boom: 0,
+        seed: (((dim * 9973 + 13) >>> 0) || 1),
+        dropping: false,
+        drop: null,
+        say: null,
+        saidHi: false,
+        saidClose: false,
+        saidBored: false,
+        wander: 0,
+        wanderY: 110,
+        wanderUntil: 0,
+        slip: 0,
+        face: dim === 1 ? "sleep" : "fight",
+        gaze: 0,
+        bars: dim === 1 && !useBot ? 1 : 0,
+        flash: 0,
+        introT: 0,
+        nvx: 1.7,
+        nvy: 0,
+        hot: false,
+        snatch: null,
+        drive: null,
+        wave: null,
+        half: null,
+        gap: 0,
+        rest: 0.32,
+        plan: null,
+        planI: 0,
+        shoveCd: 0,
+        fog: 0,
+        safeX: 0,
+        safeW: 0,
+      };
+      world.nullBeams = [];
+      world.bossFog = 0;
+    }
+    syncBossMusic(def);
     if (toastEl) {
       toastEl.classList.remove("show", "whisper", "death");
       toastEl.textContent = "";
@@ -1216,8 +1342,18 @@
   function tileAt(px, py) {
     const tx = Math.floor(px / TILE);
     const ty = Math.floor(py / TILE);
-    if (tx < 0 || ty < 0 || tx >= world.cols || ty >= world.rows) return "#";
-    return world.tiles[ty][tx];
+    const rows = world.tiles || [];
+    if (tx < 0 || ty < 0 || tx >= world.cols || ty >= rows.length) return "#";
+    const row = rows[ty];
+    if (!row) return "#";
+    return row[tx];
+  }
+
+  function writeTile(tx, ty, ch) {
+    const row = world.tiles && world.tiles[ty];
+    if (!row || tx < 0 || ty < 0 || tx >= world.cols || ty >= world.tiles.length) return false;
+    row[tx] = ch;
+    return true;
   }
 
   function isSolid(t) {
@@ -1231,44 +1367,46 @@
   function burst(x, y, color, n, speed) {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
-      const s = Math.random() * speed;
+      const s = speed * (0.28 + Math.random() * 0.85);
+      const life = 0.26 + Math.random() * 0.38;
       world.particles.push({
         x, y,
         vx: Math.cos(a) * s,
-        vy: Math.sin(a) * s - 2,
-        life: 0.4 + Math.random() * 0.55,
+        vy: Math.sin(a) * s - speed * 0.22,
+        drag: 0.94,
+        grav: 0.12,
+        life, max: life,
         color,
-        size: 2 + Math.random() * 4,
-        rot: Math.random() * Math.PI,
-        spin: (Math.random() - 0.5) * 0.4,
-        kind: Math.random() < 0.45 ? "spark" : "square",
+        size: 1.2 + Math.random() * 2.2,
+        kind: Math.random() < 0.7 ? "streak" : "spark",
       });
     }
-    if (world.particles.length > 220) world.particles.splice(0, world.particles.length - 220);
+    if (world.particles.length > 280) world.particles.splice(0, world.particles.length - 280);
   }
 
   function shock(x, y, color) {
     if (!world.rings) world.rings = [];
-    if (world.rings.length > 16) world.rings.shift();
-    world.rings.push({
-      x, y, r: 5, vr: 118, life: 0.28, max: 0.28,
-      color: color || "rgba(244,234,216,0.75)",
-    });
+    const ink = color || "rgba(244,234,216,0.75)";
+    if (world.rings.length > 24) world.rings.splice(0, world.rings.length - 24);
+    world.rings.push({ x, y, r: 3, vr: 240, drag: 0.78, life: 0.32, max: 0.32, w: 2.2, color: ink });
+    world.rings.push({ x, y, r: 2, vr: 96, drag: 0.9, life: 0.46, max: 0.46, w: 6, soft: true, color: ink });
   }
 
   function dust(x, y, n, kick) {
     kick = kick || 0;
     for (let i = 0; i < n; i++) {
+      const life = 0.22 + Math.random() * 0.2;
       world.particles.push({
-        x: x + (Math.random() - 0.5) * 8,
+        x: x + (Math.random() - 0.5) * 10,
         y,
-        vx: (Math.random() - 0.5) * 1.2 - kick,
-        vy: -0.4 - Math.random() * 1.1,
-        grav: 0.08,
-        life: 0.28 + Math.random() * 0.22,
+        vx: (Math.random() - 0.5) * 1.4 - kick * 0.8,
+        vy: -0.25 - Math.random() * 0.7,
+        drag: 0.9,
+        grav: 0.05,
+        life, max: life,
         color: "#c4b8a8",
-        size: 2 + Math.random() * 2,
-        kind: "square",
+        size: 1.4 + Math.random() * 1.6,
+        kind: "streak",
       });
     }
   }
@@ -1462,6 +1600,7 @@
     const falling = player.vy * Math.sign(world.gravity || 1) > 1.2;
     const hz = (cause && "^v<>".includes(cause) ? cause : "") || head || chest || feet;
     if (cause === "TEST" || cause === "TEST2") return "generic";
+    if (cause && String(cause).indexOf("BOSS ") === 0) return "boss";
     if (cause === "QTE") return "qte";
     if (world.doorOpened === "fake") return "fake";
     if (cause === "SAW SAID HI") return "saw";
@@ -1498,6 +1637,7 @@
 
   function deathCopy(cause) {
     if (cause === "TEST" || cause === "TEST2") return cause;
+    if (cause && String(cause).indexOf("BOSS ") === 0) return bossDeathLine(cause);
     return pickInsult(deathKind(cause));
   }
 
@@ -1509,7 +1649,8 @@
       for (let xx = 0; xx < (w || 1); xx++) {
         const tx = x + xx;
         const ty = y + yy;
-        if (ty < 0 || tx < 0 || ty >= world.rows || tx >= world.cols) continue;
+        if (ty < 0 || tx < 0 || ty >= (world.tiles || []).length || tx >= world.cols) continue;
+        if (!world.tiles[ty]) continue;
         if (!force && world.tiles[ty][tx] === ch) continue;
         burst(tx * TILE + 16, ty * TILE + 10, color, n, hazard ? 3.4 : 2.6);
       }
@@ -1518,11 +1659,7 @@
 
   function setTiles(x, y, w, h, ch) {
     for (let yy = y; yy < y + h; yy++) {
-      for (let xx = x; xx < x + w; xx++) {
-        if (yy >= 0 && yy < world.rows && xx >= 0 && xx < world.cols) {
-          world.tiles[yy][xx] = ch;
-        }
-      }
+      for (let xx = x; xx < x + w; xx++) writeTile(xx, yy, ch);
     }
   }
 
@@ -1555,10 +1692,14 @@
         fxTiles(a[1], a[2], a[3], a[4], a[5]);
       }
       setTiles(a[1], a[2], a[3], a[4], a[5]);
+      if (world.bossCast && "^v<>".includes(a[5])) {
+        ownBossTiles(a[1] | 0, a[2] | 0, a[3] || 1, a[4] || 1, world.bossCause || "BOSS SPIKE", world.bossHold || 0.55);
+      }
     }
     if (type === "spikes") {
       fxTiles(a[1], a[2], a[3], 1, "^");
       setTiles(a[1], a[2], a[3], 1, "^");
+      if (world.bossCast) ownBossTiles(a[1] | 0, a[2] | 0, a[3] || 1, 1, world.bossCause || "BOSS SPIKE", world.bossHold || 0.55);
     }
     if (type === "clearRowHazards") {
       const y = a[1];
@@ -1572,15 +1713,26 @@
     if (type === "reverse") world.reverse = a[1];
     if (type === "gravity") world.gravity = a[1];
     if (type === "moveDoor" && world.door) {
-      world.door.x = a[1] * TILE;
-      world.door.y = a[2] * TILE;
+      const dx = a[1] | 0;
+      const dy = a[2] | 0;
+      world.door.x = dx * TILE;
+      world.door.y = dy * TILE;
+      // Clear solids on the standing row only — never dig out the floor under the door.
+      for (let ox = 0; ox < 2; ox++) {
+        const tx = dx + ox;
+        if (dy < 0 || dy >= world.rows || tx < 0 || tx >= world.cols) continue;
+        if (isSolid(world.tiles[dy][tx])) world.tiles[dy][tx] = ".";
+      }
     }
     if (type === "chase") {
       const saw = world.saws[a[1]];
       if (saw) { saw.chase = true; saw.vx = -2.6; }
     }
     if (type === "saw") {
-      world.saws.push({ x: a[1] * TILE + 16, y: a[2] * TILE + 16, vx: a[3] || 0, vy: a[4] || 0, chase: false, spin: 0 });
+      world.saws.push({
+        x: a[1] * TILE + 16, y: a[2] * TILE + 16, vx: a[3] || 0, vy: a[4] || 0,
+        chase: false, spin: 0, boss: !!world.bossCast, age: 0,
+      });
     }
     if (type === "queue") {
       world.queued.push({ at: world.time + a[1], do: a.slice(2) });
@@ -1601,6 +1753,7 @@
       world.lasers.push({
         x: a[1] * TILE, y: a[2] * TILE + 12,
         w: (a[3] || 4) * TILE, h: 6, life: a[4] || 0.4, fake: false,
+        boss: !!world.bossCast,
       });
       world.flash = 0.06;
     }
@@ -1622,7 +1775,7 @@
       });
     }
     if (type === "drop") {
-      world.drops.push({ x: a[1] * TILE, y: a[2] * TILE, w: TILE, h: TILE, vy: 0 });
+      world.drops.push({ x: a[1] * TILE, y: a[2] * TILE, w: TILE, h: TILE, vy: 0, boss: !!world.bossCast });
     }
     if (type === "hideDoor") world.doorHidden = true;
     if (type === "showDoor") world.doorHidden = false;
@@ -1656,7 +1809,7 @@
       for (let yy = 0; yy < bh; yy++) {
         for (let xx = 0; xx < bw; xx++) {
           const tx = bx + xx, ty = by + yy;
-          if (ty < 0 || ty >= world.rows || tx < 0 || tx >= world.cols) continue;
+          if (ty < 0 || ty >= (world.tiles || []).length || tx < 0 || tx >= world.cols || !world.tiles[ty]) continue;
           cells.push([tx, ty, world.tiles[ty][tx]]);
           world.tiles[ty][tx] = ".";
         }
@@ -1673,10 +1826,11 @@
       const cells = [];
       const spots = [[cx, cy, "^"], [cx, Math.max(0, cy - 3), "v"]];
       for (const [tx, ty, ch] of spots) {
-        if (ty < 0 || ty >= world.rows || tx < 0 || tx >= world.cols) continue;
+        if (ty < 0 || ty >= (world.tiles || []).length || tx < 0 || tx >= world.cols || !world.tiles[ty]) continue;
         cells.push([tx, ty, world.tiles[ty][tx]]);
         world.tiles[ty][tx] = ch;
         fxTiles(tx, ty, 1, 1, ch);
+        if (world.bossCast) ownBossTiles(tx, ty, 1, 1, world.bossCause || "BOSS CLAMP", hold);
       }
       world.restores.push({ at: world.time + hold, cells });
       world.shake = Math.max(world.shake, 6);
@@ -1760,6 +1914,7 @@
         vy: 0,
         life: a[3] || 2.8,
         home: a[4] == null ? 0.07 : a[4],
+        boss: !!world.bossCast,
       });
       world.hudText = "INCOMING";
       world.shake = Math.max(world.shake, 4);
@@ -2366,7 +2521,1123 @@
     return n;
   }
 
+  function ownBossTiles(x, y, w, h, cause, hold) {
+    world.bossSpikes = world.bossSpikes || {};
+    const until = world.time + (hold || 0.55);
+    for (let yy = 0; yy < h; yy++) {
+      for (let xx = 0; xx < w; xx++) {
+        world.bossSpikes[(x + xx) + "," + (y + yy)] = { until, cause: cause || "BOSS SPIKE" };
+      }
+    }
+  }
+
+  function bossTileCause(px, py) {
+    const tx = Math.floor(px / TILE);
+    const ty = Math.floor(py / TILE);
+    const rec = world.bossSpikes && world.bossSpikes[tx + "," + ty];
+    if (!rec || world.time > rec.until) return "";
+    return rec.cause || "BOSS SPIKE";
+  }
+
+  function bossHoldsDoor() {
+    const b = world.boss;
+    return !!(b && (b.dropping || b.snatch || b.phase === "intro" || b.phase === "rage" || b.phase === "fall" || b.phase === "boom"));
+  }
+
+  function bossBlastHits() {
+    const b = world.boss;
+    if (!b || b.phase !== "boom" || player.dead || player.win) return false;
+    const big = b.dim === 1;
+    if (b.boom > (big ? 0.7 : 0.46)) return false;
+    const rad = big ? Math.min(250, 70 + b.boom * 520) : Math.min(156, 52 + b.boom * 380);
+    const dx = (player.x + player.w / 2) - b.x;
+    const dy = (player.y + player.h / 2) - (b.y + 30);
+    return dx * dx + dy * dy < rad * rad;
+  }
+
+  const BOSS_SPEED = 2.2 * 2;
+
+  function bossSpeed(dim) {
+    return BOSS_SPEED * (1 + Math.min(0.22, ((dim || 1) - 1) * 0.01));
+  }
+
+  function bossTalk(kind, force) {
+    const b = world.boss;
+    if (!b) return;
+    const pack = window.SURGE_BOSS_VOICE;
+    if (!pack) return;
+    const v = pack.voice(b.dim || 1);
+    if (!v) return;
+    if (b.say && b.say.age < b.say.life - 0.05 && !force) return;
+    let text = "";
+    if (b.dim === 1 && NULL_SAY[kind]) text = NULL_SAY[kind];
+    else if (kind === "hi") text = v.hi;
+    else if (kind === "close") text = v.close;
+    else if (kind === "bored") text = v.bored;
+    else if (kind === "fall") text = v.fall;
+    else if (kind === "tired") text = v.tired;
+    else {
+      const i = (pack.IDS || []).indexOf(kind);
+      text = i >= 0 && v.shots ? v.shots[i] : "";
+    }
+    if (!text) return;
+    b.say = {
+      text,
+      name: v.name,
+      color: v.color,
+      ink: (b.mood || 0) >= 0.7 ? "#ffc2a4" : v.ink,
+      life: 2.5,
+      age: 0,
+    };
+  }
+
+  const NULL_DEAD = {
+    spin: "the square got you.",
+    shot: "seven was a lot.",
+    pound: "you didn't jump.",
+    half: "wrong half.",
+    needles: "those lines.",
+    magnet: "I pulled. You stayed.",
+    drive: "should've jumped.",
+    shove: "off my door.",
+    storm: "the fog had gaps.",
+    pop: "it broke on you.",
+  };
+  const NULL_SAY = {
+    spin: "Square. It's coming.",
+    shot: "Seven. Slip the middle.",
+    pound: "Down. Jump it.",
+    half: "That half. Run.",
+    needles: "Move. They follow slow.",
+    magnet: "Come here. Please don't.",
+    drive: "On the floor. Jump.",
+    shove: "Too close. Get off.",
+    storm: "Find the bright gap.",
+    pop: "This one breaks.",
+  };
+  const NULL_IDS = ["spin", "shot", "pound", "half", "needles", "magnet", "drive", "pop", "storm", "shove"];
+
+  function bossDeathLine(cause) {
+    const id = String(cause || "").replace(/^BOSS\s+/, "").toLowerCase();
+    const d = (world.boss && world.boss.dim) || dimIndex || 1;
+    const pack = window.SURGE_BOSS_VOICE;
+    if (id === "boom") return "I fell on you.";
+    if (d === 1 && NULL_DEAD[id]) return NULL_DEAD[id];
+    if (pack && pack.line) {
+      const text = pack.line(d, id, true);
+      if (text) return text.length <= 22 ? text : text.slice(0, 22);
+    }
+    return "hey. you stayed.";
+  }
+
+  function bossRand(b) {
+    b.seed = (Math.imul(b.seed || 1, 1664525) + 1013904223) >>> 0;
+    return b.seed / 4294967296;
+  }
+
+  function bossNearDoor() {
+    if (!world.door) return false;
+    const dx = (player.x + player.w / 2) - (world.door.x + 16);
+    const dy = (player.y + player.h / 2) - (world.door.y + 16);
+    const reach = 3.2 * TILE;
+    return dx * dx + dy * dy < reach * reach;
+  }
+
+  function bossPickPad(b, spec) {
+    const surface = (world.rules && world.rules.surface) || [];
+    const pads = [];
+    for (let x = 6; x <= surface.length - 4; x += 4) {
+      if (surface[x] >= 0) pads.push({ x, y: surface[x] - 1 });
+    }
+    const doorTile = world.door ? world.door.x / TILE : -99;
+    let pool = pads.filter((p) => {
+      if (Math.abs(p.x - doorTile) < 1) return false;
+      const away = Math.abs(p.x - spec.away);
+      if (away < spec.min || away > spec.max) return false;
+      if (spec.from != null) {
+        const hop = Math.abs(p.x - spec.from);
+        if (hop < spec.fromMin || hop > spec.fromMax) return false;
+      }
+      return true;
+    });
+    if (!pool.length && spec.loose) {
+      pool = pads.filter((p) => Math.abs(p.x - spec.away) >= Math.min(6, spec.min) && Math.abs(p.x - doorTile) >= 1);
+    }
+    if (!pool.length) return null;
+    pool.sort((a, c) => Math.abs(c.x - doorTile) - Math.abs(a.x - doorTile));
+    const far = pool.slice(0, Math.max(1, Math.ceil(pool.length / 2)));
+    return far[Math.floor(bossRand(b) * far.length)];
+  }
+
+  function bossMarkSpent(b) {
+    b.mood = b.goal ? Math.min(1, b.moves / b.goal) : 0;
+    if (b.moves < b.goal || b.phase !== "fight") return;
+    b.phase = "rage";
+    b.rageUntil = world.time + 0.72;
+    b.mood = 1;
+    b.attack = Math.max(b.attack, 0.8);
+    bossTalk("tired", true);
+  }
+
+  function syncBossMusic(def) {
+    const want = !!(def && def.boss);
+    if (!audio.theme) audio.setTheme(dimIndex);
+    const was = !!audio.theme.boss;
+    if (want) {
+      const th = currentTheme();
+      const final = ((def.dim || dimIndex) | 0) >= 20;
+      audio.theme.boss = true;
+      audio.theme.final = final;
+      audio.theme.bpm = Math.round((th.bpm || 128) * (final ? 0.78 : 1.18));
+      audio.theme.root = (th.root || 92.5) * (final ? 0.82 : 0.9);
+      if (audio.drone && audio.ctx) {
+        const base = Math.max(24, audio.theme.root * 0.35);
+        try {
+          audio.drone.o.frequency.setTargetAtTime(base, audio.ctx.currentTime, 0.25);
+          audio.drone.o2.frequency.setTargetAtTime(base * 2, audio.ctx.currentTime, 0.25);
+        } catch (_) { /* ignore */ }
+      }
+    } else if (was) audio.setTheme(dimIndex);
+    if (want !== was) audio.restartMusic();
+    if (want) audio.play("bossIn");
+  }
+
+  function bossCruise(b) {
+    const minX = 150;
+    const maxX = Math.max(minX + 40, world.cols * TILE - 150);
+    const minY = 64;
+    const maxY = Math.max(minY + 20, (world.door ? world.door.y : 280) - 70);
+    const dim = b.dim || 1;
+    if (!b.wander || world.time >= (b.wanderUntil || 0)) {
+      const px = player.x + player.w / 2;
+      let tx = minX + bossRand(b) * (maxX - minX);
+      if (Math.abs(tx - px) < TILE * 5) tx = px < (minX + maxX) * 0.5 ? maxX - 30 : minX + 30;
+      if (dim % 5 === 0) {
+        tx = (minX + maxX) * 0.5 + Math.sin(world.time * 0.85 + dim) * (maxX - minX) * 0.46;
+      }
+      if (dim >= 20) tx = (b.x < (minX + maxX) * 0.5) ? maxX - 20 : minX + 20;
+      b.wander = Math.max(minX, Math.min(maxX, tx));
+      b.wanderY = minY + bossRand(b) * (maxY - minY);
+      const hop = dim >= 20 ? 1.7 : (dim % 2 === 0 ? 0.55 : 1.05);
+      b.wanderUntil = world.time + hop + bossRand(b) * 0.7;
+    }
+    let gx = b.wander;
+    let gy = b.wanderY;
+    if (b.attack > 0.25 && world.door) {
+      gx = world.door.x + 16;
+      gy = Math.max(minY, world.door.y - 100);
+    }
+    gy += Math.sin(world.time * (1.15 + dim * 0.06) + (b.mood || 0) * 2) * (dim % 3 === 0 ? 16 : 9);
+    const stiff = dim >= 20 ? 0.028 : (dim % 2 === 0 ? 0.055 : 0.034);
+    bossGlide(b, Math.max(minX, Math.min(maxX, gx)), Math.max(minY, Math.min(maxY, gy)), stiff, 0.18);
+  }
+
+  function bossGlide(b, tx, ty, stiff, damp) {
+    if (b.mvx == null) b.mvx = 0;
+    if (b.mvy == null) b.mvy = 0;
+    b.mvx += (tx - b.x) * stiff - b.mvx * damp;
+    b.mvy += (ty - b.y) * stiff - b.mvy * damp;
+    const cap = 6.4;
+    const sp = Math.hypot(b.mvx, b.mvy) || 1;
+    if (sp > cap) { b.mvx *= cap / sp; b.mvy *= cap / sp; }
+    const ox = b.x;
+    b.x += b.mvx;
+    b.y += b.mvy;
+    b.slip = b.x - ox;
+  }
+
+  function bossYoink(b, pad) {
+    world.door.x = pad.x * TILE;
+    world.door.y = pad.y * TILE;
+    b.lastDoorX = world.door.x;
+    b.moves += 1;
+    b.attack = Math.max(b.attack, 0.66);
+    const accent = (currentTheme().accent || [255, 200, 120]);
+    shock(world.door.x + 16, world.door.y + 16, `rgba(${accent[0] | 0},${accent[1] | 0},${accent[2] | 0},0.85)`);
+    burst(world.door.x + 16, world.door.y + 18, `rgb(${accent[0] | 0},${accent[1] | 0},${accent[2] | 0})`, 14, 3);
+    audio.play("bossGrab");
+    if (!b.saidClose) { b.saidClose = true; bossTalk("close", true); }
+    bossMarkSpent(b);
+  }
+
+  function bossStartDrop(b, pad) {
+    b.dropping = true;
+    b.drop = {
+      x: pad.x * TILE,
+      y: pad.y * TILE,
+      from: Math.max(16, pad.y * TILE - 260),
+      t: 0,
+    };
+    world.door.x = b.drop.x;
+    world.door.y = b.drop.from;
+    b.attack = Math.max(b.attack, 0.4);
+    audio.play("bossDrop");
+    bossTalk("fall", true);
+  }
+
+  function bossFinishDrop(b) {
+    world.door.x = b.drop.x;
+    world.door.y = b.drop.y;
+    b.dropping = false;
+    b.drop = null;
+    b.lastDoorX = world.door.x;
+    b.moves += 1;
+    burst(world.door.x + 16, world.door.y + 20, "#fff6d0", 12, 3);
+    audio.play("bossLand");
+    bossMarkSpent(b);
+  }
+
+  function bossSpawnShot(shot) {
+    if (!world.bossShots) world.bossShots = [];
+    const nullShot = NULL_IDS.indexOf(shot.kind) >= 0;
+    if (!nullShot && world.bossShots.length >= 16) world.bossShots.shift();
+    if (nullShot && world.bossShots.length >= 48) return;
+    const box = {
+      x: shot.x,
+      y: shot.y,
+      w: shot.w || 16,
+      h: shot.h || 16,
+      vx: shot.vx || 0,
+      vy: shot.vy || 0,
+      grav: shot.grav || 0,
+      life: shot.life == null ? 2.2 : shot.life,
+      delay: shot.delay || 0,
+      kind: shot.kind || "bolt",
+    };
+    if (rectsOverlap(player, box)) return;
+    world.bossShots.push(box);
+  }
+
+  function bossAimPoint() {
+    const tell = (world.boss && world.boss.tell) || {};
+    return {
+      px: tell.px != null ? tell.px : player.x + player.w / 2,
+      py: tell.py != null ? tell.py : player.y + player.h * 0.45,
+      feet: tell.feet != null ? tell.feet : player.y + player.h - 10,
+      face: tell.face || Math.sign(player.vx) || player.facing || 1,
+    };
+  }
+
+  function bossPattern(id) {
+    const b = world.boss;
+    if (!b) return;
+    const dim = b.dim || 1;
+    const spd = bossSpeed(dim);
+    const aim = bossAimPoint();
+    const px = aim.px;
+    const py = aim.py;
+    const feet = aim.feet;
+    const face = aim.face || 1;
+    const dir = dim % 2 === 0 ? -1 : 1;
+    const ang = Math.atan2(py - (b.y + 20), (px - b.x) || 0.001);
+    const surface = (world.rules && world.rules.surface) || [];
+    audio.play("bossShot");
+
+    if (id === "bolt") {
+      bossSpawnShot({
+        x: b.x - 8, y: b.y + 12,
+        vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, kind: "bolt",
+      });
+    } else if (id === "pair") {
+      const gap = 28 + (dim % 5) * 6;
+      const from = px - dir * 140;
+      bossSpawnShot({ x: from, y: feet - 2, vx: dir * spd, vy: 0, kind: "pair" });
+      bossSpawnShot({ x: from + dir * gap, y: feet - 2, vx: dir * spd, vy: 0, kind: "pair" });
+    } else if (id === "fan") {
+      const spread = 0.28 + (dim % 4) * 0.06;
+      for (let i = -1; i <= 1; i++) {
+        const a = ang + i * spread;
+        bossSpawnShot({
+          x: b.x - 8 + Math.cos(a) * 36,
+          y: b.y + 16 + Math.sin(a) * 36,
+          vx: Math.cos(a) * spd,
+          vy: Math.sin(a) * spd,
+          kind: "fan",
+        });
+      }
+    } else if (id === "lob") {
+      let tx = Math.round(px / TILE) + face * (3 + (dim % 2));
+      const ptx = Math.round(px / TILE);
+      if (tx < 3 || tx > world.cols - 4) tx = ptx + (ptx < world.cols / 2 ? 3 : -3);
+      if (Math.abs(tx - ptx) < 2) tx = ptx + 3;
+      tx = Math.max(3, Math.min(world.cols - 4, tx));
+      const landX = tx * TILE + 8;
+      const landY = ((surface[tx] > 0 ? surface[tx] : 9) - 1) * TILE;
+      const n = 36;
+      const grav = 0.22;
+      const x0 = landX - face * 48;
+      const y0 = 36;
+      bossSpawnShot({
+        x: x0, y: y0,
+        vx: (landX - x0) / n,
+        vy: (landY - y0 - grav * n * (n - 1) / 2) / n,
+        grav, kind: "lob", life: 1.5,
+      });
+    } else if (id === "rain") {
+      const want = 4 + (dim % 3);
+      const ptx = Math.round(px / TILE);
+      let made = 0;
+      for (let i = -5; i <= 5 && made < want; i++) {
+        if (Math.abs(i) <= 1) continue;
+        const tx = ptx + i;
+        if (tx < 2 || tx > world.cols - 3) continue;
+        bossSpawnShot({ x: tx * TILE + 8, y: 18, vx: 0, vy: spd, w: 14, h: 14, kind: "rain" });
+        made += 1;
+      }
+    } else if (id === "sweep") {
+      const gapTile = Math.round(px / TILE) + dir * 2;
+      for (let i = 0; i < 7; i++) {
+        const tx = (dir > 0 ? 2 : world.cols - 3) + dir * i;
+        if (Math.abs(tx - gapTile) <= 1) continue;
+        if (tx < 1 || tx > world.cols - 2) continue;
+        bossSpawnShot({ x: tx * TILE + 6, y: py - 8, vx: dir * spd, vy: 0, w: 18, h: 16, kind: "sweep" });
+      }
+    } else if (id === "line") {
+      const from = Math.max(2, Math.min(world.cols - 3, Math.round(px / TILE) - face * 8));
+      for (let i = 0; i < 3; i++) {
+        const tx = from - face * i * 2;
+        if (tx < 1 || tx > world.cols - 2) continue;
+        bossSpawnShot({ x: tx * TILE, y: feet - 2, vx: face * spd, vy: 0, kind: "line" });
+      }
+    } else if (id === "ring") {
+      const n = 6 + (dim % 3);
+      const open = Math.atan2(py - b.y, px - b.x);
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        let dlt = Math.abs(a - open);
+        if (dlt > Math.PI) dlt = Math.PI * 2 - dlt;
+        if (dlt < 0.7) continue;
+        bossSpawnShot({
+          x: b.x + Math.cos(a) * 48 - 8,
+          y: b.y + Math.sin(a) * 48,
+          vx: Math.cos(a) * spd * 0.9,
+          vy: Math.sin(a) * spd * 0.9,
+          kind: "ring",
+        });
+      }
+    } else if (id === "slam") {
+      const lead = 2 + (dim % 2);
+      let tx = Math.round(px / TILE) + face * lead;
+      if (Math.abs(tx - Math.round(px / TILE)) < 2) tx += face * 2;
+      tx = Math.max(2, Math.min(world.cols - 3, tx));
+      bossSpawnShot({ x: tx * TILE + 4, y: 16, vx: 0, vy: spd, w: 22, h: 22, kind: "slam" });
+    } else if (id === "spit") {
+      const gap = 22 + (dim % 4) * 4;
+      bossSpawnShot({
+        x: b.x - 8, y: b.y + 18,
+        vx: Math.cos(ang) * spd * 1.15,
+        vy: Math.sin(ang) * spd * 1.15,
+        kind: "spit",
+      });
+      bossSpawnShot({
+        x: b.x - 8 + Math.cos(ang + 1.2) * gap,
+        y: b.y + 18 + Math.sin(ang + 1.2) * 10,
+        vx: Math.cos(ang) * spd * 1.15,
+        vy: Math.sin(ang) * spd * 1.15,
+        delay: 0.12,
+        kind: "spit",
+      });
+    }
+  }
+
+  function bossArm(b) {
+    const ids = (window.SURGE_WORLDS && window.SURGE_WORLDS.bossAttackIds)
+      ? window.SURGE_WORLDS.bossAttackIds()
+      : ["bolt", "pair", "fan", "lob", "rain", "sweep", "line", "ring", "slam", "spit"];
+    const jumping = player.vy < -1.5;
+    const running = Math.abs(player.vx) > 1.1;
+    const camping = player.onGround && Math.abs(player.vx) < 0.45;
+    let id = ids[b.beat % ids.length];
+    b.beat += 1;
+    if (jumping && b.beat % 3 === 0) id = b.beat % 2 === 0 ? "pair" : "fan";
+    else if (running && b.beat % 3 === 1) id = b.beat % 2 === 0 ? "sweep" : "line";
+    else if (camping && b.beat % 3 === 2) id = b.beat % 2 === 0 ? "slam" : "rain";
+    const px = player.x + player.w / 2;
+    const py = player.y + player.h * 0.45;
+    b.tell = {
+      id,
+      until: world.time + 0.16,
+      tx: Math.max(1, Math.min(world.cols - 2, Math.round(px / TILE))),
+      ty: Math.max(1, Math.min(world.rows - 2, Math.round(py / TILE))),
+      tw: id === "sweep" ? 3 : 1,
+      th: 1,
+      px,
+      py,
+      feet: player.y + player.h - 10,
+      face: Math.sign(player.vx) || player.facing || 1,
+    };
+    b.atkCd = 0.34 + (1 - (b.mood || 0)) * 0.12;
+    bossTalk(id, false);
+  }
+
+  function tickBossShots() {
+    if (!world.bossShots) world.bossShots = [];
+    for (let i = world.bossShots.length - 1; i >= 0; i--) {
+      const s = world.bossShots[i];
+      if (s.delay > 0) { s.delay -= FIXED; continue; }
+      s.vy += s.grav || 0;
+      s.x += s.vx;
+      s.y += s.vy;
+      s.life -= FIXED;
+      if (s.life <= 0 || s.y > world.rows * TILE + 40 || s.x < -80 || s.x > world.cols * TILE + 80 || s.y < -120) {
+        world.bossShots.splice(i, 1);
+      }
+    }
+  }
+
+  function nullFloorY() {
+    return world.door ? world.door.y + TILE : (world.rows - 3) * TILE;
+  }
+
+  function nullBuildPlan(b) {
+    const pool = ["spin", "shot", "pound", "half", "needles", "magnet", "drive", "pop"];
+    if ((b.moves || 0) >= 2) pool.push("storm");
+    if (world.time >= 30) pool.push("shove");
+    const n = Math.min(5, 3 + (b.moves | 0));
+    const plan = [];
+    let last = "";
+    let stormed = false;
+    for (let i = 0; i < n; i++) {
+      let id = pool[Math.floor(bossRand(b) * pool.length)];
+      let guard = 0;
+      while (guard++ < 8 && (id === last || (id === "storm" && stormed))) {
+        id = pool[Math.floor(bossRand(b) * pool.length)];
+      }
+      if (id === "storm") stormed = true;
+      plan.push(id);
+      last = id;
+    }
+    return plan;
+  }
+
+  function nullArm(b, id) {
+    const px = player.x + player.w / 2;
+    const py = player.y + player.h * 0.45;
+    const floor = nullFloorY();
+    const side = px < world.cols * TILE * 0.5 ? -1 : 1;
+    b.tell = {
+      id,
+      until: world.time + (b.hot ? 0.18 : 0.28),
+      px, py,
+      feet: player.y + player.h - 10,
+      face: Math.sign(player.vx) || player.facing || 1,
+      side,
+      tx: Math.max(2, Math.min(world.cols - 3, Math.round(px / TILE) + side)),
+      ty: Math.max(1, Math.round((floor - TILE) / TILE)),
+      tw: id === "half" ? Math.floor(world.cols / 2) : (id === "needles" ? 3 : 1),
+      th: 1,
+    };
+    bossTalk(id, false);
+  }
+
+  function nullAdvance(b) {
+    if (b.dropping || b.snatch || b.drive) return;
+    if (b.rest > 0) { b.rest -= FIXED; return; }
+    if (b.gap > 0) { b.gap -= FIXED; return; }
+    if (!b.plan || b.planI >= b.plan.length) {
+      if (b.plan && b.plan.length) {
+        b.plan = null;
+        b.rest = b.hot ? 0.62 : 0.95;
+        return;
+      }
+      b.plan = nullBuildPlan(b);
+      b.planI = 0;
+    }
+    nullArm(b, b.plan[b.planI++]);
+  }
+
+  function nullAddBeam(x, w, warn, life, cause) {
+    if (!world.nullBeams) world.nullBeams = [];
+    world.nullBeams.push({
+      x: Math.max(0, x),
+      w,
+      warn,
+      life,
+      cause: cause || "NEEDLES",
+    });
+  }
+
+  function nullCast(b, id) {
+    const tell = b.tell || {};
+    const px = tell.px != null ? tell.px : player.x + player.w / 2;
+    const py = tell.py != null ? tell.py : player.y + player.h * 0.45;
+    const spd = (b.hot ? 7.2 : 6.1);
+    const ang = Math.atan2(py - (b.y + 10), (px - b.x) || 0.001);
+    audio.play("bossShot");
+    if (id === "spin") {
+      bossSpawnShot({
+        x: b.x - 10, y: b.y - 10, w: 20, h: 20,
+        vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
+        life: 2.4, kind: "spin",
+      });
+    } else if (id === "shot") {
+      for (let i = -3; i <= 3; i++) {
+        const a = ang + i * 0.22;
+        bossSpawnShot({
+          x: b.x - 8 + Math.cos(a) * 28,
+          y: b.y - 8 + Math.sin(a) * 28,
+          w: 14, h: 14,
+          vx: Math.cos(a) * (b.hot ? 5.4 : 4.4),
+          vy: Math.sin(a) * (b.hot ? 5.4 : 4.4),
+          life: 2.1, kind: "shot",
+        });
+      }
+    } else if (id === "pound") {
+      const tile = tell.tx || Math.round(px / TILE);
+      b.wave = {
+        x: tile * TILE + TILE / 2,
+        warn: b.hot ? 0.42 : 0.6,
+        live: 0,
+        r: 8,
+      };
+    } else if (id === "half") {
+      b.half = { side: tell.side || 1, t: 0, reach: world.cols * TILE * 0.42, hot: false, warn: b.hot ? 1.65 : 1.85 };
+    } else if (id === "needles") {
+      const n = 5 + Math.floor(bossRand(b) * 6);
+      const origin = Math.round(px / TILE);
+      for (let i = 0; i < n; i++) {
+        const tx = origin + (i - Math.floor(n / 2)) * 5;
+        if (tx < 1 || tx > world.cols - 4) continue;
+        nullAddBeam(tx * TILE, TILE * 3, 0.48 + i * (0.5 / n), b.hot ? 0.26 : 0.34, "NEEDLES");
+      }
+    } else if (id === "magnet") {
+      const dir = Math.sign(b.x - px) || 1;
+      world.magnet = {
+        x: px + dir * 120,
+        y: nullFloorY() - 46,
+        until: world.time + (b.hot ? 1.05 : 1.35),
+        str: b.hot ? 0.34 : 0.26,
+      };
+    } else if (id === "drive") {
+      const dir = tell.side || 1;
+      const start = dir > 0 ? TILE * 2 : world.cols * TILE - TILE * 2;
+      b.drive = { t: 0, warn: b.hot ? 0.38 : 0.55, dir, x: start, live: false };
+      b.x = start;
+    } else if (id === "pop") {
+      bossSpawnShot({
+        x: b.x - 12, y: b.y - 12, w: 24, h: 24,
+        vx: Math.cos(ang) * 3.2, vy: Math.sin(ang) * 3.2,
+        life: 0.7, kind: "pop",
+      });
+    } else if (id === "storm") {
+      const origin = Math.round(px / TILE);
+      const dir = bossRand(b) < 0.5 ? -1 : 1;
+      let lane = origin + dir * (3 + Math.floor(bossRand(b) * 5));
+      lane = Math.max(2, Math.min(world.cols - 6, lane));
+      b.safeX = lane * TILE;
+      b.safeW = TILE * 4;
+      b.fog = 0.82;
+      let made = 0;
+      let guard = 0;
+      while (made < 30 && guard++ < 90) {
+        const tx = 1 + Math.floor(bossRand(b) * (world.cols - 2));
+        if (tx >= lane && tx <= lane + 3) continue;
+        nullAddBeam(tx * TILE, TILE, 1.05, 0.38, "STORM");
+        made += 1;
+      }
+    } else if (id === "shove") {
+      nullShove(b);
+    }
+    b.gap = b.hot ? 0.36 : 0.58;
+  }
+
+  function nullShove(b) {
+    const doorMid = world.door.x + 16;
+    const mid = player.x + player.w / 2;
+    const away = mid < doorMid ? -1 : 1;
+    player.vx = away * 7.4;
+    player.vy = -8.4;
+    b.shoveCd = 0.85;
+    audio.play("bossGrab");
+    bossTalk("shove", true);
+  }
+
+  function nullPopIfDue() {
+    const shots = world.bossShots || [];
+    for (let i = shots.length - 1; i >= 0; i--) {
+      const s = shots[i];
+      if (s.kind !== "pop" || s.life > 0.08) continue;
+      const cx = s.x + s.w / 2;
+      const cy = s.y + s.h / 2;
+      const aim = Math.atan2((player.y + 14) - cy, (player.x + 12) - cx);
+      for (let k = 0; k < 4; k++) {
+        const a = aim + Math.PI / 2 + k * (Math.PI / 2);
+        bossSpawnShot({
+          x: cx - 7, y: cy - 7, w: 14, h: 14,
+          vx: Math.cos(a) * 3.6, vy: Math.sin(a) * 3.6,
+          life: 1.3, kind: "shot",
+        });
+      }
+      shots.splice(i, 1);
+    }
+  }
+
+  function tickNullBeams() {
+    const list = world.nullBeams || [];
+    for (let i = list.length - 1; i >= 0; i--) {
+      const bm = list[i];
+      if (bm.warn > 0) bm.warn -= FIXED;
+      else {
+        bm.life -= FIXED;
+        if (bm.life <= 0) list.splice(i, 1);
+      }
+    }
+  }
+
+  function tickNullIntro(b) {
+    b.introT += FIXED;
+    const u = b.introT;
+    const sky = 84;
+    const mid = world.cols * TILE * 0.5;
+    tickDoorDrop(b);
+    if (u < 3) {
+      b.face = "sleep";
+      b.x = mid;
+      b.y = sky + Math.sin(u * 1.4) * 8;
+      b.bars = Math.max(0.16, 1 - u / 1.5);
+      b.flash = Math.max(0, 0.85 - u * 1.4);
+      b.gaze = 0;
+    } else if (u < 6.2) {
+      b.face = "look";
+      b.gaze = Math.sin((u - 3) * 2.4);
+      b.x = mid + b.gaze * 36;
+      b.y = sky + Math.sin(u * 2) * 6;
+      b.bars = 0.16;
+      b.flash = 0;
+    } else if (u < 9.2) {
+      b.face = "scared";
+      const toward = player.x + player.w / 2 > b.x ? 1 : -1;
+      b.gaze = toward;
+      b.x += ((mid - toward * 70) - b.x) * 0.06;
+      b.y += ((sky - 16) - b.y) * 0.08;
+      b.bars = 0.16;
+      if (!b.saidHi) { b.saidHi = true; bossTalk("hi", true); audio.play("bossIn"); }
+    } else if (u < 14.2) {
+      b.face = "scared";
+      const gx = world.door.x + 16;
+      const gy = Math.max(72, world.door.y - 108);
+      const dx = gx - b.x;
+      const dy = gy - b.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const step = Math.min(dist, 9);
+      b.x += (dx / dist) * step;
+      b.y += (dy / dist) * step;
+      b.gaze = Math.sign(dx) || b.gaze;
+      b.slip = dx / dist * 2;
+      if (u > 12.2 && !b.introThrew) {
+        b.introThrew = true;
+        const away = (player.x + player.w / 2) / TILE;
+        const pad = bossPickPad(b, {
+          away, min: 10, max: 40,
+          from: world.door.x / TILE, fromMin: 12, fromMax: 26,
+        });
+        if (pad) bossStartDrop(b, pad);
+        if (!b.saidClose) { b.saidClose = true; bossTalk("close", true); }
+      }
+    } else {
+      const k = (u - 14.2) / 5.8;
+      b.face = "fight";
+      b.bars = k < 0.35 ? 0.16 + k * 1.4 : Math.max(0, (1 - k) * 0.55);
+      b.flash = k < 0.22 ? 0.55 : 0;
+      nullHover(b);
+      if (u >= 20) {
+        b.phase = "fight";
+        b.face = "fight";
+        b.bars = 0;
+        b.flash = 0;
+        b.doorCd = 0.32;
+        b.rest = 0.28;
+        b.gap = 0;
+        b.plan = null;
+        audio.play("stinger");
+      }
+    }
+  }
+
+  function tickDoorDrop(b) {
+    if (!(b.dropping && b.drop)) return;
+    if (b.phase !== "fight" && b.phase !== "rage" && b.phase !== "intro") return;
+    b.drop.t += FIXED;
+    const u = Math.min(1, b.drop.t / 0.36);
+    const e = 1 - Math.pow(1 - u, 3);
+    world.door.x = b.drop.x;
+    world.door.y = b.drop.from + (b.drop.y - b.drop.from) * e;
+    if (u >= 1) bossFinishDrop(b);
+  }
+
+  function nullHover(b) {
+    const minX = 130;
+    const maxX = Math.max(minX + 40, world.cols * TILE - 130);
+    const minY = 72;
+    const maxY = Math.max(minY + 24, (world.door ? world.door.y : 280) - 78);
+    if (!Number.isFinite(b.nvx)) b.nvx = 1.7;
+    if (!Number.isFinite(b.nvy)) b.nvy = 0;
+    if (!Number.isFinite(b.y)) b.y = minY + 24;
+    const cruise = (b.hot ? 2.6 : 1.85) * Math.sign(b.nvx || 1);
+    b.nvx += (cruise - b.nvx) * 0.04 + Math.sin(world.time * 0.65) * 0.01;
+    if (b.x < minX + 70) b.nvx += 0.08;
+    if (b.x > maxX - 70) b.nvx -= 0.08;
+    const cap = b.hot ? 3.1 : 2.35;
+    b.nvx = Math.max(-cap, Math.min(cap, b.nvx));
+    const hover = (minY + maxY) * 0.42 + Math.sin(world.time * 1.25) * 14 + Math.cos(world.time * 0.47) * 6;
+    const nvy = b.nvy;
+    b.nvy = nvy + (hover - b.y) * 0.018 - nvy * 0.12;
+    const ox = b.x;
+    b.x += b.nvx;
+    b.y += b.nvy;
+    if (b.x < minX) { b.x = minX; b.nvx = Math.abs(b.nvx) * 0.72; }
+    if (b.x > maxX) { b.x = maxX; b.nvx = -Math.abs(b.nvx) * 0.72; }
+    if (b.y < minY) { b.y = minY; b.nvy *= 0.4; }
+    if (b.y > maxY) { b.y = maxY; b.nvy *= 0.4; }
+    b.slip = b.x - ox;
+    b.gaze = b.nvx >= 0 ? 1 : -1;
+  }
+
+  function tickNullSnatch(b) {
+    if (!b.snatch || !world.door) return;
+    b.snatch.t += FIXED;
+    const gx = world.door.x + 16;
+    const gy = Math.max(70, world.door.y - 102);
+    const dx = gx - b.x;
+    const dy = gy - b.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    b.snatch.spd = Math.min(b.hot ? 13 : 10.5, (b.snatch.spd || 2.4) + 0.62);
+    const step = Math.min(dist, b.snatch.spd);
+    b.x += (dx / dist) * step;
+    b.y += (dy / dist) * step;
+    b.slip = dx / dist * 2;
+    b.gaze = Math.sign(dx) || b.gaze;
+    b.face = "scared";
+    if (b.snatch.stage === "dash" && dist < 28) {
+      b.snatch.stage = "hover";
+      b.snatch.t = 0;
+    }
+    if (b.snatch.stage === "hover" && b.snatch.t > 0.26) {
+      const away = (player.x + player.w / 2) / TILE;
+      const pad = bossPickPad(b, {
+        away, min: 10, max: 40,
+        from: world.door.x / TILE, fromMin: 12, fromMax: 26,
+      });
+      if (pad) bossStartDrop(b, pad);
+      else b.doorCd = 0.4;
+      b.snatch = null;
+      b.face = b.hot ? "mad" : "fight";
+      if (!b.saidClose) { b.saidClose = true; bossTalk("close", true); }
+    }
+  }
+
+  function tickNullDrive(b) {
+    if (!b.drive) return;
+    const d = b.drive;
+    const floor = nullFloorY();
+    d.t += FIXED;
+    b.y += (floor - 52 - b.y) * 0.2;
+    b.x = d.x;
+    b.face = "mad";
+    if (!d.live) {
+      if (d.t >= d.warn) d.live = true;
+      return;
+    }
+    d.x += d.dir * (b.hot ? 8.4 : 6.8);
+    b.x = d.x;
+    b.slip = d.dir * 4;
+    if (d.x < -40 || d.x > world.cols * TILE + 40) b.drive = null;
+  }
+
+  function tickNullWave(b) {
+    if (!b.wave) return;
+    if (b.wave.warn > 0) {
+      b.wave.warn -= FIXED;
+      const gy = Math.max(64, world.door.y - 150);
+      b.x += (b.wave.x - b.x) * 0.14;
+      b.y += (gy - b.y) * 0.14;
+      return;
+    }
+    b.wave.live += FIXED;
+    b.y += (nullFloorY() - 40 - b.y) * 0.35;
+    b.wave.r = Math.min(168, 12 + b.wave.live * 460);
+    if (b.wave.live > 0.42) b.wave = null;
+  }
+
+  function tickNullHalf(b) {
+    if (!b.half) return;
+    const h = b.half;
+    h.t += FIXED;
+    h.reach = world.cols * TILE * 0.42;
+    if (h.t < h.warn) return;
+    h.hot = true;
+    if (h.t > h.warn + 0.5) b.half = null;
+  }
+
+  function tickNullFight(b) {
+    b.face = b.hot ? "mad" : (b.mood > 0.72 ? "tired" : "fight");
+    if (b.fog > 0) b.fog = Math.max(0, b.fog - FIXED * 0.35);
+    world.bossFog = b.fog || 0;
+    tickNullBeams();
+    nullPopIfDue();
+    tickNullDrive(b);
+    tickNullWave(b);
+    tickNullHalf(b);
+    if (b.shoveCd > 0) b.shoveCd -= FIXED;
+    if (b.snatch) tickNullSnatch(b);
+    else if (b.drive || (b.wave && b.wave.warn > 0)) { /* body is committed */ }
+    else nullHover(b);
+
+    if (!b.dropping && !b.snatch && b.moves < b.goal && b.doorCd <= 0 && bossNearDoor()) {
+      b.snatch = { t: 0, stage: "dash" };
+      b.attack = Math.max(b.attack, 0.7);
+    } else if (!b.snatch && !b.dropping) {
+      b.doorCd -= FIXED;
+    }
+    if (world.time >= 30 && bossNearDoor() && b.shoveCd <= 0 && !b.dropping) {
+      nullShove(b);
+    }
+    if (b.moves >= 4) b.hot = true;
+
+    if (b.tell && world.time >= b.tell.until) {
+      const id = b.tell.id;
+      if (NULL_IDS.indexOf(id) >= 0) nullCast(b, id);
+      else bossPattern(id);
+      b.tell = null;
+    } else if ((b.atkCd || 0) > 0) b.atkCd -= FIXED;
+    else if (!b.tell) nullAdvance(b);
+  }
+
+  function tickBoss() {
+    const b = world.boss;
+    if (!b || !world.door || player.dead || player.win) return;
+    tickBossShots();
+    if (b.say) b.say.age += FIXED;
+    if (b.dim === 1 && b.phase === "intro") {
+      tickNullIntro(b);
+      return;
+    }
+    if (!b.saidHi) { b.saidHi = true; bossTalk("hi", true); }
+    tickDoorDrop(b);
+
+    if (b.phase === "fight" || b.phase === "rage") {
+      if (b.dim === 1 && b.phase === "fight") {
+        tickNullFight(b);
+      } else if (b.dim !== 1) {
+        bossCruise(b);
+        if (!b.saidBored && world.time >= 30) { b.saidBored = true; bossTalk("bored", true); }
+        if (!b.dropping && b.phase === "fight" && world.time < 30 && bossNearDoor() && b.doorCd < 0.28 && b.moves < b.goal) {
+          b.attack = Math.max(b.attack, 0.45);
+        }
+        if (!b.dropping && b.phase === "fight" && b.moves < b.goal) {
+          b.doorCd -= FIXED;
+          if (b.doorCd <= 0) {
+            const away = (player.x + player.w / 2) / TILE;
+            if (world.time >= 30) {
+              const pad = bossPickPad(b, { away, min: 8, max: 16, loose: true });
+              if (pad) { bossStartDrop(b, pad); b.doorCd = 1.05; }
+              else b.doorCd = 0.4;
+            } else if (bossNearDoor()) {
+              const pad = bossPickPad(b, {
+                away, min: 5, max: 40,
+                from: world.door.x / TILE, fromMin: 10, fromMax: 16,
+              });
+              if (pad) { bossYoink(b, pad); b.doorCd = 0.36; }
+              else b.doorCd = 0.35;
+            }
+          }
+        }
+      }
+      if (b.phase === "rage" && world.time >= (b.rageUntil || 0)) {
+        b.phase = "fall";
+        b.tell = null;
+        b.fallVy = -3.1;
+        b.mood = 1;
+        b.face = "tired";
+        world.wind = 0;
+        audio.play("bossFall");
+      } else if (b.dim !== 1 && world.time > 1.2 && (b.phase === "fight" || b.phase === "rage")) {
+        b.atkCd -= FIXED;
+        if (b.tell && world.time >= b.tell.until) {
+          bossPattern(b.tell.id);
+          b.tell = null;
+        } else if (!b.tell && b.atkCd <= 0) bossArm(b);
+      }
+    } else if (b.phase === "fall") {
+      b.fallVy = Math.min(9.5, (b.fallVy || 0) + 0.32);
+      b.y += b.fallVy;
+      b.rot += 0.075;
+      b.mood = 1;
+      if (b.y >= world.door.y - 8) {
+        b.y = world.door.y - 8;
+        b.phase = "boom";
+        b.boom = 0;
+        world.shake = 18;
+        world.flash = 0.2;
+        burst(b.x, b.y + 20, "#ffd24a", 28, 6);
+        burst(b.x, b.y + 20, "#e31b1b", 18, 4.5);
+        audio.play("bossBoom");
+      }
+    } else if (b.phase === "boom") {
+      b.boom += FIXED;
+      if (bossBlastHits()) die("BOSS BOOM");
+      if (b.boom > 0.92) {
+        b.phase = "gone";
+        world.wind = 0;
+      }
+    }
+    if (b.attack > 0) b.attack -= FIXED;
+    const grabNow = b.attack > 0 ? Math.sin(Math.max(0, Math.min(1, 1 - b.attack / 0.72)) * Math.PI) : 0;
+    b.visGrab = (b.visGrab || 0) + (grabNow - (b.visGrab || 0)) * 0.28;
+    const leanNow = Math.max(-0.22, Math.min(0.22, (b.slip || 0) * 0.045));
+    b.visLean = (b.visLean || 0) + (leanNow - (b.visLean || 0)) * 0.18;
+  }
+
+  function drawBossShots(col) {
+    const shots = world.bossShots || [];
+    if (!shots.length) return;
+    ctx.save();
+    for (let i = 0; i < shots.length; i++) {
+      const s = shots[i];
+      if (s.delay > 0) continue;
+      ctx.globalAlpha = 0.45;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = Math.max(2, Math.min(s.w, s.h) * 0.45);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(s.x + s.w / 2 - s.vx * 2.4, s.y + s.h / 2 - s.vy * 2.4);
+      ctx.lineTo(s.x + s.w / 2, s.y + s.h / 2);
+      ctx.stroke();
+      if (s.kind === "spin" || s.kind === "shot" || s.kind === "pop") {
+        ctx.save();
+        ctx.translate(s.x + s.w / 2, s.y + s.h / 2);
+        ctx.rotate(world.time * (s.kind === "spin" ? 14 : 7) + i);
+        ctx.fillStyle = "#ff2f86";
+        ctx.shadowColor = "#ff4d9a";
+        ctx.shadowBlur = 12;
+        ctx.fillRect(-s.w / 2, -s.h / 2, s.w, s.h);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#fff6e8";
+        ctx.fillRect(-s.w * 0.18, -s.h * 0.18, s.w * 0.36, s.h * 0.36);
+        ctx.restore();
+        continue;
+      }
+      ctx.globalAlpha = 0.95;
+      ctx.fillRect(s.x, s.y, s.w, s.h);
+      ctx.fillStyle = "#fff6e8";
+      ctx.fillRect(s.x + 3, s.y + 3, Math.max(4, s.w * 0.35), Math.max(4, s.h * 0.35));
+    }
+    ctx.restore();
+  }
+
+  function drawNullFx(b) {
+    const floor = world.door ? world.door.y + TILE : world.rows * TILE;
+    const beams = world.nullBeams || [];
+    for (let i = 0; i < beams.length; i++) {
+      const bm = beams[i];
+      const hot = bm.warn <= 0;
+      ctx.save();
+      ctx.globalAlpha = hot ? 0.9 : 0.35;
+      ctx.fillStyle = bm.cause === "STORM" ? "#ffd0ea" : "#ff2f86";
+      ctx.fillRect(bm.x, 0, bm.w, floor);
+      if (!hot) {
+        ctx.globalAlpha = 0.9;
+        ctx.fillStyle = "#fff6e8";
+        ctx.fillRect(bm.x + 2, floor - 6, Math.max(4, bm.w - 4), 4);
+      }
+      ctx.restore();
+    }
+    if (b.half) {
+      const w = b.half.reach || world.cols * TILE * 0.42;
+      const x = b.half.side < 0 ? 0 : world.cols * TILE - w;
+      ctx.save();
+      ctx.globalAlpha = b.half.hot ? 0.55 : 0.22;
+      ctx.fillStyle = "#ff2f86";
+      ctx.fillRect(x, 0, w, floor);
+      ctx.restore();
+    }
+    if (b.wave) {
+      ctx.save();
+      ctx.globalAlpha = b.wave.live > 0 ? 0.85 : 0.4;
+      ctx.fillStyle = "#ff2f86";
+      const ww = b.wave.live > 0 ? b.wave.r * 2 : 36;
+      ctx.fillRect(b.wave.x - ww / 2, floor - (b.wave.live > 0 ? 16 : 8), ww, b.wave.live > 0 ? 16 : 8);
+      ctx.restore();
+    }
+    if (b.safeW > 0 && b.fog > 0.2) {
+      ctx.save();
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = "#fff6e8";
+      ctx.fillRect(b.safeX, floor - 8, b.safeW, 6);
+      ctx.restore();
+    }
+    if ((b.fog || 0) > 0.04) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(0.55, b.fog * 0.6);
+      ctx.fillStyle = "#2a1020";
+      ctx.fillRect(0, floor - 120, world.cols * TILE, 120);
+      ctx.restore();
+    }
+    if (world.magnet && world.time < world.magnet.until && b.phase === "fight") {
+      ctx.save();
+      ctx.translate(world.magnet.x, world.magnet.y);
+      ctx.rotate(world.time * 3);
+      ctx.fillStyle = "#ff2f86";
+      ctx.shadowColor = "#ff4d9a";
+      ctx.shadowBlur = 14;
+      ctx.fillRect(-8, -8, 16, 16);
+      ctx.restore();
+    }
+  }
+
+  function drawNullBars() {
+    const b = world.boss;
+    if (!b || b.dim !== 1) return;
+    const bars = b.bars || 0;
+    const flash = b.flash || 0;
+    if (bars <= 0.01 && flash <= 0.01) return;
+    ctx.save();
+    if (bars > 0.01) {
+      const h = Math.min(VIEW_H * 0.28, 28 + bars * 90);
+      ctx.fillStyle = "#07060a";
+      ctx.fillRect(0, 0, VIEW_W, h);
+      ctx.fillRect(0, VIEW_H - h, VIEW_W, h);
+    }
+    if (flash > 0.01) {
+      ctx.fillStyle = "rgba(255, 47, 134, " + Math.min(0.85, flash) + ")";
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    }
+    ctx.restore();
+  }
+
+  function drawBossTalk() {
+    const b = world.boss;
+    const say = b && b.say;
+    if (!say || say.age >= say.life || deathShow || player.dead || player.win) return;
+    const left = say.life - say.age;
+    const text = say.text || "";
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, left * 4));
+    ctx.font = "800 22px Bungee, sans-serif";
+    let size = 22;
+    while (size > 14 && ctx.measureText(text).width > 420) {
+      size -= 1;
+      ctx.font = "800 " + size + "px Bungee, sans-serif";
+    }
+    const tw = Math.max(160, Math.min(480, ctx.measureText(text).width + 28));
+    const x = Math.max(16, (VIEW_W - tw) / 2);
+    const y = 62 + ((world.boss && world.boss.bars) || 0) * 36;
+    ctx.fillStyle = "rgba(8, 6, 12, 0.9)";
+    ctx.fillRect(x, y, tw, 52);
+    ctx.strokeStyle = say.color || "#fff";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x + 2, y + 2, tw - 4, 48);
+    ctx.font = "700 13px Rubik, sans-serif";
+    ctx.fillStyle = say.color || "#fff";
+    ctx.fillText(say.name || "", x + 14, y + 18);
+    ctx.font = "800 " + size + "px Bungee, sans-serif";
+    ctx.fillStyle = say.ink || "#fff6e8";
+    ctx.fillText(text, x + 14, y + 42);
+    ctx.restore();
+  }
+
   function tickEvents() {
+    if (world.boss && world.boss.phase === "intro") return;
     for (const ev of world.events) {
       if (ev.rearmAt != null && world.time >= ev.rearmAt) {
         ev.rearmAt = null;
@@ -2410,14 +3681,13 @@
       [player.x + player.w - 2, player.y + player.h + 1],
     ];
     for (const [px, py] of feet) {
+      if (tileAt(px, py) !== "=") continue;
       const tx = Math.floor(px / TILE);
       const ty = Math.floor(py / TILE);
-      if (ty >= 0 && ty < world.rows && tx >= 0 && tx < world.cols && world.tiles[ty][tx] === "=") {
-        world.tiles[ty][tx] = ".";
-        burst(tx * TILE + 16, ty * TILE + 8, "#c4b8a8", 8, 3);
-        audio.play("crumble");
-        world.shake = 5;
-      }
+      if (!writeTile(tx, ty, ".")) continue;
+      burst(tx * TILE + 16, ty * TILE + 8, "#c4b8a8", 8, 3);
+      audio.play("crumble");
+      world.shake = 5;
     }
   }
 
@@ -2432,13 +3702,12 @@
     if (world.still > lim) {
       const tx = Math.floor((player.x + player.w / 2) / TILE);
       const ty = Math.floor((player.y + player.h + 1) / TILE);
-      if (ty >= 0 && ty < world.rows && tx >= 0 && tx < world.cols && isSolid(world.tiles[ty][tx])) {
-        world.tiles[ty][tx] = ".";
-        burst(tx * TILE + 16, ty * TILE + 8, "#c4b8a8", 10, 3.5);
-        audio.play("crumble");
-        world.shake = 6;
-        world.still = 0;
-      }
+      if (!isSolid(tileAt(tx * TILE + 16, ty * TILE + 16))) return;
+      if (!writeTile(tx, ty, ".")) return;
+      burst(tx * TILE + 16, ty * TILE + 8, "#c4b8a8", 10, 3.5);
+      audio.play("crumble");
+      world.shake = 6;
+      world.still = 0;
     }
   }
 
@@ -2529,7 +3798,7 @@
       deathTimer = 0.85;
       return;
     }
-    if (testMode) return;
+    if (testMode && !(typeof location !== "undefined" && /#d1boss/.test(String(location.hash || "")))) return;
     startDeathRoast(deathKind(msg));
   }
 
@@ -2568,6 +3837,15 @@
       facing: player.facing,
       squash: world.squash,
       insult: world.deathReason,
+      bossReply: (kind === "boss" && world.boss && window.SURGE_BOSS_VOICE)
+        ? ((window.SURGE_BOSS_VOICE.voice(world.boss.dim || 1) || {}).back || "")
+        : "",
+      bossInk: (kind === "boss" && world.boss && window.SURGE_BOSS_VOICE)
+        ? ((window.SURGE_BOSS_VOICE.voice(world.boss.dim || 1) || {}).ink || "")
+        : "",
+      bossColor: (kind === "boss" && world.boss && window.SURGE_BOSS_VOICE)
+        ? ((window.SURGE_BOSS_VOICE.voice(world.boss.dim || 1) || {}).color || "")
+        : "",
       levelName: world.name,
       taunt: world.taunt,
       seed: (deaths * 17 + (player.x | 0) + levelIndex * 31 + kind.length * 9) >>> 0,
@@ -2787,10 +4065,16 @@
     const movedX = player.x - xBefore;
     if (player.x > world.maxX) world.maxX = player.x;
 
-    if (Math.abs(movedX) > 2.4 || (!player.onGround && Math.abs(player.vy) > 2.5)) {
+    player.ghostT = (player.ghostT || 0) + FIXED;
+    const fast = dashT > 0 || Math.abs(movedX) > 1.8 || (!player.onGround && Math.abs(player.vy) > 3.2);
+    if (fast && player.ghostT > (dashT > 0 ? 0.018 : 0.04)) {
+      player.ghostT = 0;
+      const life = dashT > 0 ? 0.2 : 0.12;
       world.afterimages.push({
-        x: player.x, y: player.y, facing: player.facing, life: 0.16,
+        x: player.x, y: player.y, facing: player.facing,
+        life, max: life, vx: player.vx, vy: player.vy,
       });
+      if (world.afterimages.length > 10) world.afterimages.shift();
     }
 
     const midX = player.x + player.w / 2;
@@ -2816,8 +4100,15 @@
     ];
     for (const [hx, hy] of body) {
       const hz = hazardAt(hx, hy);
-      if (hz) { die(hz); return; }
+      if (hz) { die(bossTileCause(hx, hy) || hz); return; }
     }
+
+    const leanTarget = Math.max(-0.28, Math.min(0.28, player.vx * 0.034 + (player.onGround ? 0 : player.vy * 0.004)));
+    player.lean += (leanTarget - player.lean) * 0.22;
+    const airSq = player.onGround ? 0 : Math.max(-0.2, Math.min(0.16, player.vy * 0.014));
+    player.visSq += ((world.squash || 0) + airSq - player.visSq) * 0.28;
+    const bobTarget = player.onGround ? Math.sin(player.anim) * 1.5 : Math.sin(world.time * 10) * 0.4;
+    player.bob += (bobTarget - player.bob) * 0.34;
 
     player.stepCool = Math.max(0, (player.stepCool || 0) - FIXED);
     if (ix && player.onGround && Math.abs(movedX) > 0.35) {
@@ -2833,7 +4124,7 @@
       const dx = midX - saw.x;
       const dy = player.y + player.h / 2 - saw.y;
       const d2 = dx * dx + dy * dy;
-      if (d2 < 15 * 15) { die("SAW SAID HI"); return; }
+      if (d2 < 15 * 15) { die(saw.boss ? "BOSS SAW" : "SAW SAID HI"); return; }
       if (d2 < 30 * 30 && nearCool <= 0) {
         nearCool = 0.4;
         burst((midX + saw.x) / 2, (player.y + 10 + saw.y) / 2, "#ffe0a0", 5, 2.8);
@@ -2845,11 +4136,49 @@
 
     for (const laser of world.lasers) {
       if (laser.fake) continue;
-      if (rectsOverlap(player, laser)) { die("BEAM"); return; }
+      if (rectsOverlap(player, laser)) { die(laser.boss ? "BOSS BEAM" : "BEAM"); return; }
+    }
+
+    if (world.bossShots) {
+      for (let si = 0; si < world.bossShots.length; si++) {
+        const shot = world.bossShots[si];
+        if (shot.delay > 0) continue;
+        if (rectsOverlap(player, shot)) {
+          die("BOSS " + String(shot.kind || "bolt").toUpperCase());
+          return;
+        }
+      }
+    }
+
+    if (world.boss && world.boss.dim === 1 && !player.dead) {
+      const nb = world.boss;
+      const mid = player.x + player.w / 2;
+      const floor = world.door ? world.door.y + TILE : player.y + player.h;
+      if (nb.drive && nb.drive.live && rectsOverlap(player, { x: nb.x - 28, y: floor - 46, w: 56, h: 46 })) {
+        die("BOSS DRIVE");
+        return;
+      }
+      if (nb.wave && nb.wave.live > 0 && player.y + player.h > floor - 22 && Math.abs(mid - nb.wave.x) < nb.wave.r) {
+        die("BOSS POUND");
+        return;
+      }
+      if (nb.half && nb.half.hot) {
+        const bad = nb.half.side < 0 ? mid < nb.half.reach : mid > world.cols * TILE - nb.half.reach;
+        if (bad) { die("BOSS HALF"); return; }
+      }
+      const beams = world.nullBeams || [];
+      for (let bi = 0; bi < beams.length; bi++) {
+        const bm = beams[bi];
+        if (bm.warn > 0) continue;
+        if (player.x + player.w > bm.x && player.x < bm.x + bm.w) {
+          die("BOSS " + (bm.cause || "NEEDLES"));
+          return;
+        }
+      }
     }
 
     for (const drop of world.drops) {
-      if (rectsOverlap(player, drop)) { die("BRICK"); return; }
+      if (rectsOverlap(player, drop)) { die(drop.boss ? "BOSS DROP" : "BRICK"); return; }
     }
 
     for (const coin of world.coins) {
@@ -2870,6 +4199,7 @@
     }
 
     const doorHit = (d) => d && !world.doorHidden && rectsOverlap(player, { x: d.x + 4, y: d.y + 2, w: 24, h: 30 });
+    if (bossBlastHits()) { die("BOSS BOOM"); return; }
     if (tileAt(midX, player.y + player.h + 1) === "!") { die("HIDDEN TEETH"); return; }
 
     if (doorHit(world.fakeDoor) && !world.doorOpened) {
@@ -2877,7 +4207,7 @@
       tickEvents();
       return;
     }
-    if (doorHit(world.door)) {
+    if (doorHit(world.door) && !bossHoldsDoor()) {
       winLevel();
       return;
     }
@@ -3014,7 +4344,7 @@
         e.vy = Math.max(-2.2, Math.min(2.2, e.vy));
         e.x += e.vx;
         e.y += e.vy;
-        if (entityHit(e, 1)) { die("ROCKET"); return; }
+        if (entityHit(e, 1)) { die(e.boss ? "BOSS ROCKET" : "ROCKET"); return; }
       } else if (e.kind === "watcher") {
         e.open = Math.min(1, e.open + FIXED * 2);
         const still = Math.abs(player.vx) < 0.45 && player.onGround;
@@ -3124,7 +4454,10 @@
   function tickParticles() {
     for (let i = world.particles.length - 1; i >= 0; i--) {
       const p = world.particles[i];
-      p.vy += p.grav != null ? p.grav : 0.25;
+      const drag = p.drag != null ? p.drag : 0.985;
+      p.vx *= drag;
+      p.vy *= drag;
+      p.vy += p.grav != null ? p.grav : 0.16;
       p.x += p.vx;
       p.y += p.vy;
       p.life -= FIXED;
@@ -3134,6 +4467,7 @@
     if (world.rings) {
       for (let i = world.rings.length - 1; i >= 0; i--) {
         const ring = world.rings[i];
+        ring.vr *= ring.drag != null ? ring.drag : 0.9;
         ring.r += ring.vr * FIXED;
         ring.life -= FIXED;
         if (ring.life <= 0) world.rings.splice(i, 1);
@@ -3153,33 +4487,42 @@
     // player stays the same size, then follow them if the map is actually taller
     // than the view.
     const fitRows = Math.min(world.rows, 12);
-    const scale = Math.min(VIEW_W / (fitCols * TILE + 36), VIEW_H / (fitRows * TILE + 70));
+    const scaleW = VIEW_W / (fitCols * TILE + 36);
+    const scaleH = VIEW_H / (fitRows * TILE + 70);
+    // Tall/narrow windows: keep the room wide enough to play. Don't shrink to a strip.
+    const scale = VIEW_H > VIEW_W * 1.25 ? Math.min(scaleW, scaleH * 1.35) : Math.min(scaleW, scaleH);
     let oy = (VIEW_H - lh * scale) / 2 + 8;
+    if (VIEW_H > lh * scale + 120) oy = Math.max(48, Math.min(oy, VIEW_H - lh * scale - 56));
     let ox = (VIEW_W - Math.min(lw, fitCols * TILE) * scale) / 2;
     if (world.cols > 32) {
-      const focus = player.x + player.w / 2;
+      const focus = player.x + player.w / 2 + player.vx * 7;
       const viewW = VIEW_W / scale;
       let cam = focus - viewW * 0.38;
       const maxCam = Math.max(0, lw - viewW);
       if (cam < 0) cam = 0;
       if (cam > maxCam) cam = maxCam;
-      ox = -cam * scale;
+      if (camSmoothX == null) camSmoothX = cam;
+      camSmoothX += (cam - camSmoothX) * 0.14;
+      ox = -camSmoothX * scale;
     }
     if (world.rows > 12) {
       const viewH = VIEW_H / scale;
       if (lh > viewH) {
-        const focusY = player.y + player.h * 0.5;
+        const focusY = player.y + player.h * 0.45 + player.vy * 4;
         let camY = focusY - viewH * 0.62;
         const maxCamY = lh - viewH;
         if (camY < 0) camY = 0;
         if (camY > maxCamY) camY = maxCamY;
-        oy = -camY * scale;
+        if (camSmoothY == null) camSmoothY = camY;
+        camSmoothY += (camY - camSmoothY) * 0.16;
+        oy = -camSmoothY * scale;
       }
     }
-    camFX.phase += 1.37;
-    camFX.punch *= 0.82;
-    const sx = world.shake ? Math.sin(camFX.phase * 1.7) * world.shake : 0;
-    const sy = world.shake ? Math.cos(camFX.phase * 2.15) * world.shake * 0.72 : 0;
+    camFX.phase += 0.72;
+    camFX.punch *= 0.9;
+    const shake = world.shake || 0;
+    const sx = shake ? Math.sin(camFX.phase * 1.15) * shake * 0.55 : 0;
+    const sy = shake ? Math.cos(camFX.phase * 1.55) * shake * 0.38 : 0;
     if (deathShow) {
       const z = deathShow.zoom || 1;
       const cx = deathShow.x + player.w / 2;
@@ -3609,6 +4952,140 @@
       ctx.setLineDash([]);
     }
     ctx.restore();
+  }
+
+  function drawBoss() {
+    const b = world.boss;
+    if (!b || !world.door) return;
+    const door = world.door;
+    const pack = window.SURGE_WORLDS;
+    const th = (pack && pack.theme && pack.theme(b.dim || 1)) || currentTheme();
+    const accent = th.accent || [255, 196, 120];
+    const t = world.time || 0;
+    const grab = b.visGrab || 0;
+    const col = `rgb(${accent[0] | 0},${accent[1] | 0},${accent[2] | 0})`;
+    const S = b.dim === 1 ? 270 : 248;
+    const phase = b.phase || "fight";
+    drawBossShots(b.dim === 1 ? "#ff2f86" : col);
+    if (b.dim === 1) drawNullFx(b);
+
+    if (phase === "gone") {
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = "#1a0c08";
+      ctx.fillRect(b.x - 36, door.y + TILE - 10, 72, 8);
+      ctx.fillStyle = col;
+      ctx.globalAlpha = 0.35;
+      ctx.fillRect(b.x - 10, door.y + TILE - 16, 8, 8);
+      ctx.fillRect(b.x + 6, door.y + TILE - 14, 6, 6);
+      ctx.restore();
+      return;
+    }
+
+    if (phase === "boom") {
+      const rad = b.dim === 1 ? Math.min(250, 70 + b.boom * 520) : Math.min(156, 52 + b.boom * 380);
+      const n = 10;
+      ctx.save();
+      ctx.fillStyle = col;
+      ctx.globalAlpha = Math.max(0.15, 1 - b.boom);
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + b.boom * 6;
+        const s = 16 + (i % 3) * 10;
+        ctx.fillRect(b.x + Math.cos(a) * rad - s / 2, b.y + 20 + Math.sin(a) * rad * 0.62 - s / 2, s, s);
+      }
+      ctx.fillStyle = "#fff6d0";
+      ctx.globalAlpha = Math.max(0, 1 - b.boom * 1.4);
+      ctx.fillRect(b.x - 18, b.y + 4, 36, 36);
+      ctx.restore();
+      return;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = "#000";
+    ctx.beginPath();
+    ctx.ellipse(b.x, door.y + TILE - 3, 62, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    if (b.tell) {
+      const pulse = 0.4 + Math.sin(t * 30) * 0.4;
+      ctx.save();
+      ctx.globalAlpha = pulse;
+      ctx.strokeStyle = "#fff6d0";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(b.tell.tx * TILE + 3, b.tell.ty * TILE + 3, (b.tell.tw || 1) * TILE - 6, (b.tell.th || 1) * TILE - 6);
+      ctx.restore();
+    }
+
+    if ((phase === "fight" || phase === "rage") && Math.abs(b.slip || 0) > 0.45) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(0.35, Math.abs(b.slip) * 0.12);
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.ellipse(b.x - (b.slip || 0) * 4, b.y + 28, 22, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    if ((phase === "fight" || phase === "rage") && grab > 0.12) {
+      ctx.save();
+      ctx.strokeStyle = col;
+      ctx.globalAlpha = 0.22 + grab * 0.65;
+      ctx.lineWidth = 3 + grab * 5;
+      ctx.beginPath();
+      ctx.moveTo(b.x, b.y + 36);
+      const mx = (b.x + door.x + 16) * 0.5 + Math.sin(t * 16) * 8 * Math.max(grab, 0.15);
+      const my = (b.y + 36 + door.y) * 0.5 + 10;
+      ctx.quadraticCurveTo(mx, my, door.x + 16, door.y + 8);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    if (b.attack > 0.15) {
+      ctx.save();
+      ctx.globalAlpha = 0.35 + b.attack * 0.45;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(door.x - 6, door.y - 8, 44, 52);
+      ctx.restore();
+    }
+
+    if (grab > 0.12 && (phase === "fight" || phase === "rage")) {
+      const gx = b.x + (door.x + 16 - b.x) * grab;
+      const gy = b.y + 24 + (door.y + 6 - b.y) * grab;
+      ctx.save();
+      ctx.translate(gx, gy);
+      ctx.rotate(Math.sin(t * 22) * 0.18);
+      ctx.fillStyle = col;
+      ctx.globalAlpha = 0.92;
+      ctx.beginPath();
+      ctx.moveTo(-18, 2);
+      ctx.lineTo(-8, -16);
+      ctx.lineTo(0, -4);
+      ctx.lineTo(8, -16);
+      ctx.lineTo(18, 2);
+      ctx.lineTo(0, 12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    ctx.save();
+    const jitter = (b.mood || 0) * Math.sin(t * 11) * 2.2;
+    ctx.translate(b.x + jitter, b.y + grab * 18 + Math.sin(t * 1.35) * 4);
+    ctx.rotate((b.rot || 0) + (b.visLean || 0));
+    const squash = 1 + grab * 0.1 + (phase === "rage" ? 0.06 : 0);
+    const sag = phase === "fall" ? 0.16 : 0;
+    ctx.scale((S / 200) * squash, (S / 200) * (1 - grab * 0.06 - sag));
+    paintBossBody(b.dim || 1, t, grab, accent, b.dim === 1 ? (b.gaze || 0) : (door.x + 16 >= b.x ? 1 : -1));
+    ctx.restore();
+  }
+
+  function paintBossBody(dim, t, grab, accent, look) {
+    const pack = window.SURGE_BOSS_FORMS;
+    if (!pack || !pack.paint) return;
+    pack.paint(ctx, dim | 0, t, grab, accent, look, world.boss);
   }
 
   function drawDoor(d) {
@@ -4087,14 +5564,10 @@
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.translate(ox + player.w / 2, oy + player.h / 2);
-    if (alpha > 0.85 && mode === "play" && !player.dead) {
-      ctx.rotate(Math.max(-0.18, Math.min(0.18, player.vx * 0.02)));
-    }
+    const lean = opts.lean != null ? opts.lean : 0;
+    if (lean) ctx.rotate(Math.max(-0.32, Math.min(0.32, lean)));
     ctx.scale(facing < 0 ? -1 : 1, world.gravity < 0 ? -1 : 1);
     let sq = squash;
-    if (alpha > 0.85 && mode === "play" && !player.dead && !player.onGround) {
-      sq += Math.max(-0.22, Math.min(0.16, player.vy * 0.016));
-    }
     const sy = 1 - sq * 0.5;
     const sx = 1 + sq * 0.34;
     ctx.scale(sx, sy);
@@ -4261,50 +5734,61 @@
     }
     if (player.dead) return;
     for (const a of world.afterimages) {
-      drawDevilBody(a.x, a.y, a.facing, Math.min(0.35, a.life * 1.4), 0);
+      const u = a.max ? a.life / a.max : a.life;
+      drawDevilBody(a.x, a.y, a.facing, Math.min(0.28, u * u * 0.42), 0, { lean: 0 });
     }
-    const bob = player.onGround ? Math.sin(player.anim) * 1.4 : 0;
-    drawDevilBody(player.x, player.y + bob, player.facing, 1, world.squash);
+    drawDevilBody(player.x, player.y + (player.bob || 0), player.facing, 1, player.visSq || 0, { lean: player.lean || 0 });
     const [ar, ag, ab] = (currentTheme().accent || [227, 27, 27]);
     ctx.save();
     ctx.globalCompositeOperation = "overlay";
     ctx.globalAlpha = 0.28;
     ctx.fillStyle = `rgb(${ar},${ag},${ab})`;
-    ctx.fillRect(player.x, player.y + bob, player.w, player.h);
+    ctx.fillRect(player.x, player.y + (player.bob || 0), player.w, player.h);
     ctx.restore();
   }
 
   function drawParticles() {
+    ctx.save();
+    ctx.lineCap = "round";
     for (const p of world.particles) {
-      ctx.save();
-      ctx.globalAlpha = Math.max(0, p.life * 2);
+      const u = p.max ? Math.max(0, p.life / p.max) : Math.max(0, p.life);
+      ctx.globalAlpha = Math.pow(u, 0.72);
+      ctx.strokeStyle = p.color;
       ctx.fillStyle = p.color;
       ctx.translate(p.x, p.y);
-      if (p.rot) ctx.rotate(p.rot);
-      if (p.kind === "spark") {
+      if (p.kind === "streak") {
+        const len = Math.min(14, 3 + Math.hypot(p.vx, p.vy) * 1.3);
+        const ang = Math.atan2(p.vy, p.vx);
+        ctx.rotate(ang);
+        ctx.lineWidth = Math.max(1, p.size * u);
+        ctx.beginPath();
+        ctx.moveTo(-len, 0);
+        ctx.lineTo(len * 0.25, 0);
+        ctx.stroke();
+        ctx.rotate(-ang);
+      } else if (p.kind === "spark") {
         ctx.beginPath();
         ctx.moveTo(0, -p.size);
-        ctx.lineTo(p.size * 0.45, 0);
+        ctx.lineTo(p.size * 0.4, 0);
         ctx.lineTo(0, p.size);
-        ctx.lineTo(-p.size * 0.45, 0);
+        ctx.lineTo(-p.size * 0.4, 0);
         ctx.closePath();
         ctx.fill();
       } else {
         ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
       }
-      ctx.restore();
+      ctx.translate(-p.x, -p.y);
     }
     for (const ring of world.rings || []) {
-      ctx.save();
-      ctx.globalAlpha = Math.max(0, ring.life / ring.max);
+      const u = Math.max(0, ring.life / (ring.max || 0.3));
+      ctx.globalAlpha = (ring.soft ? 0.28 : 0.85) * Math.pow(u, 1.15);
       ctx.strokeStyle = ring.color;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = (ring.w || 2) * (0.35 + u);
       ctx.beginPath();
-      ctx.arc(ring.x, ring.y, ring.r, 0, Math.PI * 2);
+      ctx.arc(ring.x, ring.y, Math.max(1, ring.r), 0, Math.PI * 2);
       ctx.stroke();
-      ctx.restore();
     }
-    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   function drawBlood() {
@@ -4345,7 +5829,11 @@
 
   function drawOverlay() {
     if (world.flash > 0) {
-      ctx.fillStyle = `rgba(227,27,27,${world.flash * 2})`;
+      const a = Math.min(0.55, world.flash * 1.6);
+      const g = ctx.createRadialGradient(VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.15, VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.72);
+      g.addColorStop(0, `rgba(255,236,220,${a * 0.35})`);
+      g.addColorStop(1, `rgba(227,27,27,${a})`);
+      ctx.fillStyle = g;
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     }
     if ((world.blackout || 0) > 0) {
@@ -4474,19 +5962,23 @@
 
   function drawSpeedLines() {
     if (dashT <= 0 || player.dead || mode !== "play") return;
+    const view = lastView;
     const a = Math.min(1, dashT / 0.16);
-    const dir = player.facing || 1;
+    const dir = dashDir || player.facing || 1;
+    const px = (player.x + player.w / 2) * view.scale + view.ox;
+    const py = (player.y + player.h * 0.45) * view.scale + view.oy;
     ctx.save();
-    ctx.globalAlpha = 0.32 * a;
+    ctx.globalCompositeOperation = "lighter";
     ctx.strokeStyle = "#ffe8a0";
-    ctx.lineWidth = 1.25;
-    for (let i = 0; i < 9; i++) {
-      const y = frac(i * 3.7 + world.time * 9) * VIEW_H;
-      const len = 50 + frac(i * 8.2) * 140;
-      const x = frac(i * 5.1 + world.time * 4) * VIEW_W;
+    ctx.lineCap = "round";
+    for (let i = 0; i < 7; i++) {
+      const off = (i - 3) * 6.5 * view.scale;
+      const len = (22 + i * 9) * a * view.scale;
+      ctx.globalAlpha = a * (0.12 + (1 - Math.abs(i - 3) / 4) * 0.42);
+      ctx.lineWidth = Math.max(1, (i === 3 ? 2.2 : 1.15) * view.scale);
       ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.lineTo(x - dir * len, y + (i - 4) * 1.4);
+      ctx.moveTo(px - dir * 8 * view.scale, py + off);
+      ctx.lineTo(px - dir * (8 * view.scale + len), py + off * 0.3);
       ctx.stroke();
     }
     ctx.restore();
@@ -4945,6 +6437,18 @@
     drawParticles();
     ctx.restore();
     drawLighting(view);
+    ctx.save();
+    if (view.rot) {
+      ctx.translate(VIEW_W / 2, VIEW_H / 2);
+      ctx.rotate(view.rot);
+      ctx.translate(-VIEW_W / 2, -VIEW_H / 2);
+    }
+    ctx.translate(view.ox, view.oy);
+    ctx.scale(view.scale, view.scale);
+    drawBoss();
+    ctx.restore();
+    drawNullBars();
+    drawBossTalk();
     drawPit(view);
     drawAirFront(view);
     drawOverlay();
@@ -5003,30 +6507,35 @@
     audio.endSpace();
     tickParticles();
     tickEvents();
+    tickBoss();
     tickRareEffects();
     tickQte();
     if (mode === "play") updateHud();
   }
 
   function loop(ts) {
-    if (!last) last = ts;
-    if (mode !== "play") audio.silenceSpace();
-    if (typeof document !== "undefined" && document.hidden) {
+    try {
+      if (!last) last = ts;
+      if (mode !== "play") audio.silenceSpace();
+      if (typeof document !== "undefined" && document.hidden) {
+        last = ts;
+        acc = 0;
+        audio.silenceSpace();
+        requestAnimationFrame(loop);
+        return;
+      }
+      let dt = (ts - last) / 1000;
       last = ts;
-      acc = 0;
-      audio.silenceSpace();
-      requestAnimationFrame(loop);
-      return;
+      if (dt > 0.05) dt = 0.05;
+      acc += dt;
+      while (acc >= FIXED) {
+        step();
+        acc -= FIXED;
+      }
+      render();
+    } catch (err) {
+      window.__SURGE_LOOP_ERR = String(err && err.stack || err);
     }
-    let dt = (ts - last) / 1000;
-    last = ts;
-    if (dt > 0.05) dt = 0.05;
-    acc += dt;
-    while (acc >= FIXED) {
-      step();
-      acc -= FIXED;
-    }
-    render();
     requestAnimationFrame(loop);
   }
 
@@ -5227,12 +6736,20 @@
       if (!locked && cleared && i < reached) b.classList.add("cleared");
       b.disabled = locked;
       const lvl = packLevels[i] || {};
+      const gate = i === roomsN - 1;
+      if (gate) {
+        b.classList.add("gate");
+        const accent = dim.accent || [255, 210, 122];
+        b.style.setProperty("--gate", "rgb(" + (accent[0] | 0) + "," + (accent[1] | 0) + "," + (accent[2] | 0) + ")");
+      }
+      const bossStage = d === 1 && gate;
       const num = document.createElement("span");
       num.className = "n";
-      num.textContent = (i === roomsN - 1 && d > 1 ? "CORE " : "ROOM ") + String(i + 1).padStart(2, "0");
+      num.textContent = bossStage ? "BOSS STAGE 1" : ("ROOM " + String(i + 1).padStart(2, "0"));
       const nm = document.createElement("span");
       nm.className = "nm";
-      nm.textContent = locked ? "LOCKED" : String(lvl.name || ("ROOM " + (i + 1)));
+      const shown = String(lvl.name || ("ROOM " + (i + 1))).replace(/\bBOSS\b/ig, "").replace(/\s+/g, " ").trim();
+      nm.textContent = bossStage ? "" : (locked ? "LOCKED" : shown);
       const meta = document.createElement("span");
       meta.className = "meta";
       if (locked) meta.textContent = "reach room " + (reached + 1) + " first";
@@ -5613,6 +7130,245 @@
       }
     }
 
+    enterDimension(1, 16);
+    assert(!!world.boss && world.boss.goal === 7, "D1 boss goal " + (world.boss && world.boss.goal), fails);
+    const flat = world.rules.surface || [];
+    assert(flat.length > 8 && flat.every((y) => y === flat[0] && y > 0), "boss floor flat", fails);
+    let doorMove = false;
+    (world.events || []).forEach((ev) => {
+      (ev.do || []).forEach((a) => {
+        if (a && a[0] === "moveDoor") doorMove = true;
+      });
+    });
+    assert(!doorMove, "no scripted door move", fails);
+    const ids = window.SURGE_WORLDS.bossAttackIds();
+    assert(ids.length === 10, "ten attacks " + ids.length, fails);
+    const voice = window.SURGE_BOSS_VOICE;
+    assert(!!voice, "boss voice loaded", fails);
+    Object.keys(voice.all).forEach((d) => {
+      const v = voice.all[d];
+      (v.dead || []).forEach((line) => {
+        assert(line && line.length <= 22, "dead fit D" + d + " [" + line + "]", fails);
+      });
+      assert(!v.back || v.back.length <= 22, "back fit D" + d + " [" + v.back + "]", fails);
+    });
+    assert(deathCopy("BOSS BOOM") === "I fell on you.", "boom line " + deathCopy("BOSS BOOM"), fails);
+    assert(deathKind("BOSS BOLT") === "boss", "bolt kind", fails);
+    assert(deathKind("SAW SAID HI") !== "boss", "room saw is not a boss kill", fails);
+
+    function hushBoss() {
+      world.events = [];
+      world.coins = [];
+      world.saws = [];
+      world.lasers = [];
+      world.drops = [];
+      world.entities = [];
+      world.queued = [];
+      world.bossShots = [];
+      player.dead = false;
+      player.win = false;
+      player.vx = 0;
+      player.vy = 0;
+      if (world.boss) {
+        world.boss.atkCd = 40;
+        world.boss.tell = null;
+        world.boss.say = null;
+        world.boss.snatch = null;
+        world.boss.drive = null;
+        world.boss.wave = null;
+        world.boss.half = null;
+        world.boss.plan = null;
+        world.boss.gap = 0;
+        world.boss.rest = 8;
+      }
+      world.nullBeams = [];
+      world.bossFog = 0;
+      world.magnet = null;
+    }
+
+    hushBoss();
+    const parked = world.door.x;
+    player.x = 40;
+    for (let frame = 0; frame < 180; frame++) {
+      world.boss.doorCd = 40;
+      world.boss.atkCd = 40;
+      world.boss.tell = null;
+      player.dead = false;
+      player.win = false;
+      step();
+    }
+    assert(world.door.x === parked, "door stays while far " + world.door.x, fails);
+    assert(world.boss.moves === 0, "no steals while far", fails);
+
+    hushBoss();
+    const beforeClose = world.door.x;
+    player.x = world.door.x - 80;
+    world.boss.phase = "fight";
+    world.boss.doorCd = 0;
+    world.boss.atkCd = 40;
+    world.boss.rest = 8;
+    world.time = 4;
+    for (let f = 0; f < 160 && world.boss.moves < 1; f++) step();
+    const awayTiles = Math.abs(world.door.x / TILE - (player.x + player.w / 2) / TILE);
+    assert(Math.abs(world.door.x - beforeClose) > 10, "close yoink", fails);
+    assert(awayTiles >= 4, "yoink lands away " + awayTiles, fails);
+    assert(world.boss.moves === 1, "yoink counts " + world.boss.moves, fails);
+
+    enterDimension(1, 16);
+    hushBoss();
+    world.boss.phase = "fight";
+    player.x = 40;
+    world.time = 30.2;
+    world.boss.doorCd = 40;
+    world.boss.atkCd = 40;
+    world.boss.rest = 8;
+    world.boss.shoveCd = 0;
+    step();
+    assert(!world.boss.dropping, "far after 30s the door stays", fails);
+    player.x = world.door.x - 80;
+    player.vx = 0;
+    world.boss.shoveCd = 0;
+    step();
+    assert(Math.abs(player.vx) > 3, "close after 30s gets thrown " + player.vx, fails);
+
+    enterDimension(1, 16);
+    hushBoss();
+    world.boss.phase = "fight";
+    world.time = 2;
+    world.boss.tell = { id: "bolt", until: 0, tx: 4, ty: 4, tw: 1, th: 1 };
+    world.boss.atkCd = 40;
+    step();
+    const shot = (world.bossShots || [])[0];
+    assert(!!shot, "bolt spawned", fails);
+    const shotSpeed = Math.hypot(shot.vx, shot.vy);
+    assert(shotSpeed >= 4, "bolt speed " + shotSpeed, fails);
+
+    ids.forEach((id) => {
+      enterDimension(1, 16);
+      hushBoss();
+      world.boss.phase = "fight";
+      world.time = 2;
+      world.boss.tell = {
+        id, until: 0, tx: 6, ty: 6, tw: 1, th: 1,
+        px: player.x + 12, py: player.y + 12, feet: player.y + player.h - 10, face: 1,
+      };
+      world.boss.atkCd = 40;
+      step();
+      assert(world.bossShots && world.bossShots.length > 0, "pattern " + id, fails);
+    });
+
+    enterDimension(1, 16);
+    hushBoss();
+    world.bossShots = [{ x: player.x, y: player.y, w: 30, h: 30, vx: 0, vy: 0, life: 2, delay: 0, kind: "bolt" }];
+    step();
+    assert(player.dead, "shot kills", fails);
+    assert(world.deathReason === voice.line(1, "bolt", true), "shot line " + world.deathReason, fails);
+    assert(world.deathReason.length <= 22, "shot line fit", fails);
+    player.dead = false;
+    die("SAW SAID HI");
+    assert(INSULTS.saw.indexOf(world.deathReason) >= 0, "room saw line " + world.deathReason, fails);
+
+    enterDimension(1, 16);
+    hushBoss();
+    for (let n = 0; n < 7; n++) {
+      player.dead = false;
+      player.win = false;
+      player.vx = 0;
+      player.vy = 0;
+      player.x = world.door.x - 80;
+      world.boss.phase = "fight";
+      world.boss.doorCd = 0;
+      world.boss.atkCd = 40;
+      world.boss.rest = 8;
+      world.boss.tell = null;
+      world.boss.snatch = null;
+      world.boss.dropping = false;
+      world.bossShots = [];
+      world.time = 5;
+      const beforeMoves = world.boss.moves;
+      for (let f = 0; f < 160 && world.boss.moves === beforeMoves; f++) step();
+    }
+    assert(world.boss.moves === 7, "seven yoinks " + (world.boss && world.boss.moves), fails);
+    for (let frame = 0; frame < 180 && world.boss.phase !== "gone"; frame++) {
+      player.dead = false;
+      player.win = false;
+      player.x = world.boss.x < world.cols * TILE * 0.5 ? world.cols * TILE - 80 : 24;
+      world.boss.atkCd = 40;
+      world.boss.tell = null;
+      world.bossShots = [];
+      step();
+    }
+    assert(world.boss.phase === "gone", "collapse " + (world.boss && world.boss.phase), fails);
+
+    enterDimension(1, 16);
+    assert(world.boss.phase === "intro", "null starts asleep", fails);
+    const introDoor = world.door.x;
+    for (let f = 0; f < 170; f++) step();
+    assert(world.boss.phase === "intro" && world.boss.face === "sleep", "asleep at 3s " + world.boss.face, fails);
+    assert(world.door.x === introDoor, "door waits while he sleeps", fails);
+    for (let f = 0; f < 60 * 18; f++) step();
+    assert(world.boss.phase === "fight", "intro ends " + world.boss.phase, fails);
+    assert(world.boss.moves >= 1, "intro throw " + world.boss.moves, fails);
+
+    ["spin", "shot", "pound", "half", "needles", "magnet", "drive", "pop", "storm", "shove"].forEach((id) => {
+      enterDimension(1, 16);
+      hushBoss();
+      world.boss.phase = "fight";
+      world.time = 4;
+      world.boss.atkCd = 40;
+      world.boss.rest = 8;
+      player.dead = false;
+      player.vx = 0;
+      world.boss.tell = {
+        id, until: 0, tx: 8, ty: 6, tw: 1, th: 1, side: 1,
+        px: player.x + 40, py: player.y + 10, feet: player.y + 20, face: 1,
+      };
+      step();
+      const marked = (world.bossShots && world.bossShots.length)
+        || world.boss.wave || world.boss.half || world.boss.drive
+        || (world.nullBeams && world.nullBeams.length)
+        || world.magnet || Math.abs(player.vx) > 3;
+      assert(marked, "null attack stayed " + id, fails);
+    });
+
+    enterDimension(1, 16);
+    player.dead = false;
+    player.win = false;
+    world.boss.phase = "boom";
+    world.boss.boom = 0.08;
+    world.boss.dropping = false;
+    world.boss.x = player.x + player.w / 2;
+    world.boss.y = player.y - 10;
+    step();
+    assert(player.dead && world.deathReason === "I fell on you.", "blast line " + world.deathReason, fails);
+
+    // LAST LAUGH: after the return trap, walking into the door from the right must win.
+    // Planting solids on the door pad used to make the finish impossible.
+    enterDimension(1, 15);
+    assert(world.name === "LAST LAUGH" && !world.boss, "LAST LAUGH stays handmade", fails);
+    world.doorOpened = "fake";
+    world.maxX = 26 * TILE;
+    player.x = 5 * TILE;
+    player.y = 8 * TILE;
+    player.onGround = true;
+    player.dead = false;
+    player.win = false;
+    for (let f = 0; f < 90; f++) step();
+    assert(world.door && world.door.x === 4 * TILE && world.door.y === 8 * TILE, "LAST LAUGH door returns", fails);
+    assert(!isSolid(tileAt(world.door.x + 8, world.door.y + 8)), "LAST LAUGH door pad clear", fails);
+    player.x = world.door.x + 48;
+    player.y = 9 * TILE - player.h;
+    player.vx = 0;
+    player.vy = 0;
+    player.dead = false;
+    player.win = false;
+    hold.left = true;
+    hold.right = false;
+    hold.jump = false;
+    for (let f = 0; f < 90 && !player.win && !player.dead; f++) step();
+    hold.left = false;
+    assert(player.win, "LAST LAUGH door walk-in " + (player.dead ? world.deathReason : "stuck"), fails);
+
     testMode = saved.testMode;
     deaths = saved.deaths;
     mode = saved.mode;
@@ -5679,8 +7435,12 @@
           if (d > 1 && lvls[0].events.length !== t) {
             report.push({ i: "D" + d, name: lvls[0].name, ok: false, errors: ["traps " + lvls[0].events.length + " != " + t] });
           }
-          if (d > 1 && last.events.length !== t + 4 && last.events.length !== t) {
-            report.push({ i: "D" + d, name: last.name, ok: false, errors: ["boss traps " + last.events.length] });
+          const bossN = window.SURGE_WORLDS.bossTrapCount ? window.SURGE_WORLDS.bossTrapCount(d) : t * 2;
+          if (last.events.length !== bossN) {
+            report.push({ i: "D" + d, name: last.name, ok: false, errors: ["boss traps " + last.events.length + " != " + bossN] });
+          }
+          if (!last.boss) {
+            report.push({ i: "D" + d, name: last.name, ok: false, errors: ["last room is not a boss"] });
           }
         } catch (e) {
           report.push({ i: "D" + d, name: "generate", ok: false, errors: [e.message] });
@@ -6011,5 +7771,8 @@
   }
 
   refreshRecords();
+  if (typeof location !== "undefined" && /#d1boss/.test(String(location.hash || ""))) {
+    setTimeout(() => enterDimension(1, 16), 40);
+  }
   requestAnimationFrame(loop);
 })();

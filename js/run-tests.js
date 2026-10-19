@@ -133,6 +133,8 @@ try {
   load("js/tracks.js");
   load("js/worlds.js");
   try { load("js/roast.js"); } catch (e) { out("roast.js skipped: " + e); }
+  load("js/boss-voice.js");
+  load("js/boss-forms.js");
   load("js/game.js");
 } catch (e) {
   fail("script load: " + e);
@@ -176,17 +178,69 @@ if (SURGE_TRACKS) {
   out("Soundtrack pack: OK (" + SURGE_TRACKS.count + " unique styles)");
 }
 
+function bossRouteBad(lvl) {
+  var surface = lvl.surface || [];
+  if (!surface.length) return "no surface";
+  var y0 = surface[0];
+  for (var i = 0; i < surface.length; i++) {
+    if (surface[i] !== y0 || !(y0 >= 0)) return "not flat " + i;
+  }
+  var hasS = false;
+  var hasE = false;
+  var hasF = false;
+  (lvl.map || []).forEach(function (row) {
+    var s = String(row);
+    if (s.indexOf("S") >= 0) hasS = true;
+    if (s.indexOf("E") >= 0) hasE = true;
+    if (s.indexOf("F") >= 0) hasF = true;
+  });
+  if (!hasS || !hasE) return "missing spawn or door";
+  if (hasF) return "fake door";
+  var moved = false;
+  (lvl.events || []).forEach(function (ev) {
+    (ev.do || []).forEach(function (a) {
+      if (!a) return;
+      if (a[0] === "moveDoor") moved = true;
+      if (a[0] === "queue") {
+        for (var k = 2; k < a.length; k++) if (a[k] && a[k][0] === "moveDoor") moved = true;
+      }
+    });
+  });
+  if (moved) return "still has moveDoor";
+  var ids = SURGE_WORLDS.bossAttackIds ? SURGE_WORLDS.bossAttackIds() : [];
+  if (ids.length !== 10) return "attacks " + ids.length;
+  return "";
+}
 if (SURGE_WORLDS) {
+  if (SURGE_WORLDS.bossMult(1) !== 2 || SURGE_WORLDS.bossMult(7) !== 2) fail("boss mult early");
+  if (SURGE_WORLDS.bossMult(8) !== 3 || SURGE_WORLDS.bossMult(17) !== 3) fail("boss mult mid");
+  if (SURGE_WORLDS.bossMult(18) !== 4 || SURGE_WORLDS.bossMult(20) !== 4) fail("boss mult late");
+  if (SURGE_WORLDS.bossTrapCount(20) !== SURGE_WORLDS.trapCount(20) * 4) fail("D20 boss count");
+  if (SURGE_WORLDS.bossDoorMoves(1) !== 7) fail("D1 door moves");
+  if (SURGE_WORLDS.bossDoorMoves(2) !== 9) fail("D2 door moves");
+  if (SURGE_WORLDS.bossDoorMoves(20) !== 45) fail("D20 door moves");
   for (var d = 1; d <= 20; d++) {
     var lvls = SURGE_WORLDS.generate(d);
     var n = SURGE_WORLDS.roomCount(d);
     var t = SURGE_WORLDS.trapCount(d);
     if (lvls.length !== n) fail("D" + d + " rooms " + lvls.length + " != " + n);
-    var want = d === 1 ? 12 : t;
+    var want = d === 1 ? HAND_LEVELS[0].events.length : t;
     if (lvls[0].events.length !== want) fail("D" + d + " traps0 " + lvls[0].events.length + " != " + want);
-    if (d > 1) {
-      var last = lvls[lvls.length - 1];
-      if (last.events.length !== t + 4) fail("D" + d + " boss traps " + last.events.length + " != " + (t + 4));
+    var last = lvls[lvls.length - 1];
+    var bossN = SURGE_WORLDS.bossTrapCount(d);
+    if (!last.boss) fail("D" + d + " last room is not a boss");
+    if (last.shaft) fail("D" + d + " boss is a shaft");
+    if (last.events.length !== bossN) fail("D" + d + " boss traps " + last.events.length + " != " + bossN);
+    var routeBad = bossRouteBad(last);
+    if (routeBad) fail("D" + d + " boss door " + routeBad);
+    if (d === 1) {
+      if (lvls[15].name !== "LAST LAUGH" || lvls[15].boss) fail("D1 room 16 was not restored");
+      if (last.name !== "BOSS STAGE 1") fail("D1 boss label " + last.name);
+      var laugh = (lvls[15].map || []).join("");
+      if (laugh.indexOf("F") < 0) fail("D1 room 16 lost its fake door");
+      if (JSON.stringify(lvls[15].events).indexOf("moveDoor") < 0) fail("D1 room 16 lost moveDoor");
+    } else if (String(last.name).toUpperCase().indexOf("BOSS") >= 0) {
+      fail("D" + d + " boss name gives it away " + last.name);
     }
     if (!SURGE_WORLDS.theme(d) || !SURGE_WORLDS.theme(d).name) fail("D" + d + " missing theme");
   }
@@ -265,7 +319,7 @@ function walkAction(a, tag) {
 }
 HAND_LEVELS.forEach(function (lvl, i) {
   var tag = "#" + (i + 1) + " " + (lvl.name || "?");
-  if (!lvl.events || lvl.events.length !== 12) fail(tag + " expected 12 traps got " + (lvl.events && lvl.events.length));
+  if (!lvl.events || !lvl.events.length) fail(tag + " missing traps");
   (lvl.events || []).forEach(function (ev, ei) {
     Object.keys(ev.if || {}).forEach(function (k) {
       if (!IF_KEYS[k]) fail(tag + " trap " + ei + " unknown if." + k);

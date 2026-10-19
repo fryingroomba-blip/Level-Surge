@@ -796,6 +796,32 @@
       }
     },
 
+    boss(s, api, t) {
+      s.letterbox = 1;
+      if (t < 2.1) {
+        s.zoom = 1.45;
+        s.circle = { r: 26 + Math.sin(t * 9) * 6, pulse: true };
+        s.caption = "hey.";
+        s.sub = "you came close.";
+      } else if (t < 4.6) {
+        s.y = s.y0 - Math.abs(Math.sin(t * 7)) * 34;
+        s.caption = "I moved it.";
+        s.sub = "go get it.";
+        if (crossed(s, 2.2)) api.audio.play("jump");
+      } else if (t < 7.2) {
+        s.rot += 0.05;
+        s.y += 2.4;
+        s.caption = "down.";
+        s.sub = "I can't hold it.";
+        if (crossed(s, 4.7)) api.audio.play("crumble");
+      } else {
+        s.caption = s.insult;
+        s.sub = s.bossReply || "I told you.";
+        s.scaleX = 1 + Math.sin(t * 18) * 0.08;
+        if (crossed(s, 7.3)) api.audio.play("die");
+      }
+    },
+
     generic(s, api, t) {
       s.letterbox = 0.3;
       if (t < 3.2) {
@@ -1137,11 +1163,13 @@
           ctx.save();
           ctx.translate(W / 2, y + ln.cy);
           ctx.scale(lerp(1.08, 1, pop), lerp(1.08, 1, pop));
-          outlineStamp(ctx, ln.text, 0, 0, ln.px, -0.02, "#f4ead8", pop);
+          const capColor = s.kind === "boss" && s.bossInk ? s.bossInk : "#f4ead8";
+          outlineStamp(ctx, ln.text, 0, 0, ln.px, -0.02, capColor, pop);
           ctx.restore();
         } else {
           const sp = easeOut(Math.max(0, (s.capIn || 1) - 0.15));
-          stamp(ctx, ln.text, W / 2, y + ln.cy, ln.px, 0.015, "#e31b1b", 0.95 * sp);
+          const subColor = s.kind === "boss" && s.bossColor ? s.bossColor : "#e31b1b";
+          stamp(ctx, ln.text, W / 2, y + ln.cy, ln.px, 0.015, subColor, 0.95 * sp);
         }
       });
     }
@@ -2432,6 +2460,9 @@
         caption: "",
         sub: "",
         insult: info.insult || "",
+        bossReply: info.bossReply || "",
+        bossInk: info.bossInk || "",
+        bossColor: info.bossColor || "",
         levelName: info.levelName || "",
         taunt: info.taunt || "",
         seed: info.seed || 1,

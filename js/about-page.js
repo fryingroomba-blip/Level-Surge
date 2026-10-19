@@ -56,22 +56,22 @@
   });
 
   const NOTES = {
-    "TRUST ME": "Dust first. Then the floor leaves. I named it TRUST ME. Sorry.",
-    "KEEP JUMPING": "The landing is already a gap. I know. Cruel.",
-    "KNOCK KNOCK": "Right door is the joke. I watched people fall for it.",
-    "WAIT FOR IT": "Ceiling teeth. Floor arrives at 1.9s. Patience hurts.",
-    "SHINY": "Three coins over a pit. They explode. Greed got me too.",
-    "BACKWARDS": "Left and right swap. I still flinch.",
-    "CHECKERED": "Some bricks are paint. I die here showing people.",
-    "BUZZ": "The saw by the door starts chasing. I'm weirdly proud.",
-    "YEET": "Bounce pad, then lighter gravity. Stomach drop.",
-    "UP IS DOWN": "Exit is on the ceiling. I almost softlocked myself.",
-    "COME BACK": "The door slides away. Keep walking. Keep mad.",
-    "FALL IN": "The door is in the hole. Jump. Feel wrong. Do it.",
-    "DON'T STOP": "Standing still drops the bricks. Move. Please.",
-    "PSYCH": "Fake door, then the walk back. My favorite betrayal.",
-    "THROUGH": "Middle wall isn't there. Walk into it with me.",
-    "LAST LAUGH": "Coins explode. Right door is fake. Again. I know."
+    "TRUST ME": "Dust, then the floor leaves.",
+    "KEEP JUMPING": "The landing is already a hole.",
+    "KNOCK KNOCK": "The door on the right is fake.",
+    "WAIT FOR IT": "Ceiling spikes. The floor comes back at 1.9 seconds.",
+    "SHINY": "Three coins over spikes. They blow up.",
+    "BACKWARDS": "Left and right swap for a second.",
+    "CHECKERED": "Some of the bricks are just paint.",
+    "BUZZ": "The saw by the door starts following you.",
+    "YEET": "The pad throws you, then gravity gets light.",
+    "UP IS DOWN": "The door is on the ceiling.",
+    "COME BACK": "The door slides away while you walk.",
+    "FALL IN": "The door is down in the hole.",
+    "DON'T STOP": "Stand still for 0.4 seconds and the floor drops.",
+    "PSYCH": "Fake door. Then you walk back.",
+    "THROUGH": "The wall in the middle is paint.",
+    "LAST LAUGH": "The coins blow up, and the right door is fake again."
   };
 
   const rooms = document.getElementById("room-list");
@@ -143,9 +143,7 @@
       who.append(name, lore);
       const meta = document.createElement("span");
       meta.className = "meta";
-      const sigs = (pack.signatureTraps && pack.signatureTraps(d)) || [];
-      const sigLine = sigs.length ? " · " + sigs.map((t) => t.label).join(" / ") : "";
-      meta.textContent = roomsN + " rooms · " + traps + " traps" + (d > 1 ? " · core " + boss : "") + sigLine + " · " + dim.weather + " · " + dim.bpm + " bpm";
+      meta.textContent = roomsN + " rooms · " + traps + " traps" + (d > 1 ? " · last room " + boss : "");
       card.append(pip, idx, who, meta);
       bins[Math.floor(i / 5)].appendChild(card);
     });

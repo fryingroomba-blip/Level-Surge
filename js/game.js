@@ -4157,18 +4157,6 @@
     drawCinema();
   }
 
-  function drawFlare() {
-    const flare = beatGlow();
-    if (flare < 0.08) return;
-    const y = VIEW_H * (mode === "play" ? 0.46 : 0.38);
-    const g = ctx.createLinearGradient(0, y - 10, 0, y + 10);
-    g.addColorStop(0, "rgba(255,214,140,0)");
-    g.addColorStop(0.5, `rgba(255,214,140,${flare * 0.16})`);
-    g.addColorStop(1, "rgba(255,214,140,0)");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, y - 10, VIEW_W, 20);
-  }
-
   function drawSpeedLines() {
     if (dashT <= 0 || player.dead || mode !== "play") return;
     const a = Math.min(1, dashT / 0.16);
@@ -4215,7 +4203,6 @@
     }
     drawDoorPull();
     drawSpeedLines();
-    if (mode === "play") drawFlare();
     if (window.SURGE_FINISH && !testMode && mode === "play") window.SURGE_FINISH.paint(ctx, finishSnap());
   }
 

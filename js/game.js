@@ -920,6 +920,8 @@
   let deathGhost = null;
   let dashCool = 0;
   let dashT = 0;
+  let dashDir = 1;
+  let dashHeld = false;
   let nearFlare = 0;
   const camFX = { punch: 0, phase: 0 };
   const SAVE_KEY = "level-surge-v3";
@@ -1205,6 +1207,8 @@
     player.justLanded = false;
     dashCool = 0;
     dashT = 0;
+    dashDir = 1;
+    dashHeld = false;
     world.still = 0;
     world.squash = 0;
   }
@@ -2701,22 +2705,38 @@
     if (world.reverse) ix *= -1;
     if (ix) player.facing = ix;
     const icy = (world.slipT || 0) > 0;
+    const dashing = dashT > 0;
     const accel = player.onGround ? (icy ? 0.42 : 0.9) : 0.58;
-    if (ix) player.vx += ix * accel;
-    else player.vx *= player.onGround ? (icy ? 0.96 : 0.7) : 0.94;
-    player.vx += world.wind;
-    if (world.magnet && world.time < world.magnet.until) {
-      const pull = Math.sign(world.magnet.x - (player.x + player.w / 2)) * (world.magnet.str || 0.16);
-      player.vx += pull;
+    if (dashing) {
+      /* keep dash momentum; light air steer only */
+      if (ix && Math.sign(ix) === Math.sign(dashDir)) player.vx += ix * 0.15;
+      player.vx = dashDir * Math.max(Math.abs(player.vx), 9.2);
+    } else if (ix) {
+      player.vx += ix * accel;
+    } else {
+      player.vx *= player.onGround ? (icy ? 0.96 : 0.7) : 0.94;
     }
-    if (!ix && player.onGround && !icy && Math.abs(player.vx) < 0.35) player.vx = 0;
+    if (!dashing) {
+      player.vx += world.wind;
+      if (world.magnet && world.time < world.magnet.until) {
+        const pull = Math.sign(world.magnet.x - (player.x + player.w / 2)) * (world.magnet.str || 0.16);
+        player.vx += pull;
+      }
+    }
+    if (!ix && player.onGround && !icy && !dashing && Math.abs(player.vx) < 0.35) player.vx = 0;
 
     dashCool = Math.max(0, dashCool - FIXED);
     dashT = Math.max(0, dashT - FIXED);
     const wantDash = keys.has("Shift") || hold.dash;
-    if (dimIndex >= 3 && wantDash && dashCool <= 0 && !player.dead && !(world.qte && world.qte.lock)) {
-      const dir = ix || player.facing || 1;
-      player.vx = dir * 9.2;
+    const dashEdge = wantDash && !dashHeld;
+    dashHeld = wantDash;
+    if (
+      dimIndex >= 3 && dashEdge && dashCool <= 0 && !player.dead &&
+      lockTimer <= 0 && !(world.qte && world.qte.lock)
+    ) {
+      dashDir = ix || player.facing || 1;
+      player.facing = dashDir;
+      player.vx = dashDir * 9.2;
       player.vy *= 0.35;
       dashCool = 0.72;
       dashT = 0.16;
@@ -5285,14 +5305,30 @@
     if (world.qte.phase !== "go") return;
     pressQte(world.qte.keys[world.qte.index]);
   });
+  function trackKey(e, down) {
+    const isShift = e.code === "ShiftLeft" || e.code === "ShiftRight" || e.key === "Shift";
+    if (down) {
+      keys.add(e.key);
+      if (isShift) {
+        keys.add("Shift");
+        if (e.code) keys.add(e.code);
+      }
+    } else if (isShift) {
+      if (e.code) keys.delete(e.code);
+      if (!keys.has("ShiftLeft") && !keys.has("ShiftRight")) keys.delete("Shift");
+    } else {
+      keys.delete(e.key);
+    }
+  }
+
   window.addEventListener("keydown", (e) => {
     audio.unlock();
-    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) e.preventDefault();
+    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "Shift"].includes(e.key)) e.preventDefault();
     if (mode === "pause") {
       if (e.key === "Escape") resumeGame();
       return;
     }
-    keys.add(e.key);
+    trackKey(e, true);
     if (mode === "play" && world.qte && !player.dead && !e.repeat && e.key.length === 1 && /[a-z]/i.test(e.key) && !"wasd".includes(e.key.toLowerCase())) {
       pressQte(e.key);
       return;
@@ -5316,19 +5352,35 @@
       loadLevel(levelIndex);
     }
   });
-  window.addEventListener("keyup", (e) => keys.delete(e.key));
+  window.addEventListener("keyup", (e) => trackKey(e, false));
+  window.addEventListener("blur", () => {
+    keys.clear();
+    hold.left = hold.right = hold.jump = hold.dash = false;
+    dashHeld = false;
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      keys.clear();
+      hold.left = hold.right = hold.jump = hold.dash = false;
+      dashHeld = false;
+    }
+  });
   clearScreen.addEventListener("click", () => { if (mode === "clear") nextLevel(); });
 
   function bindHold(id, prop) {
     const el = document.getElementById(id);
     if (!el) return;
-    const on = (e) => { e.preventDefault(); hold[prop] = true; audio.unlock(); };
+    const on = (e) => {
+      e.preventDefault();
+      hold[prop] = true;
+      audio.unlock();
+      try { el.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+    };
     const off = (e) => { e.preventDefault(); hold[prop] = false; };
-    el.addEventListener("touchstart", on, { passive: false });
-    el.addEventListener("touchend", off);
-    el.addEventListener("mousedown", on);
-    el.addEventListener("mouseup", off);
-    el.addEventListener("mouseleave", off);
+    el.addEventListener("pointerdown", on);
+    el.addEventListener("pointerup", off);
+    el.addEventListener("pointercancel", off);
+    el.addEventListener("lostpointercapture", off);
   }
   bindHold("btn-left", "left");
   bindHold("btn-right", "right");

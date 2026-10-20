@@ -80,18 +80,14 @@
 
     if (face === "look") {
       const px = gaze * 0.08 * R;
-      const open = blink ? 0.05 * R : 0.2 * R;
+      const r = 0.2 * R;
       ctx.lineWidth = R * 0.09;
       for (const side of [-1, 1]) {
         const cx = side * eyeX + px;
         ctx.beginPath();
-        ctx.ellipse(cx, eyeY, 0.16 * R, open, 0, 0, Math.PI * 2);
+        if (blink) ctx.ellipse(cx, eyeY, r, 0.05 * R, 0, 0, Math.PI * 2);
+        else ctx.arc(cx, eyeY, r, 0, Math.PI * 2);
         ctx.stroke();
-        if (!blink) {
-          ctx.beginPath();
-          ctx.arc(cx + px * 0.35, eyeY + 0.02 * R, 0.07 * R, 0, Math.PI * 2);
-          ctx.fill();
-        }
       }
       ctx.lineWidth = R * 0.05;
       ctx.beginPath();

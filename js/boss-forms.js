@@ -14,30 +14,255 @@
     return { phase: phase, mood: mood, blink: blink };
   }
 
-  const NULL_BOSS_IMG = (typeof Image === "function") ? new Image() : null;
-  if (NULL_BOSS_IMG) NULL_BOSS_IMG.src = "img/null-boss.png";
+  const FLAME_BODY = "#fe1f6f";
+  const FLAME_SHELL = "#fe92b8";
+
+  function lick(ctx, tipX, tipY, baseX, baseY, width) {
+    ctx.fillStyle = FLAME_SHELL;
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.bezierCurveTo(
+      tipX + width * 0.15, tipY + (baseY - tipY) * 0.22,
+      baseX + width * 0.95, baseY - width * 0.55,
+      baseX + width * 0.2, baseY
+    );
+    ctx.quadraticCurveTo(baseX, baseY + width * 0.72, baseX - width * 0.45, baseY - width * 0.05);
+    ctx.bezierCurveTo(
+      baseX - width * 0.85, baseY - width * 0.7,
+      tipX - width * 0.4, tipY + (baseY - tipY) * 0.4,
+      tipX, tipY
+    );
+    ctx.fill();
+    ctx.fillStyle = FLAME_BODY;
+    ctx.beginPath();
+    ctx.ellipse(baseX + width * 0.02, baseY - width * 0.08, width * 0.42, width * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function paintNullFace(ctx, R, face, t, look, grab) {
+    const ink = "#141414";
+    ctx.strokeStyle = ink;
+    ctx.fillStyle = ink;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    const gaze = Math.max(-1, Math.min(1, look || 0));
+    const eyeX = 0.36 * R;
+    const eyeY = 0.02 * R + (face === "tired" ? 0.04 * R : 0);
+    const blink = (t % 3.6) < 0.09 && face !== "sleep";
+
+    if (face === "sleep") {
+      ctx.lineWidth = R * 0.22;
+      ctx.beginPath();
+      ctx.moveTo(-eyeX - 0.24 * R, eyeY);
+      ctx.quadraticCurveTo(-eyeX, eyeY + 0.32 * R, -eyeX + 0.24 * R, eyeY);
+      ctx.moveTo(eyeX - 0.24 * R, eyeY);
+      ctx.quadraticCurveTo(eyeX, eyeY + 0.32 * R, eyeX + 0.24 * R, eyeY);
+      ctx.stroke();
+      ctx.lineWidth = R * 0.045;
+      ctx.beginPath();
+      ctx.arc(0, 0.4 * R, 0.08 * R, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.stroke();
+      ctx.globalAlpha = 0.55 + Math.sin(t * 2.2) * 0.2;
+      ctx.lineWidth = R * 0.04;
+      for (let i = 0; i < 3; i++) {
+        const zx = 0.55 * R + i * 0.12 * R;
+        const zy = -0.35 * R - i * 0.14 * R - Math.sin(t * 1.4 + i) * 2;
+        ctx.beginPath();
+        ctx.moveTo(zx, zy);
+        ctx.lineTo(zx + 0.08 * R, zy - 0.04 * R);
+        ctx.moveTo(zx + 0.02 * R, zy + 0.05 * R);
+        ctx.lineTo(zx + 0.1 * R, zy + 0.01 * R);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      return;
+    }
+
+    if (face === "look") {
+      const px = gaze * 0.08 * R;
+      const open = blink ? 0.05 * R : 0.2 * R;
+      ctx.lineWidth = R * 0.09;
+      for (const side of [-1, 1]) {
+        const cx = side * eyeX + px;
+        ctx.beginPath();
+        ctx.ellipse(cx, eyeY, 0.16 * R, open, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        if (!blink) {
+          ctx.beginPath();
+          ctx.arc(cx + px * 0.35, eyeY + 0.02 * R, 0.07 * R, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.lineWidth = R * 0.05;
+      ctx.beginPath();
+      ctx.moveTo(-0.1 * R, 0.4 * R);
+      ctx.quadraticCurveTo(0, 0.48 * R, 0.1 * R, 0.4 * R);
+      ctx.stroke();
+      return;
+    }
+
+    if (face === "scared") {
+      const jitter = Math.sin(t * 22) * 0.7;
+      ctx.save();
+      ctx.translate(gaze * 0.05 * R + jitter, -0.03 * R);
+      ctx.lineWidth = R * 0.2;
+      for (const side of [-1, 1]) {
+        const cx = side * eyeX + gaze * 0.03 * R;
+        ctx.beginPath();
+        ctx.moveTo(cx - 0.22 * R, eyeY + 0.08 * R);
+        ctx.quadraticCurveTo(cx, eyeY - 0.18 * R, cx + 0.22 * R, eyeY + 0.08 * R);
+        ctx.stroke();
+      }
+      ctx.lineWidth = R * 0.075;
+      ctx.beginPath();
+      ctx.moveTo(-0.09 * R, 0.44 * R);
+      ctx.quadraticCurveTo(0, 0.32 * R, 0.09 * R, 0.44 * R);
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
+    if (face === "mad") {
+      ctx.lineWidth = R * 0.12;
+      for (const side of [-1, 1]) {
+        const ox = side * eyeX;
+        ctx.beginPath();
+        ctx.moveTo(ox - side * 0.2 * R, eyeY - 0.1 * R);
+        ctx.lineTo(ox + side * 0.05 * R, eyeY + 0.02 * R);
+        ctx.lineTo(ox + side * 0.2 * R, eyeY - 0.08 * R);
+        ctx.stroke();
+      }
+      ctx.lineWidth = R * 0.07;
+      ctx.beginPath();
+      ctx.moveTo(-0.16 * R, 0.4 * R);
+      ctx.lineTo(0.16 * R, 0.4 * R);
+      ctx.stroke();
+      ctx.lineWidth = R * 0.035;
+      for (let i = -2; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * 0.055 * R, 0.34 * R);
+        ctx.lineTo(i * 0.055 * R, 0.46 * R);
+        ctx.stroke();
+      }
+      return;
+    }
+
+    if (face === "tired") {
+      ctx.lineWidth = R * 0.1;
+      for (const side of [-1, 1]) {
+        const ox = side * eyeX;
+        ctx.beginPath();
+        ctx.moveTo(ox - 0.18 * R, eyeY);
+        ctx.quadraticCurveTo(ox, eyeY + 0.08 * R, ox + 0.18 * R, eyeY);
+        ctx.stroke();
+        ctx.lineWidth = R * 0.04;
+        ctx.globalAlpha = 0.45;
+        ctx.beginPath();
+        ctx.moveTo(ox - 0.12 * R, eyeY + 0.12 * R);
+        ctx.quadraticCurveTo(ox, eyeY + 0.18 * R, ox + 0.12 * R, eyeY + 0.12 * R);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = R * 0.1;
+      }
+      ctx.lineWidth = R * 0.05;
+      ctx.beginPath();
+      ctx.moveTo(-0.12 * R, 0.44 * R);
+      ctx.quadraticCurveTo(0, 0.36 * R, 0.12 * R, 0.44 * R);
+      ctx.stroke();
+      return;
+    }
+
+    /* fight — two thick closed crescents, same shape as the picture */
+    const dip = blink ? 0.08 * R : (0.3 + grab * 0.05) * R;
+    const span = 0.24 * R;
+    ctx.lineWidth = blink ? R * 0.1 : R * 0.22;
+    ctx.beginPath();
+    ctx.moveTo(-eyeX - span, eyeY);
+    ctx.quadraticCurveTo(-eyeX, eyeY + dip, -eyeX + span, eyeY);
+    ctx.moveTo(eyeX - span, eyeY);
+    ctx.quadraticCurveTo(eyeX, eyeY + dip, eyeX + span, eyeY);
+    ctx.stroke();
+    ctx.lineWidth = R * 0.05;
+    ctx.beginPath();
+    if (grab > 0.35) {
+      ctx.moveTo(-0.12 * R, 0.38 * R);
+      ctx.lineTo(0.12 * R, 0.38 * R);
+      ctx.moveTo(-0.08 * R, 0.34 * R);
+      ctx.lineTo(-0.08 * R, 0.42 * R);
+      ctx.moveTo(0.08 * R, 0.34 * R);
+      ctx.lineTo(0.08 * R, 0.42 * R);
+    } else {
+      ctx.moveTo(-0.11 * R, 0.36 * R);
+      ctx.lineTo(0.11 * R, 0.36 * R);
+    }
+    ctx.stroke();
+  }
 
   const FORMS = {
-    // Null. The face is the sprite you sent. Same bite, same eyes, same dash mouth.
+    // Null. Drawn. Same wick, closed eyes, dash mouth, and side flames. Never an image.
     1: function (ctx, t, grab, accent, look, boss) {
       const face = (boss && boss.face) || "fight";
-      const sleep = face === "sleep";
-      const bob = sleep ? Math.sin(t * 1.1) * 2 : 0;
+      const R = 58;
+      const bob = face === "sleep" ? Math.sin(t * 1.1) * 2.2 : 0;
+      const sway = Math.sin(t * 1.7) * 1.1;
       ctx.save();
-      ctx.translate(look * 2, bob);
-      const img = NULL_BOSS_IMG;
-      const ready = img && img.complete && img.naturalWidth > 0;
-      if (ready) {
-        const dw = 200;
-        const dh = dw * (img.naturalHeight / img.naturalWidth);
-        ctx.imageSmoothingEnabled = true;
-        ctx.drawImage(img, -dw / 2, -dh / 2 + 6, dw, dh);
-      } else {
-        ctx.fillStyle = "#e73b6d";
+      ctx.translate(sway * 0.25, bob);
+      if (look < 0) ctx.scale(-1, 1);
+
+      const glow = ctx.createRadialGradient(0, R * 0.05, R * 0.35, 0, R * 0.2, R * 1.55);
+      glow.addColorStop(0, "rgba(254,31,111,0.2)");
+      glow.addColorStop(0.55, "rgba(254,146,184,0.1)");
+      glow.addColorStop(1, "rgba(254,146,184,0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(0, R * 0.08, R * 1.55, 0, Math.PI * 2);
+      ctx.fill();
+
+      const startled = face === "scared";
+      ctx.fillStyle = FLAME_BODY;
+      ctx.save();
+      ctx.translate(sway, startled ? -8 : 0);
+      ctx.scale(1, startled ? 1.22 : 1);
+      ctx.beginPath();
+      ctx.moveTo(0.46 * R, -1.7 * R);
+      ctx.quadraticCurveTo(1.02 * R, -1.08 * R, 0.48 * R, -0.15 * R);
+      ctx.lineTo(0.08 * R, -0.15 * R);
+      ctx.quadraticCurveTo(0.32 * R, -1.18 * R, 0.46 * R, -1.7 * R);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+
+      ctx.beginPath();
+      ctx.arc(0, 0, R, 0, Math.PI * 2);
+      ctx.fill();
+
+      const side = (dir, phase) => {
+        ctx.save();
+        ctx.scale(dir, 1);
+        const lift = Math.sin(t * 5.5 + phase) * 2.4 + (face === "scared" ? -8 : 0);
+        lick(ctx, -1.16 * R, 0.46 * R + lift, -0.88 * R, 1.2 * R, R * 0.38);
+        lick(ctx, -0.86 * R, 0.58 * R - lift * 0.4, -0.66 * R, 1.22 * R, R * 0.26);
+        ctx.restore();
+      };
+      side(1, 0);
+      side(-1, 1.7);
+
+      const hopL = Math.sin(t * 6.2) * 2.4;
+      const hopR = Math.sin(t * 6.2 + 1.6) * 2.4;
+      const foot = (x, hop) => {
+        ctx.fillStyle = FLAME_SHELL;
         ctx.beginPath();
-        ctx.arc(4, 6, 70, 0, Math.PI * 2);
+        ctx.arc(x, 1.18 * R + hop, R * 0.3, 0, Math.PI * 2);
         ctx.fill();
-      }
+        ctx.fillStyle = FLAME_BODY;
+        ctx.beginPath();
+        ctx.arc(x, 1.18 * R + hop, R * 0.22, 0, Math.PI * 2);
+        ctx.fill();
+      };
+      foot(-0.46 * R, hopL);
+      foot(0.46 * R, hopR);
+
+      paintNullFace(ctx, R, face, t, look, grab || 0);
       ctx.restore();
     },
 

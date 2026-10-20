@@ -141,7 +141,7 @@
       const meta = document.createElement("span");
       meta.className = "meta";
       meta.textContent = d === 1
-        ? roomsN + " rooms · handmade · boss " + boss
+        ? roomsN + " rooms · handmade · the boss throws the door"
         : roomsN + " rooms · " + traps + " traps · boss " + boss;
       card.append(pip, idx, who, meta);
       bins[Math.floor(i / 5)].appendChild(card);

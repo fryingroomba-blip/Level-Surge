@@ -230,7 +230,8 @@ if (SURGE_WORLDS) {
     var bossN = SURGE_WORLDS.bossTrapCount(d);
     if (!last.boss) fail("D" + d + " last room is not a boss");
     if (last.shaft) fail("D" + d + " boss is a shaft");
-    if (last.events.length !== bossN) fail("D" + d + " boss traps " + last.events.length + " != " + bossN);
+    var bossWant = d === 1 ? 0 : bossN;
+    if (last.events.length !== bossWant) fail("D" + d + " boss traps " + last.events.length + " != " + bossWant);
     var routeBad = bossRouteBad(last);
     if (routeBad) fail("D" + d + " boss door " + routeBad);
     if (d === 1) {

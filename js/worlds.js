@@ -2010,6 +2010,8 @@
       );
       const boss = generateOne(1, hand.length, true);
       boss.name = "BOSS STAGE 1";
+      // Room 17 is the door fight. Level 16 keeps its own traps.
+      boss.events = [];
       hand.push(boss);
       return hand;
     }

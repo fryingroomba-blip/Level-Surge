@@ -33,6 +33,13 @@ El.prototype.getBoundingClientRect = function () {
   return { width: 960, height: 540, top: 0, left: 0, right: 960, bottom: 540 };
 };
 El.prototype.focus = function () {};
+El.prototype.setAttribute = function (name, value) {
+  this.attrs = this.attrs || {};
+  this.attrs[name] = String(value);
+};
+El.prototype.getAttribute = function (name) {
+  return this.attrs && this.attrs[name] != null ? this.attrs[name] : null;
+};
 Object.defineProperty(El.prototype, "classList", {
   get: function () {
     var self = this;
@@ -83,6 +90,8 @@ var canvasCtx = {
   beginPath: function () {}, closePath: function () {}, moveTo: function () {},
   lineTo: function () {}, arc: function () {}, ellipse: function () {},
   fill: function () {}, stroke: function () {},
+  clip: function () {},
+  rect: function () {},
   createLinearGradient: function () { return { addColorStop: function () {} }; },
   createRadialGradient: function () { return { addColorStop: function () {} }; },
   measureText: function () { return { width: 10 }; },
@@ -96,6 +105,7 @@ els.game.height = 540;
 var document = {
   getElementById: function (id) { return ensure(id); },
   createElement: function (tag) { return new El(tag); },
+  createDocumentFragment: function () { return new El("fragment"); },
   addEventListener: function (t, fn) {
     (listeners[t] = listeners[t] || []).push(fn);
   },
@@ -134,7 +144,9 @@ try {
   load("js/worlds.js");
   try { load("js/roast.js"); } catch (e) { out("roast.js skipped: " + e); }
   load("js/boss-voice.js");
+  load("js/boss-kits.js");
   load("js/boss-forms.js");
+  try { load("js/void-sky.js"); } catch (e) { out("void-sky.js skipped: " + e); }
   load("js/game.js");
 } catch (e) {
   fail("script load: " + e);
@@ -227,11 +239,9 @@ if (SURGE_WORLDS) {
     var want = d === 1 ? HAND_LEVELS[0].events.length : t;
     if (lvls[0].events.length !== want) fail("D" + d + " traps0 " + lvls[0].events.length + " != " + want);
     var last = lvls[lvls.length - 1];
-    var bossN = SURGE_WORLDS.bossTrapCount(d);
     if (!last.boss) fail("D" + d + " last room is not a boss");
     if (last.shaft) fail("D" + d + " boss is a shaft");
-    var bossWant = d === 1 ? 0 : bossN;
-    if (last.events.length !== bossWant) fail("D" + d + " boss traps " + last.events.length + " != " + bossWant);
+    if (last.events.length !== 0) fail("D" + d + " boss traps " + last.events.length + " != 0");
     var routeBad = bossRouteBad(last);
     if (routeBad) fail("D" + d + " boss door " + routeBad);
     if (d === 1) {

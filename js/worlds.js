@@ -68,7 +68,7 @@
     return trapCount(d) * bossMult(d);
   }
 
-  // Door steals. World 1 moves it 7 times. Each later world adds 2.
+  // Door steals. Runtime sets Null (D1) to 7. From Ashwell: 9, then +2 each world.
   function bossDoorMoves(d) {
     return 7 + 2 * (Math.max(1, d | 0) - 1);
   }
@@ -235,6 +235,56 @@
     return (DIM_SIG[Math.max(0, Math.min(DIM_SIG.length - 1, d - 1))] || []).map((t) => ({
       id: t.id, label: t.label, family: t.family,
     }));
+  }
+
+  // First dimension that may show this family. Earlier dimensions never roll it.
+  function familyIntroDim(family) {
+    if (family === "lock" || family === "side") return 3;
+    if (family === "wind") return 6;
+    if (family === "teleport") return 19;
+    return 2;
+  }
+
+  function sigIntroDim(id) {
+    for (let i = 0; i < DIM_SIG.length; i++) {
+      for (let j = 0; j < DIM_SIG[i].length; j++) {
+        if (DIM_SIG[i][j].id === id) return i + 1;
+      }
+    }
+    return 99;
+  }
+
+  // Signatures from worlds the player has already been through. Not the current world.
+  function discoveredSigs(d) {
+    const out = [];
+    for (let dim = 2; dim < d; dim++) {
+      const list = DIM_SIG[dim - 1] || [];
+      for (let i = 0; i < list.length; i++) out.push(list[i]);
+    }
+    return out;
+  }
+
+  function auditDiscovery() {
+    const bad = [];
+    for (let d = 2; d <= 20; d++) {
+      const levels = generate(d);
+      for (let i = 0; i < levels.length; i++) {
+        const evs = levels[i].events || [];
+        for (let e = 0; e < evs.length; e++) {
+          const ev = evs[e];
+          if (ev.sig && sigIntroDim(ev.sig) > d) bad.push("D" + d + " early sig " + ev.sig);
+          const acts = ev.do || [];
+          for (let a = 0; a < acts.length; a++) {
+            const kind = acts[a] && acts[a][0];
+            if (kind === "teleport" && d < 19) bad.push("D" + d + " early teleport");
+            if (kind === "wind" && d < 6) bad.push("D" + d + " early wind");
+            if (kind === "lock" && d < 3) bad.push("D" + d + " early lock");
+            if (kind === "gravity" && d < 2) bad.push("D" + d + " early gravity");
+          }
+        }
+      }
+    }
+    return bad;
   }
 
   function buildSig(id, x, y, late) {
@@ -1082,20 +1132,21 @@
       hole: (late ? 5 : mid ? 4 : 3) + Math.floor(wide / 2),
       laser: (late ? 4 : mid ? 3 : 2) + Math.floor(wide / 2),
       saw: (late ? 5 : mid ? 4 : 3) + Math.floor(wide / 2),
-      reverse: d >= 6 ? 2 : 0,
+      // Taught in world 1. Later worlds may use them. Not before.
+      reverse: d >= 2 ? 2 : 0,
       push: mid ? 3 : 2,
-      drop: late ? 3 : 2,
-      lock: late ? 3 : 2,
-      wind: late ? 3 : 2,
-      side: late ? 3 : 2,
-      ceiling: late ? 3 : 2,
-      gravity: d >= 5 ? 2 : 0,
-      teleport: d >= 10 ? 2 : 0,
+      drop: d >= 2 ? (late ? 3 : 2) : 0,
+      lock: d >= 3 ? (late ? 3 : 2) : 0,
+      wind: d >= 6 ? (late ? 3 : 2) : 0,
+      side: d >= 3 ? (late ? 3 : 2) : 0,
+      ceiling: d >= 2 ? (late ? 3 : 2) : 0,
+      gravity: d >= 2 ? 1 : 0,
+      teleport: d >= 19 ? 1 : 0,
       // Movement gimmicks. From D10 a second one shows up.
       rare: d >= 10 ? 2 : (d >= 2 ? 1 : 0),
       // Horror gimmicks. From D10 a second one shows up.
       entity: d >= 10 ? 2 : (d >= 5 ? 1 : 0),
-      sig: 2,
+      sig: d >= 3 && !boss ? 4 : 2,
     };
     const used = {
       gate: 0, hole: 0, laser: 0, saw: 0, reverse: 0, push: 0,
@@ -1174,6 +1225,7 @@
     }
 
     function allowsFamily(x, family, forSig) {
+      if (d < familyIntroDim(family)) return false;
       if (x < 8 || x > roomW - 7 || surface[x] < 0 || !offStair(x)) return false;
       // Saws spawn ahead and come back. Lasers have width. Neither may cover a step.
       if ((family === "saw" || family === "laser") && hitsStair(x - 2, x + 6)) return false;
@@ -1624,6 +1676,25 @@
       }
     }
 
+    // Lessons from earlier worlds, only after that world has already taught them.
+    if (d >= 3 && !boss) {
+      const prior = discoveredSigs(d);
+      let echoed = 0;
+      for (let s = 0; s < 2 && echoed < 2 && prior.length && events.length < n; s++) {
+        const sig = prior[(room * 2 + s) % prior.length];
+        let placed = false;
+        for (let hi = 0; hi < hot.length; hi++) {
+          if (commitSig(hot[hi], sig)) { placed = true; break; }
+        }
+        if (!placed) {
+          for (let c = 8; c <= roomW - 7; c++) {
+            if (commitSig(c, sig)) { placed = true; break; }
+          }
+        }
+        if (placed) echoed += 1;
+      }
+    }
+
     placeApex();
 
     // Movement gimmicks, then horror. A loose pass allows a safe tell beside a pit
@@ -1944,23 +2015,6 @@
     return { script, times };
   }
 
-  // Quiet fillers become the fight so the count hits the multiplier without new permanent holes.
-  function installBossFight(events, d) {
-    const want = bossTrapCount(d);
-    while (events.length < want) {
-      events.push({ if: { x: 4 }, once: true, quiet: true, do: [["dust", 4, 8, 2]] });
-    }
-    while (events.length > want) {
-      let cut = -1;
-      for (let i = events.length - 1; i >= 0; i--) {
-        if (events[i].quiet) { cut = i; break; }
-      }
-      if (cut < 0) break;
-      events.splice(cut, 1);
-    }
-    return [];
-  }
-
   // Same fairness rules on handmade and generated rooms: no holes on spawn/door,
   // strip early-dim horror/apex, and clamp activation caps.
   // Handmade gag rooms keep their own door script — never flatten them into a boss.
@@ -1991,7 +2045,8 @@
       if (copy.times > activationCap(d)) copy.times = activationCap(d);
       events.push(copy);
     });
-    if (boss) installBossFight(events, d);
+    // Boss stages are the fight. Floor traps stay on the rooms before them.
+    if (boss) events.length = 0;
     return Object.assign({}, lvl, {
       map,
       dim: d,
@@ -2031,7 +2086,7 @@
       name: dim.name + " " + layout + " " + (i + 1),
       taunt: pick(r, TAUNTS),
       map,
-      events: buildEvents(d, surface, boss, i),
+      events: boss ? [] : buildEvents(d, surface, false, i),
       explodeCoins: false,
       crumbleIfStill: 0,
       dim: d,
@@ -2060,6 +2115,7 @@
   root.SURGE_WORLDS = {
     DIMS, roomCount, trapCount, bossMult, bossTrapCount, bossDoorMoves, bossAttackIds, stageWidth, activationCap, bossFakeX, signatureTraps, qteAction,
     generate, theme, chordsFor, reachable, pathHeat, surfaceFromMap, applyTrapRules, shaftKind, count: 20,
+    familyIntroDim, sigIntroDim, discoveredSigs, auditDiscovery,
   };
   root.LEVELS = generate(1);
 })(typeof window !== "undefined" ? window : globalThis);

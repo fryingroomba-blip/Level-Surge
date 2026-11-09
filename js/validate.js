@@ -100,8 +100,7 @@ if (WORLDS) {
     const last = lvls[lvls.length - 1];
     const wantFirst = d === 1 ? ((HAND[0] && HAND[0].events && HAND[0].events.length) || 0) : t;
     checkLevel(sample, `D${d} ${sample.name}`, wantFirst);
-    const bossN = WORLDS.bossTrapCount ? WORLDS.bossTrapCount(d) : t * (d >= 18 ? 4 : d >= 8 ? 3 : 2);
-    checkLevel(last, `D${d} ${last.name}`, bossN);
+    checkLevel(last, `D${d} ${last.name}`, 0);
     lvls.forEach((lvl) => {
       const width = (lvl.map && lvl.map[0] && lvl.map[0].length) || WORLDS.stageWidth(d);
       if (d > 1 && width !== WORLDS.stageWidth(d)) {
@@ -174,14 +173,19 @@ if (WORLDS) {
     if (d > 1) {
       const labels = (WORLDS.signatureTraps(d) || []).map((t) => t.label);
       let sigRooms = 0;
+      let fightRooms = 0;
       let bossFakeOk = true;
       lvls.forEach((lvl) => {
+        if (lvl.boss) {
+          if ((lvl.map || []).join("").indexOf("F") >= 0) bossFakeOk = false;
+          return;
+        }
+        fightRooms += 1;
         const text = JSON.stringify(lvl.events || []);
         if (labels.length && labels.every((lab) => text.indexOf(lab) >= 0)) sigRooms += 1;
-        if (lvl.boss && (lvl.map || []).join("").indexOf("F") >= 0) bossFakeOk = false;
       });
-      if (labels.length && sigRooms < lvls.length) {
-        errors.push(`D${d}: signature traps in ${sigRooms}/${lvls.length} rooms`);
+      if (labels.length && sigRooms < fightRooms) {
+        errors.push(`D${d}: signature traps in ${sigRooms}/${fightRooms} rooms`);
       }
       if (!bossFakeOk) errors.push(`D${d}: boss room still has a fake door`);
     }
@@ -215,7 +219,8 @@ if (WORLDS) {
       if (multi) repeatRooms += 1;
       if (fours) fourRooms += 1;
     });
-    if (d >= 10 && apexRooms < lvls.length) errors.push(`D${d} apex in ${apexRooms}/${lvls.length} rooms`);
+    const fightRooms = lvls.filter((lvl) => !lvl.boss).length;
+    if (d >= 10 && apexRooms < fightRooms) errors.push(`D${d} apex in ${apexRooms}/${fightRooms} rooms`);
     if (d < 8 && apexRooms) errors.push(`D${d} placed ${apexRooms} apex rooms too early`);
     if (d >= 3 && repeatRooms === 0) errors.push(`D${d}: no repeating traps`);
     if (fourRooms > Math.ceil(lvls.length * 0.28)) {

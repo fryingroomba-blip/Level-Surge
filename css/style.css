@@ -52,7 +52,8 @@ html, body {
       transparent 1px,
       transparent 4px
     );
-  animation: grainShift 0.42s steps(2) infinite;
+  /* Slow grain: avoids a near-60fps compositor restyle during boss fights. */
+  animation: grainShift 2.4s steps(2) infinite;
 }
 
 @keyframes grainShift {
@@ -61,11 +62,18 @@ html, body {
   100% { transform: translate(1px, -1px); }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  #app::after { animation: none; }
+}
+
 #game {
   display: block;
   width: 100%;
   height: 100%;
   background: #0b0810;
+  /* Isolate canvas paint from grain/HUD compositing thrash. */
+  contain: layout paint size;
+  transform: translateZ(0);
 }
 
 .hidden { display: none !important; }
@@ -183,6 +191,51 @@ html, body {
   z-index: 8;
   background:
     radial-gradient(ellipse at 50% 36%, rgba(8, 12, 22, 0.22) 0%, rgba(5, 7, 12, 0.52) 72%);
+}
+
+#settings-screen {
+  background: rgba(5, 6, 10, 0.94);
+}
+
+.bind-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(440px, 92vw);
+  margin: 18px 0 8px;
+}
+
+.bind-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 12px;
+  border: 1px solid rgba(244, 234, 216, 0.28);
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.bind-row span {
+  letter-spacing: 0.16em;
+  font-weight: 900;
+  color: #f4ead8;
+}
+
+.bind-row button {
+  font-family: inherit;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  min-width: 148px;
+  padding: 8px 12px;
+  background: #14080c;
+  color: #f4ead8;
+  border: 2px solid #e31b1b;
+  cursor: pointer;
+}
+
+.bind-row button.arm {
+  background: #e31b1b;
+  color: #fff6d8;
 }
 
 #title-screen,
@@ -723,6 +776,18 @@ a.ghost-btn {
   font-weight: 800;
   border-radius: 10px;
 }
+#btn-dash.cooling {
+  opacity: 0.4;
+  color: rgba(244, 234, 216, 0.55);
+}
+.big-btn:focus-visible,
+.ghost-btn:focus-visible,
+#mute-btn:focus-visible,
+#pause-btn:focus-visible,
+#mobile button:focus-visible {
+  outline: 2px solid #ffd24a;
+  outline-offset: 3px;
+}
 
 @media (pointer: coarse) {
   #mobile:not(.hidden) { display: flex; }
@@ -1001,6 +1066,165 @@ button:focus-visible, a:focus-visible {
   box-shadow: 0 0 0 1px rgba(255, 210, 120, 0.25), 0 18px 40px rgba(0,0,0,0.45);
 }
 ::selection { background: #e31b1b; color: #f4ead8; }
+
+#trailer-line {
+  position: absolute;
+  left: 50%;
+  bottom: max(36px, 6vh);
+  z-index: 7;
+  width: max-content;
+  max-width: min(92vw, 640px);
+  transform: translateX(-50%);
+  margin: 0;
+  text-align: center;
+  pointer-events: none;
+  line-height: 1.25;
+  text-shadow: 0 2px 0 #000, 0 0 12px #000;
+  opacity: 0;
+}
+#trailer-line.is-in {
+  animation: trailerLineIn 0.28s cubic-bezier(0.2, 0.85, 0.25, 1) forwards;
+}
+#trailer-line.taunt {
+  font-family: "Bungee", sans-serif;
+  color: var(--cream);
+  font-size: clamp(15px, 2.3vw, 22px);
+  letter-spacing: 0.06em;
+}
+#trailer-line.lore {
+  font-weight: 800;
+  color: var(--cream);
+  font-size: clamp(14px, 2vw, 18px);
+  letter-spacing: 0.03em;
+}
+#trailer-line.insult {
+  font-family: "Bungee", sans-serif;
+  color: var(--cream);
+  font-size: clamp(16px, 2.8vw, 26px);
+  letter-spacing: 0.04em;
+}
+#trailer-line.insult.is-in {
+  animation-name: trailerInsultIn;
+}
+#trailer-skip {
+  position: absolute;
+  left: 18px;
+  bottom: 16px;
+  z-index: 7;
+  margin: 0;
+  color: #6f6458;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  pointer-events: none;
+  text-shadow: 0 2px 0 #000;
+}
+body.trailer-live #pause-btn { visibility: hidden; }
+body.trailer-live #mobile { display: none !important; }
+body.trailer-quiet #hud { visibility: hidden; }
+
+#trailer-bars {
+  display: none;
+  pointer-events: none;
+  z-index: 11;
+}
+body.trailer-live #trailer-bars {
+  display: block;
+  position: absolute;
+  inset: 0;
+}
+body.trailer-live #trailer-bars::before,
+body.trailer-live #trailer-bars::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: clamp(28px, 7.5vh, 64px);
+  background: #050403;
+}
+body.trailer-live #trailer-bars::before { top: 0; }
+body.trailer-live #trailer-bars::after { bottom: 0; }
+
+#trailer-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 13;
+  pointer-events: none;
+  background: #f4ead8;
+  opacity: 0;
+}
+#trailer-flash.is-on {
+  animation: trailerFlash 0.14s ease-out forwards;
+}
+
+#trailer-card {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  pointer-events: none;
+  text-align: center;
+}
+#trailer-card.is-black .trailer-slate { visibility: hidden; }
+#trailer-card.is-title {
+  background-color: #050403;
+  background-image: radial-gradient(ellipse at 50% 42%, #1a0a0a 0%, #050403 70%, #050403 100%);
+}
+#trailer-card .logo { font-size: clamp(56px, 11vw, 120px); }
+#trailer-card .tagline {
+  color: var(--cream);
+  font-weight: 800;
+  max-width: 22em;
+  margin-left: auto;
+  margin-right: auto;
+}
+#trailer-card .cut-mark {
+  margin-top: 18px;
+  color: var(--red);
+  font-family: "Bungee", sans-serif;
+  letter-spacing: 0.28em;
+}
+#trailer-card .trailer-beat {
+  opacity: 0;
+  transform: translateY(10px);
+}
+#trailer-card .trailer-beat.is-on {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 0.4s cubic-bezier(0.2, 0.85, 0.25, 1),
+    transform 0.4s cubic-bezier(0.2, 0.85, 0.25, 1);
+}
+
+@keyframes trailerLineIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+@keyframes trailerInsultIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px) rotate(-2deg); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0) rotate(-2deg); }
+}
+@keyframes trailerFlash {
+  0% { opacity: 0.55; }
+  100% { opacity: 0; }
+}
 @media (prefers-reduced-motion: reduce) {
   #app::after, .title-dust i, #win-screen .title-laurels { animation: none; }
+  #trailer-line.is-in,
+  #trailer-flash.is-on {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  #trailer-card .trailer-beat,
+  #trailer-card .trailer-beat.is-on {
+    transition: none;
+    opacity: 1;
+    transform: none;
+  }
+  #trailer-line.insult { transform: translateX(-50%); }
 }

@@ -1,5 +1,21 @@
 (() => {
   // Refined false-3D void: stable geometry, shared light, quiet depth.
+  // Layer caches: bake static sky plates; invalidate on resize / theme change only.
+  const RGBA_CACHE = new Map();
+  const LAYER = {
+    base: null,
+    baseKey: "",
+    floor: null,
+    floorKey: "",
+    trip: null,
+    tripKey: "",
+    planet: null,
+    planetKey: "",
+    frame: null,
+    frameKey: "",
+    frameStamp: -1,
+  };
+
   function frac(n) {
     const x = Math.sin(n * 127.1) * 43758.5453;
     return x - Math.floor(x);
@@ -14,7 +30,14 @@
   }
 
   function rgba(r, g, b, a) {
-    return `rgba(${r | 0},${g | 0},${b | 0},${Math.max(0, Math.min(1, a)).toFixed(3)})`;
+    const aa = Math.max(0, Math.min(1, a));
+    const key = (r | 0) + "," + (g | 0) + "," + (b | 0) + "," + aa.toFixed(3);
+    let s = RGBA_CACHE.get(key);
+    if (s) return s;
+    s = `rgba(${r | 0},${g | 0},${b | 0},${aa.toFixed(3)})`;
+    if (RGBA_CACHE.size > 512) RGBA_CACHE.clear();
+    RGBA_CACHE.set(key, s);
+    return s;
   }
 
   function shade(hex, mul, a) {
@@ -28,6 +51,20 @@
     return rgba(r + (ar - r) * amt, g + (ag - g) * amt, b + (ab - b) * amt, a);
   }
 
+  function makeOffscreen(w, h) {
+    if (typeof document === "undefined" || !document.createElement) return null;
+    const c = document.createElement("canvas");
+    if (!c || !c.getContext) return null;
+    c.width = Math.max(1, w | 0);
+    c.height = Math.max(1, h | 0);
+    return c;
+  }
+
+  function reuseCanvas(slot, w, h) {
+    if (slot && slot.width === w && slot.height === h) return slot;
+    return makeOffscreen(w, h);
+  }
+
   function makeCam(w, h, t, trip) {
     const sway = 0.5 + trip * 0.3;
     return {
@@ -38,6 +75,113 @@
       near: 0.45,
       far: 8.2,
     };
+  }
+
+  function paintBasePlate(g, w, h, skyCols, cam) {
+    const sky = g.createLinearGradient(0, 0, 0, h);
+    sky.addColorStop(0, skyCols[0]);
+    sky.addColorStop(0.42, skyCols[1]);
+    sky.addColorStop(1, skyCols[2]);
+    g.fillStyle = sky;
+    g.fillRect(0, 0, w, h);
+    const well = g.createRadialGradient(cam.vpX, cam.vpY * 0.85, h * 0.12, w * 0.5, h * 0.55, h);
+    well.addColorStop(0, "rgba(0,0,0,0)");
+    well.addColorStop(1, "rgba(0,0,0,0.42)");
+    g.fillStyle = well;
+    g.fillRect(0, 0, w, h);
+  }
+
+  function ensureBasePlate(w, h, skyCols, cam) {
+    // Quantize cam so tiny sway doesn't thrash the bake; full redraw when it moves ~4px.
+    const qx = (cam.vpX / 4) | 0;
+    const qy = ((cam.vpY * 0.85) / 4) | 0;
+    const key = w + "x" + h + ":" + skyCols[0] + "|" + skyCols[1] + "|" + skyCols[2] + ":" + qx + "," + qy;
+    if (LAYER.base && LAYER.baseKey === key) return LAYER.base;
+    const c = reuseCanvas(LAYER.base, w, h);
+    if (!c) return null;
+    const g = c.getContext("2d");
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    paintBasePlate(g, w, h, skyCols, cam);
+    LAYER.base = c;
+    LAYER.baseKey = key;
+    return c;
+  }
+
+  function ensureFloorShade(w, h) {
+    const key = w + "x" + h;
+    if (LAYER.floor && LAYER.floorKey === key) return LAYER.floor;
+    const c = reuseCanvas(LAYER.floor, w, Math.max(1, (h * 0.2) | 0));
+    if (!c) return null;
+    const gh = c.height;
+    const g = c.getContext("2d");
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, w, gh);
+    const shadeG = g.createLinearGradient(0, 0, 0, gh);
+    shadeG.addColorStop(0, "rgba(8,10,16,0)");
+    shadeG.addColorStop(0.5, "rgba(8,10,16,0.28)");
+    shadeG.addColorStop(1, "rgba(8,10,16,0.68)");
+    g.fillStyle = shadeG;
+    g.fillRect(0, 0, w, gh);
+    LAYER.floor = c;
+    LAYER.floorKey = key;
+    return c;
+  }
+
+  function ensureTripWash(w, h, ar, ag, ab, trip) {
+    const qt = (trip * 40) | 0;
+    const key = w + "x" + h + ":" + (ar | 0) + "," + (ag | 0) + "," + (ab | 0) + ":" + qt;
+    if (LAYER.trip && LAYER.tripKey === key) return LAYER.trip;
+    const c = reuseCanvas(LAYER.trip, w, h);
+    if (!c) return null;
+    const g = c.getContext("2d");
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, w, h);
+    const wash = g.createLinearGradient(0, 0, w, h);
+    wash.addColorStop(0, rgba(ar, 50, 80, 0.02 + trip * 0.02));
+    wash.addColorStop(0.5, "rgba(0,0,0,0)");
+    wash.addColorStop(1, rgba(50, ag, ab, 0.02 + trip * 0.02));
+    g.fillStyle = wash;
+    g.fillRect(0, 0, w, h);
+    LAYER.trip = c;
+    LAYER.tripKey = key;
+    return c;
+  }
+
+  function ensurePlanetBody(planetCols) {
+    const key = planetCols[0] + "|" + planetCols[1] + "|" + planetCols[2];
+    if (LAYER.planet && LAYER.planetKey === key) return LAYER.planet;
+    const N = 256;
+    const c = reuseCanvas(LAYER.planet, N, N);
+    if (!c) return null;
+    const g = c.getContext("2d");
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, N, N);
+    const cx = N * 0.5;
+    const cy = N * 0.5;
+    const r = N * 0.48;
+    const lx = -0.4;
+    const ly = -0.46;
+    const body = g.createRadialGradient(cx + lx * r, cy + ly * r, r * 0.05, cx, cy, r);
+    body.addColorStop(0, planetCols[0]);
+    body.addColorStop(0.3, planetCols[0]);
+    body.addColorStop(0.68, planetCols[1]);
+    body.addColorStop(1, planetCols[2]);
+    g.beginPath();
+    g.arc(cx, cy, r, 0, Math.PI * 2);
+    g.fillStyle = body;
+    g.fill();
+    LAYER.planet = c;
+    LAYER.planetKey = key;
+    return c;
+  }
+
+  function invalidate() {
+    LAYER.baseKey = "";
+    LAYER.floorKey = "";
+    LAYER.tripKey = "";
+    LAYER.planetKey = "";
+    LAYER.frameKey = "";
+    LAYER.frameStamp = -1;
   }
 
   function project(cam, x, y, z) {
@@ -330,38 +474,51 @@
     ctx.globalAlpha = 1;
   }
 
-  function drawWeather(ctx, cam, w, h, t, heat, weather, accent) {
+  function drawWeather(ctx, cam, w, h, t, heat, weather, accent, pulse) {
     const [ar, ag, ab] = accent;
-    const count = weather === "rain" || weather === "snow" ? 48 : 28;
+    pulse = pulse || 0;
+    const count = weather === "rain" || weather === "snow" ? 64 : weather === "ember" ? 40 : 34;
     for (let i = 0; i < count; i++) {
       const n = frac(i * 6.1 + 0.7);
       let z = 1.0 + frac(i * 2.9) * 5.8;
-      const fall = weather === "rain" ? 1.8 : weather === "ember" ? 0.7 : 1;
+      const fall = weather === "rain" ? 1.8 : weather === "ember" ? 0.7 : weather === "snow" ? 0.85 : 1;
       z -= (t * (0.25 + n * 0.55) * fall) % 5.8;
       if (z < 1) z += 5.8;
-      const wx = (frac(i * 11.3) - 0.5) * 9 + Math.sin(t * 0.3 + i) * 0.2;
+      const drift = Math.sin(t * 0.3 + i) * 0.2 + (weather === "snow" ? Math.sin(t * 0.55 + i * 0.4) * 0.15 : 0);
+      const wx = (frac(i * 11.3) - 0.5) * 9 + drift;
       const wy = 0.35 + frac(i * 8.8) * 2.0;
       const p = project(cam, wx, wy, z);
       const f = fog(z, cam);
       if (p.y < -20 || p.y > h + 20 || p.x < -30 || p.x > w + 30) continue;
 
       if (weather === "ember") {
-        ctx.fillStyle = rgba(220 + n * 30, 90 + n * 70, 40, 0.25 + f * 0.4);
+        const a = 0.22 + f * 0.4 + heat * 0.08;
+        ctx.fillStyle = rgba(220 + n * 30, 90 + n * 70, 40, a);
         ctx.beginPath();
         ctx.arc(p.x, p.y, (1 + n * 2) * f + heat * 0.3, 0, Math.PI * 2);
         ctx.fill();
+        if (n > 0.7) {
+          ctx.fillStyle = rgba(255, 160, 60, a * 0.35);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, (3 + n * 2) * f, 0, Math.PI * 2);
+          ctx.fill();
+        }
       } else if (weather === "snow") {
         const sz = (1.1 + n * 1.8) * f;
         ctx.fillStyle = rgba(230, 240, 255, 0.28 + f * 0.45);
         ctx.fillRect(p.x, p.y, sz, sz);
+        if (n > 0.85) {
+          ctx.fillStyle = rgba(255, 255, 255, 0.35 * f);
+          ctx.fillRect(p.x - 0.5, p.y - 0.5, 1, 1);
+        }
       } else if (weather === "spores") {
-        ctx.fillStyle = rgba(ar, ag, ab, 0.08 + f * 0.16);
+        ctx.fillStyle = rgba(ar, ag, ab, 0.08 + f * 0.16 + pulse * 0.04);
         ctx.beginPath();
-        ctx.arc(p.x, p.y, (2.5 + n * 4.5) * f, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, (2.5 + n * 4.5) * f * (1 + pulse * 0.08), 0, Math.PI * 2);
         ctx.fill();
       } else if (weather === "sparks") {
-        ctx.strokeStyle = rgba(255, 190 + n * 50, 70, 0.35 + f * 0.35);
-        ctx.lineWidth = Math.max(0.7, f);
+        ctx.strokeStyle = rgba(255, 190 + n * 50, 70, 0.35 + f * 0.35 + heat * 0.1);
+        ctx.lineWidth = Math.max(0.7, f * (1 + heat * 0.3));
         ctx.beginPath();
         ctx.moveTo(p.x, p.y);
         ctx.lineTo(p.x + (n - 0.5) * 8 * f, p.y - (8 + n * 12) * f);
@@ -374,7 +531,7 @@
         ctx.lineTo(p.x + 2.5 * f, p.y + (9 + n * 10) * f);
         ctx.stroke();
       } else if (weather === "static") {
-        if (((t * 20) | 0) % 9 === 0 && i < 10) {
+        if (((t * 20) | 0) % 9 === 0 && i < 12) {
           ctx.fillStyle = rgba(ar, ag, ab, 0.045);
           ctx.fillRect(p.x, p.y, 24 + n * 40, 1.5);
         }
@@ -469,15 +626,20 @@
       ctx.globalCompositeOperation = "source-over";
     }
 
-    const body = ctx.createRadialGradient(cx + lx * r, cy + ly * r, r * 0.05, cx, cy, r);
-    body.addColorStop(0, planetCols[0]);
-    body.addColorStop(0.3, planetCols[0]);
-    body.addColorStop(0.68, planetCols[1]);
-    body.addColorStop(1, planetCols[2]);
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = body;
-    ctx.fill();
+    const planetBake = ensurePlanetBody(planetCols);
+    if (planetBake) {
+      ctx.drawImage(planetBake, cx - r, cy - r, r * 2, r * 2);
+    } else {
+      const body = ctx.createRadialGradient(cx + lx * r, cy + ly * r, r * 0.05, cx, cy, r);
+      body.addColorStop(0, planetCols[0]);
+      body.addColorStop(0.3, planetCols[0]);
+      body.addColorStop(0.68, planetCols[1]);
+      body.addColorStop(1, planetCols[2]);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = body;
+      ctx.fill();
+    }
 
     ctx.save();
     ctx.beginPath();
@@ -638,15 +800,7 @@
     }
   }
 
-  function draw(opts) {
-    const ctx = opts.ctx;
-    const w = opts.w;
-    const h = opts.h;
-    const t = opts.t;
-    const th = opts.theme || {};
-    const pulse = opts.pulse || 0;
-    const heat = opts.heat || 0;
-    const trip = opts.trip == null ? 0.55 : opts.trip;
+  function drawScene(ctx, w, h, t, th, pulse, heat, trip, opts) {
     const skyCols = th.sky || ["#0b1018", "#07090f", "#04050a"];
     const planetCols = th.planet || ["#ffffff", "#7b93bc", "#1b2433"];
     const accent = th.accent || [210, 225, 255];
@@ -655,18 +809,9 @@
     const needle = th.needle || "#101624";
     const edge = th.edge || "rgba(160,190,230,0.18)";
 
-    const sky = ctx.createLinearGradient(0, 0, 0, h);
-    sky.addColorStop(0, skyCols[0]);
-    sky.addColorStop(0.42, skyCols[1]);
-    sky.addColorStop(1, skyCols[2]);
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, w, h);
-
-    const well = ctx.createRadialGradient(cam.vpX, cam.vpY * 0.85, h * 0.12, w * 0.5, h * 0.55, h);
-    well.addColorStop(0, "rgba(0,0,0,0)");
-    well.addColorStop(1, "rgba(0,0,0,0.42)");
-    ctx.fillStyle = well;
-    ctx.fillRect(0, 0, w, h);
+    const base = ensureBasePlate(w, h, skyCols, cam);
+    if (base) ctx.drawImage(base, 0, 0);
+    else paintBasePlate(ctx, w, h, skyCols, cam);
 
     // Place the light early so ground/ridges can use it.
     const orbZ = 5.4;
@@ -693,7 +838,7 @@
 
     drawRidges(ctx, cam, w, t, needle, edge, accent, light);
     drawDebris(ctx, cam, t, accent, trip, light);
-    drawWeather(ctx, cam, w, h, t, heat, th.weather || "shards", accent);
+    drawWeather(ctx, cam, w, h, t, heat, th.weather || "shards", accent, pulse);
 
     for (let i = 0; i < 6; i++) {
       const a = t * 0.28 + i * 1.05;
@@ -712,12 +857,16 @@
     }
 
     if (opts.floorShade !== false) {
-      const shadeG = ctx.createLinearGradient(0, h * 0.8, 0, h);
-      shadeG.addColorStop(0, "rgba(8,10,16,0)");
-      shadeG.addColorStop(0.5, "rgba(8,10,16,0.28)");
-      shadeG.addColorStop(1, "rgba(8,10,16,0.68)");
-      ctx.fillStyle = shadeG;
-      ctx.fillRect(0, h * 0.8, w, h * 0.2);
+      const floor = ensureFloorShade(w, h);
+      if (floor) ctx.drawImage(floor, 0, h * 0.8);
+      else {
+        const shadeG = ctx.createLinearGradient(0, h * 0.8, 0, h);
+        shadeG.addColorStop(0, "rgba(8,10,16,0)");
+        shadeG.addColorStop(0.5, "rgba(8,10,16,0.28)");
+        shadeG.addColorStop(1, "rgba(8,10,16,0.68)");
+        ctx.fillStyle = shadeG;
+        ctx.fillRect(0, h * 0.8, w, h * 0.2);
+      }
     }
 
     if (opts.bolt !== false) {
@@ -748,14 +897,57 @@
     }
 
     if (trip > 0.5) {
-      const wash = ctx.createLinearGradient(0, 0, w, h);
-      wash.addColorStop(0, rgba(ar, 50, 80, 0.02 + trip * 0.02));
-      wash.addColorStop(0.5, "rgba(0,0,0,0)");
-      wash.addColorStop(1, rgba(50, ag, ab, 0.02 + trip * 0.02));
-      ctx.fillStyle = wash;
-      ctx.fillRect(0, 0, w, h);
+      const wash = ensureTripWash(w, h, ar, ag, ab, trip);
+      if (wash) ctx.drawImage(wash, 0, 0);
+      else {
+        const g = ctx.createLinearGradient(0, 0, w, h);
+        g.addColorStop(0, rgba(ar, 50, 80, 0.02 + trip * 0.02));
+        g.addColorStop(0.5, "rgba(0,0,0,0)");
+        g.addColorStop(1, rgba(50, ag, ab, 0.02 + trip * 0.02));
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, w, h);
+      }
     }
   }
 
-  window.SURGE_VOID = { draw, frac, hexToRgb };
+  function themeStamp(th) {
+    const sky = th.sky || [];
+    const accent = th.accent || [];
+    return (sky[0] || "") + "|" + (sky[2] || "") + "|" + (accent[0] | 0) + "," + (accent[1] | 0) + "," + (accent[2] | 0) + "|" + (th.weather || "") + "|" + (th.needle || "");
+  }
+
+  function draw(opts) {
+    const ctx = opts.ctx;
+    const w = opts.w;
+    const h = opts.h;
+    const t = opts.t;
+    const th = opts.theme || {};
+    const pulse = opts.pulse || 0;
+    const heat = opts.heat || 0;
+    const trip = opts.trip == null ? 0.55 : opts.trip;
+    // Title / idle: reuse a full sky frame while dim/theme is unchanged, refresh ~20Hz.
+    const reuseMs = opts.reuseMs || 0;
+    if (reuseMs > 0) {
+      const stamp = (t * (1000 / reuseMs)) | 0;
+      const key = w + "x" + h + ":" + themeStamp(th) + ":" + ((trip * 20) | 0);
+      if (LAYER.frame && LAYER.frameKey === key && LAYER.frameStamp === stamp) {
+        ctx.drawImage(LAYER.frame, 0, 0);
+        return;
+      }
+      const buf = reuseCanvas(LAYER.frame, w, h);
+      if (buf) {
+        const g = buf.getContext("2d");
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        drawScene(g, w, h, t, th, pulse, heat, trip, opts);
+        LAYER.frame = buf;
+        LAYER.frameKey = key;
+        LAYER.frameStamp = stamp;
+        ctx.drawImage(buf, 0, 0);
+        return;
+      }
+    }
+    drawScene(ctx, w, h, t, th, pulse, heat, trip, opts);
+  }
+
+  window.SURGE_VOID = { draw, frac, hexToRgb, invalidate };
 })();

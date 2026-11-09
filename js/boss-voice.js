@@ -4,12 +4,12 @@
     1: {
       name: "NULL", color: "#d2e1ff", ink: "#fff6e8",
       hi: "You made it. I didn't bet on that.",
-      close: "No no. Stay back. I'm throwing it.",
+      close: "Stay back. The flames have the door.",
       bored: "Thirty seconds. Get off my door.",
       fall: "Not by you. Way over there.",
       tired: "I can't. I'm done.",
       back: "I got scared.",
-      shots: ["One square. Step.", "Two. Don't pick both.", "Three ways. All rude.", "Coming down beside you.", "Not your tile. Close.", "Gap's there. Use it.", "Low ones. Jump.", "Circle. Leave the hole.", "Ahead of your feet.", "Last one. It's ugly."],
+      shots: ["One square. It weaves.", "Don't catch both.", "A whole fan. Sorry.", "From up here.", "Not your tile. Close.", "The gap. Use it.", "Low ones. Jump.", "Leave the hole.", "I'm dropping it.", "This one's ugly."],
       dead: ["you ate that.", "both got you.", "you picked wrong.", "it came down.", "you stood in it.", "the gap was open.", "too low. jump.", "the circle closed.", "I dropped it.", "you ate that."],
     },
     2: {

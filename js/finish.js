@@ -557,22 +557,57 @@
 
   add("landing-ring", (ctx, s) => {
     if (!(s.land > 0.08)) return;
-    ctx.globalAlpha = s.land * 0.7;
-    ctx.strokeStyle = "#f4ead8";
+    const c = s.accent || [244, 234, 216];
+    ctx.globalAlpha = s.land * 0.75;
+    ctx.strokeStyle = "rgb(" + (c[0] | 0) + "," + (c[1] | 0) + "," + (c[2] | 0) + ")";
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
     ctx.arc(s.w * 0.5, s.h * 0.78, 10 + (1 - s.land) * 26, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.globalAlpha = s.land * 0.28;
+    ctx.beginPath();
+    ctx.arc(s.w * 0.5, s.h * 0.78, 4 + (1 - s.land) * 14, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 1;
     ctx.globalAlpha = 1;
   });
 
   add("jump-wisp", (ctx, s) => {
     if (!(s.jump > 0.08)) return;
-    ctx.globalAlpha = s.jump * 0.6;
-    ctx.fillStyle = "#ffd27a";
-    ctx.fillRect(s.w * 0.48, s.h * 0.7, 3, 8 * s.jump);
-    ctx.fillRect(s.w * 0.52, s.h * 0.72, 3, 6 * s.jump);
+    const c = s.accent || [255, 210, 122];
+    ctx.globalAlpha = s.jump * 0.65;
+    ctx.fillStyle = "rgb(" + (c[0] | 0) + "," + (c[1] | 0) + "," + (c[2] | 0) + ")";
+    ctx.fillRect(s.w * 0.48, s.h * 0.7, 3, 10 * s.jump);
+    ctx.fillRect(s.w * 0.52, s.h * 0.72, 3, 7 * s.jump);
+    ctx.fillRect(s.w * 0.5 - 1, s.h * 0.68, 2, 5 * s.jump);
     ctx.globalAlpha = 1;
   });
+
+  add("fall-smear", (ctx, s) => {
+    if (s.mode !== "play" || s.ground || s.vy < 7 || reduced) return;
+    const k = Math.min(1, (s.vy - 7) / 6);
+    ctx.globalAlpha = 0.12 + k * 0.18;
+    ctx.strokeStyle = "#f4ead8";
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 5; i++) {
+      const x = s.w * (0.4 + i * 0.05);
+      ctx.beginPath();
+      ctx.moveTo(x, s.h * 0.5);
+      ctx.lineTo(x, s.h * 0.5 + 14 + k * 18);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }, true);
+
+  add("beat-rim", (ctx, s) => {
+    if (s.mode !== "play" || reduced || !(s.shake > 0.5 || s.flash > 0.04 || s.land > 0.2)) return;
+    const a = Math.min(0.22, (s.shake || 0) * 0.02 + (s.flash || 0) * 0.35 + (s.land || 0) * 0.12);
+    const c = s.accent || [227, 27, 27];
+    ctx.strokeStyle = "rgba(" + (c[0] | 0) + "," + (c[1] | 0) + "," + (c[2] | 0) + "," + a + ")";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(4, 4, s.w - 8, s.h - 8);
+    ctx.lineWidth = 1;
+  }, true);
 
   function paint(ctx, s) {
     if (!ctx || !s || s.mode === "creator") return;

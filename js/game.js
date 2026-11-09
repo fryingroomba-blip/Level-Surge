@@ -6,6 +6,13 @@
   let VIEW_W = 960;
   let VIEW_H = 540;
   const FIXED = 1 / 60;
+  // Scratch boxes reused on hit/draw hot paths so boss fights don't allocate every frame.
+  const HIT = { x: 0, y: 0, w: 0, h: 0 };
+  const HAND_PT = { x: 0, y: 0 };
+  const RIBBON_N = 10;
+  const RIBBON_PTS = [];
+  for (let ri = 0; ri <= RIBBON_N; ri++) RIBBON_PTS.push({ x: 0, y: 0, nx: 0, ny: 0, w: 0 });
+  const SIDE_PAIR = [-1, 1];
   const ACTIONS = new Set([
     "hole", "fill", "spikes", "clearRowHazards", "shake", "say", "sfx",
     "reverse", "gravity", "moveDoor", "chase", "saw", "queue",
@@ -27,14 +34,25 @@
 
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
+  const lightCookieCache = new Map();
+  let brickShadeBake = null;
+  const doorGradCache = { key: "", aura: null, panel: null, x: 0, y: 0 };
 
   function fitCanvas() {
     const rect = canvas.getBoundingClientRect();
+    // Cap DPR at 2 — keep retina sharpness without 3x pixel blowups.
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    VIEW_W = Math.max(640, Math.floor(rect.width * dpr));
-    VIEW_H = Math.max(360, Math.floor(rect.height * dpr));
+    const nextW = Math.max(640, Math.floor(rect.width * dpr));
+    const nextH = Math.max(360, Math.floor(rect.height * dpr));
+    if (nextW === VIEW_W && nextH === VIEW_H && canvas.width === nextW && canvas.height === nextH) return;
+    VIEW_W = nextW;
+    VIEW_H = nextH;
     canvas.width = VIEW_W;
     canvas.height = VIEW_H;
+    if (window.SURGE_VOID && window.SURGE_VOID.invalidate) window.SURGE_VOID.invalidate();
+    brickShadeBake = null;
+    lightCookieCache.clear();
+    doorGradCache.key = "";
   }
   fitCanvas();
   window.addEventListener("resize", fitCanvas);
@@ -58,6 +76,27 @@
 
   const keys = new Set();
   const hold = { left: false, right: false, jump: false, dash: false };
+  const BIND_DEFAULTS = {
+    left: ["ArrowLeft", "KeyA"],
+    right: ["ArrowRight", "KeyD"],
+    jump: ["Space", "ArrowUp", "KeyW"],
+    dash: ["ShiftLeft", "ShiftRight"],
+    retry: ["KeyR"],
+    pause: ["Escape"],
+    mute: ["KeyM"],
+  };
+  const BIND_LABELS = {
+    left: "LEFT",
+    right: "RIGHT",
+    jump: "JUMP",
+    dash: "DASH",
+    retry: "RETRY",
+    pause: "PAUSE",
+    mute: "MUTE",
+  };
+  let binds = null;
+  let bindCapture = null;
+  let settingsReturn = "title";
   const dimNameEl = document.getElementById("dim-name");
   const pipsEl = document.getElementById("room-pips");
   const shardHud = document.getElementById("shard-hud");
@@ -244,7 +283,8 @@
       else ch = [rootHz, rootHz * 1.189, rootHz * 1.498, rootHz * 2];
       const ctx = { step, t, bar, s, rootHz, ch, track, heat, scale: track.scale || [0, 2, 3, 5, 7], motif: track.motif || [0, 2, 4, 5] };
       if (this.theme && this.theme.boss && !this.theme.final) {
-        this._trk.bossRush.call(this, ctx);
+        if (this.theme.rage) this._trk.bossRage.call(this, ctx);
+        else this._trk.bossRush.call(this, ctx);
         return;
       }
       if (this.theme && this.theme.boss) this.playBossBed(ctx);
@@ -301,6 +341,33 @@
           this.voice(f, t, 0.07, "square", bar % 2 ? 0.055 : 0.04);
         }
         if (bar % 4 === 3 && s >= 12) this.noiseHit(t, 0.16, 0.1, 400 + (s - 12) * 900);
+      },
+      // Enrage. Same boss, meaner: double kicks, a snarled bass, no air in the hats.
+      bossRage(c) {
+        const t = c.t;
+        const s = c.s;
+        const bar = c.bar;
+        const root = 220;
+        if (s % 2 === 0) {
+          this.voice(s % 4 === 0 ? 150 : 96, t, 0.07, "sine", 0.5, 55);
+          this.noiseHit(t, 0.03, 0.12, 140);
+        }
+        if (s === 4 || s === 10 || s === 12) {
+          this.noiseHit(t, 0.07, 0.28, 2400);
+          this.voice(310, t, 0.04, "square", 0.07, 40);
+        }
+        this.noiseHit(t, 0.015, 0.05, 9800);
+        if (s % 4 === 2) this.noiseHit(t, 0.04, 0.07, 5200);
+        const bass = [0, 1, 0, 3, 0, 6, 7, 0];
+        const f = this.hzFrom(root, bass[s % bass.length] - 12);
+        this.voice(f, t, 0.09, "sawtooth", 0.16);
+        this.voice(f * 0.99, t, 0.08, "square", 0.05);
+        if (s % 2 === 0) {
+          const lead = [12, 15, 19, 15, 22, 19, 15, 12];
+          const lf = this.hzFrom(root, lead[((s / 2) + bar * 2) % lead.length]);
+          this.voice(lf, t, 0.06, "square", 0.07);
+        }
+        if (bar % 2 === 1 && s >= 12) this.noiseHit(t, 0.12, 0.14, 500 + (s - 12) * 1400);
       },
       voidAmbient(c) {
         const { t, s, bar, ch, rootHz, motif } = c;
@@ -730,6 +797,14 @@
         this.beep(620, 0.05, "square", 0.05, 240);
         this.noise(0.05, 0.07, 1700);
       }
+      if (name === "bossTell") {
+        this.beep(740, 0.07, "sine", 0.04, 420);
+        this.noise(0.04, 0.03, 2200);
+      }
+      if (name === "bossHeavy") {
+        this.beep(150, 0.18, "sawtooth", 0.07, 55);
+        this.noise(0.12, 0.08, 280);
+      }
       if (name === "bossFall") {
         this.beep(280, 0.42, "sawtooth", 0.07, 50);
         this.noise(0.28, 0.12, 420);
@@ -980,6 +1055,10 @@
   let levelIndex = 0;
   let deaths = 0;
   let startedAt = 0;
+  let clockOut = 0;
+  let clockOutAt = 0;
+  let timerShown = "";
+  let pipMark = "";
   let acc = 0;
   let last = 0;
   let deathTimer = 0;
@@ -1002,6 +1081,7 @@
   let nearCool = 0;
   let introT = 0;
   let dimIntro = 0;
+  let roomFade = 0;
   let clearBloom = 0;
   let lastView = { scale: 1, ox: 0, oy: 0, rot: 0 };
   let camSmoothX = null;
@@ -1009,7 +1089,6 @@
   let runTraps = 0;
   let dimIndex = 1;
   let shardsGot = 0;
-  let deathGhost = null;
   let dashCool = 0;
   let dashT = 0;
   let dashDir = 1;
@@ -1038,11 +1117,15 @@
     try { if (encoded) localStorage.setItem(SAVE_KEY, encoded); } catch (_) { /* quota */ }
     return next;
   }
+  let themeCacheKey = "";
+  let themeCacheVal = null;
   function currentTheme() {
     const pack = window.SURGE_WORLDS;
     const cycling = (mode === "title" || mode === "levels") && dimIntro <= 0;
     const d = cycling ? 1 + Math.floor(performance.now() / 9000) % 20 : dimIndex;
-    return pack ? pack.theme(d) : {
+    const key = (cycling ? "c" : "p") + d;
+    if (themeCacheKey === key && themeCacheVal) return themeCacheVal;
+    const th = pack ? pack.theme(d) : {
       name: "NULLSCAPE", lore: "", weather: "shards", bpm: 128, root: 92.5,
       sky: ["#0b1018", "#07090f", "#04050a"],
       planet: ["#ffffff", "#7b93bc", "#1b2433"],
@@ -1050,6 +1133,9 @@
       accent: [210, 225, 255], mul: "rgba(70,90,120,0.45)",
       brick: ["#4a4038", "#cfc1aa"],
     };
+    themeCacheKey = key;
+    themeCacheVal = th;
+    return th;
   }
 
   function unlockLevel(i) {
@@ -1074,7 +1160,6 @@
     audio.setTheme(dimIndex);
     audio.restartMusic();
     shardsGot = 0;
-    deathGhost = null;
     dimIntro = testMode ? 0 : 2.4;
     const th = pack ? pack.theme(dimIndex) : currentTheme();
     if (dimCard) {
@@ -1164,8 +1249,11 @@
     world.nullBeams = [];
     world.bossFog = 0;
     world.bossSpikes = {};
+    world.bossZones = [];
     world.bossCast = false;
     world.bossCause = "";
+    world.scenery = [];
+    world.fore = [];
     lockTimer = 0;
     slowmo = 1;
     stickyNext = 0;
@@ -1189,6 +1277,7 @@
     world.gravity = def.gravity || 0.55;
     world.shake = 0;
     world.flash = 0;
+    world.whiteFlash = 0;
     world.jumped = false;
     world.maxX = 0;
     world.still = 0;
@@ -1227,15 +1316,15 @@
       world.boss = {
         dim,
         x: dim === 1 ? world.cols * TILE * 0.5 : Math.max(120, Math.min(Math.max(120, world.cols * TILE - 120), world.door.x + 16)),
-        y: dim === 1 ? 88 : Math.max(96, world.door.y - 130),
+        y: dim === 1 ? 88 : 42,
         attack: 0,
         lastDoorX: world.door.x,
         moves: 0,
-        goal: dim === 1 ? 32 : (window.SURGE_WORLDS && window.SURGE_WORLDS.bossDoorMoves
+        goal: dim === 1 ? 7 : (window.SURGE_WORLDS && window.SURGE_WORLDS.bossDoorMoves
           ? window.SURGE_WORLDS.bossDoorMoves(dim) : 7),
-        phase: dim === 1 && !useBot ? "intro" : "fight",
+        phase: !useBot ? "intro" : "fight",
         mood: 0,
-        atkCd: 0.42,
+        atkCd: dim === 1 ? 0.85 : 0.42,
         doorCd: 0.38,
         tell: null,
         beat: 0,
@@ -1249,18 +1338,22 @@
         saidHi: false,
         saidClose: false,
         saidBored: false,
+        fightAt: useBot ? 0 : null,
         wander: 0,
         wanderY: 110,
         wanderUntil: 0,
         slip: 0,
         face: dim === 1 ? "sleep" : "fight",
         gaze: 0,
-        bars: dim === 1 && !useBot ? 1 : 0,
+        bars: !useBot ? 1 : 0,
         flash: 0,
         introT: 0,
         nvx: 1.7,
         nvy: 0,
         hot: false,
+        raged: false,
+        rageAge: 0,
+        rageFire: 0,
         snatch: null,
         drive: null,
         wave: null,
@@ -1274,11 +1367,22 @@
         fog: 0,
         safeX: 0,
         safeW: 0,
+        band: "open",
+        arrive: dim === 1 ? 0 : 1.05,
+        rush: null,
+        echo: null,
+        look: dim === 1 ? "null" : "",
       };
+      if (dim !== 1 && window.SURGE_BOSS_KITS && window.SURGE_BOSS_KITS.kit) {
+        const kit = window.SURGE_BOSS_KITS.kit(dim);
+        if (kit) world.boss.look = kit.look || "";
+      }
       world.nullBeams = [];
+      world.bossZones = [];
       world.bossFog = 0;
     }
     syncBossMusic(def);
+    buildRoomScenery();
     if (toastEl) {
       toastEl.classList.remove("show", "whisper", "death");
       toastEl.textContent = "";
@@ -1295,10 +1399,13 @@
     updatePips();
     if (deathsEl) deathsEl.textContent = `☠ ${deaths}`;
     introT = testMode ? 0 : (dimIntro > 0.5 ? dimIntro + 0.9 : 1.05);
+    roomFade = testMode ? 0 : 0.72;
     clearBloom = 0;
     combo = 0;
     comboTimer = 0;
     if (!testMode) unlockLevel(i);
+    timerShown = "";
+    releaseClock();
     updateHud();
     updateComboHud();
   }
@@ -1316,7 +1423,14 @@
         trapCountEl.textContent = "????";
       }
     }
-    if (timerEl) timerEl.textContent = world.time.toFixed(1);
+    if (timerEl) {
+      const label = world.time.toFixed(1);
+      if (label !== timerShown) {
+        timerShown = label;
+        timerEl.textContent = label;
+      }
+    }
+    if (dashBtn && dimIndex >= 3) dashBtn.classList.toggle("cooling", dashCool > 0);
     if (deathsEl) deathsEl.textContent = `☠ ${deaths}`;
     if (shardHud) {
       if (shardsGot > 0) {
@@ -1330,8 +1444,11 @@
 
   function updatePips() {
     if (!pipsEl || !window.LEVELS) return;
-    pipsEl.innerHTML = "";
     const n = window.LEVELS.length;
+    const mark = dimIndex + ":" + levelIndex + ":" + n;
+    if (pipMark === mark && pipsEl.childElementCount === n) return;
+    pipMark = mark;
+    pipsEl.innerHTML = "";
     for (let i = 0; i < n; i++) {
       const d = document.createElement("i");
       if (i < levelIndex) d.className = "done";
@@ -1370,8 +1487,44 @@
     dashT = 0;
     dashDir = 1;
     dashHeld = false;
+    player.lean = 0;
+    player.bob = 0;
+    player.visSq = 0;
+    player.anim = 0;
+    player.airTime = 0;
     world.still = 0;
     world.squash = 0;
+  }
+
+  function parkClock() {
+    if (!clockOutAt) clockOutAt = performance.now();
+  }
+
+  function releaseClock() {
+    if (!clockOutAt) return;
+    clockOut += performance.now() - clockOutAt;
+    clockOutAt = 0;
+  }
+
+  function runSeconds() {
+    let extra = clockOut;
+    if (clockOutAt) extra += performance.now() - clockOutAt;
+    return Math.max(0, Math.round((performance.now() - startedAt - extra) / 1000));
+  }
+
+  function releaseInput() {
+    keys.clear();
+    hold.left = hold.right = hold.jump = hold.dash = false;
+    dashHeld = false;
+  }
+
+  function fadeStains() {
+    const blood = world.blood;
+    if (!blood || !blood.length) return;
+    for (let i = blood.length - 1; i >= 0; i--) {
+      blood[i].a -= FIXED * 0.045;
+      if (blood[i].a <= 0.05) blood.splice(i, 1);
+    }
   }
 
   function tileAt(px, py) {
@@ -1399,51 +1552,203 @@
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   }
 
+  const PART_POOL = [];
+  const RING_POOL = [];
+  const AFTER_POOL = [];
+  const SHOT_POOL = [];
+  const GHOST_POOL = [];
+  function allocPart() {
+    return PART_POOL.length ? PART_POOL.pop() : {};
+  }
+  function freePart(p) {
+    if (PART_POOL.length < 360) PART_POOL.push(p);
+  }
+  function allocRing() {
+    return RING_POOL.length ? RING_POOL.pop() : {};
+  }
+  function freeRing(r) {
+    if (RING_POOL.length < 40) RING_POOL.push(r);
+  }
+  function allocAfter() {
+    return AFTER_POOL.length ? AFTER_POOL.pop() : {};
+  }
+  function freeAfter(a) {
+    if (AFTER_POOL.length < 48) AFTER_POOL.push(a);
+  }
+  function allocShot() {
+    return SHOT_POOL.length ? SHOT_POOL.pop() : {};
+  }
+  function freeShot(s) {
+    if (SHOT_POOL.length < 64) SHOT_POOL.push(s);
+  }
+  function allocGhost() {
+    return GHOST_POOL.length ? GHOST_POOL.pop() : {};
+  }
+  function freeGhost(g) {
+    if (GHOST_POOL.length < 32) GHOST_POOL.push(g);
+  }
+  // Hot-path removal: swap with last then pop (avoids splice shifts).
+  function swapRemove(arr, i) {
+    const last = arr.length - 1;
+    const item = arr[i];
+    arr[i] = arr[last];
+    arr.pop();
+    return item;
+  }
+  function ensureBrickShade() {
+    if (brickShadeBake) return brickShadeBake;
+    if (typeof document === "undefined" || !document.createElement) return null;
+    const c = document.createElement("canvas");
+    if (!c.getContext) return null;
+    c.width = TILE;
+    c.height = TILE;
+    const g = c.getContext("2d");
+    const shade = g.createLinearGradient(0, 0, TILE, 0);
+    shade.addColorStop(0, "rgba(255,255,255,0.07)");
+    shade.addColorStop(0.45, "rgba(255,255,255,0)");
+    shade.addColorStop(1, "rgba(0,0,0,0.22)");
+    g.fillStyle = shade;
+    g.fillRect(0, 0, TILE, TILE);
+    brickShadeBake = c;
+    return c;
+  }
+  function lightCookie(r, g, b) {
+    const key = (r | 0) + "," + (g | 0) + "," + (b | 0);
+    let c = lightCookieCache.get(key);
+    if (c) return c;
+    if (typeof document === "undefined" || !document.createElement) return null;
+    const N = 128;
+    c = document.createElement("canvas");
+    if (!c.getContext) return null;
+    c.width = N;
+    c.height = N;
+    const x = c.getContext("2d");
+    const grd = x.createRadialGradient(N * 0.5, N * 0.5, N * 0.04, N * 0.5, N * 0.5, N * 0.5);
+    grd.addColorStop(0, "rgba(" + (r | 0) + "," + (g | 0) + "," + (b | 0) + ",1)");
+    grd.addColorStop(1, "rgba(" + (r | 0) + "," + (g | 0) + "," + (b | 0) + ",0)");
+    x.fillStyle = grd;
+    x.fillRect(0, 0, N, N);
+    if (lightCookieCache.size > 48) lightCookieCache.clear();
+    lightCookieCache.set(key, c);
+    return c;
+  }
+  function trimParticles() {
+    const bag = world.particles;
+    if (bag.length <= 280) return;
+    const drop = bag.length - 280;
+    for (let i = 0; i < drop; i++) freePart(bag[i]);
+    for (let i = 0; i < 280; i++) bag[i] = bag[i + drop];
+    bag.length = 280;
+  }
+
+  function fxAccent() {
+    return (currentTheme().accent || [210, 225, 255]);
+  }
+  function fxDustInk() {
+    const brick = (currentTheme().brick || ["#4a4038", "#cfc1aa"])[1] || "#c4b8a8";
+    return brick;
+  }
+  function fxAccentRgb(a) {
+    const c = fxAccent();
+    return `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a == null ? 0.85 : a})`;
+  }
+
   function burst(x, y, color, n, speed) {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       const s = speed * (0.28 + Math.random() * 0.85);
       const life = 0.26 + Math.random() * 0.38;
-      world.particles.push({
-        x, y,
-        vx: Math.cos(a) * s,
-        vy: Math.sin(a) * s - speed * 0.22,
-        drag: 0.94,
-        grav: 0.12,
-        life, max: life,
-        color,
-        size: 1.2 + Math.random() * 2.2,
-        kind: Math.random() < 0.7 ? "streak" : "spark",
-      });
+      const p = allocPart();
+      p.x = x; p.y = y;
+      p.vx = Math.cos(a) * s;
+      p.vy = Math.sin(a) * s - speed * 0.22;
+      p.drag = 0.94; p.grav = 0.12;
+      p.life = life; p.max = life;
+      p.color = color;
+      p.size = 1.2 + Math.random() * 2.2;
+      p.kind = Math.random() < 0.62 ? "streak" : (Math.random() < 0.55 ? "spark" : "mote");
+      p.rot = null; p.spin = 0;
+      world.particles.push(p);
     }
-    if (world.particles.length > 280) world.particles.splice(0, world.particles.length - 280);
+    trimParticles();
   }
 
   function shock(x, y, color) {
     if (!world.rings) world.rings = [];
     const ink = color || "rgba(244,234,216,0.75)";
-    if (world.rings.length > 24) world.rings.splice(0, world.rings.length - 24);
-    world.rings.push({ x, y, r: 3, vr: 240, drag: 0.78, life: 0.32, max: 0.32, w: 2.2, color: ink });
-    world.rings.push({ x, y, r: 2, vr: 96, drag: 0.9, life: 0.46, max: 0.46, w: 6, soft: true, color: ink });
+    while (world.rings.length > 22) freeRing(world.rings.shift());
+    const a = allocRing();
+    a.x = x; a.y = y; a.r = 3; a.vr = 240; a.drag = 0.78;
+    a.life = 0.32; a.max = 0.32; a.w = 2.2; a.soft = false; a.color = ink;
+    world.rings.push(a);
+    const b = allocRing();
+    b.x = x; b.y = y; b.r = 2; b.vr = 96; b.drag = 0.9;
+    b.life = 0.46; b.max = 0.46; b.w = 6; b.soft = true; b.color = ink;
+    world.rings.push(b);
   }
 
   function dust(x, y, n, kick) {
     kick = kick || 0;
+    const ink = fxDustInk();
+    const [ar, ag, ab] = fxAccent();
     for (let i = 0; i < n; i++) {
-      const life = 0.22 + Math.random() * 0.2;
-      world.particles.push({
-        x: x + (Math.random() - 0.5) * 10,
-        y,
-        vx: (Math.random() - 0.5) * 1.4 - kick * 0.8,
-        vy: -0.25 - Math.random() * 0.7,
-        drag: 0.9,
-        grav: 0.05,
-        life, max: life,
-        color: "#c4b8a8",
-        size: 1.4 + Math.random() * 1.6,
-        kind: "streak",
-      });
+      const life = 0.22 + Math.random() * 0.24;
+      const p = allocPart();
+      p.x = x + (Math.random() - 0.5) * 10;
+      p.y = y;
+      p.vx = (Math.random() - 0.5) * 1.4 - kick * 0.8;
+      p.vy = -0.25 - Math.random() * 0.7;
+      p.drag = 0.9; p.grav = 0.05;
+      p.life = life; p.max = life;
+      p.color = Math.random() < 0.22
+        ? `rgba(${ar},${ag},${ab},0.7)`
+        : ink;
+      p.size = 1.4 + Math.random() * 1.8;
+      p.kind = Math.random() < 0.75 ? "streak" : "mote";
+      p.rot = null; p.spin = 0;
+      world.particles.push(p);
     }
+    trimParticles();
+  }
+
+  function puff(x, y, n, color) {
+    const ink = color || fxAccentRgb(0.35);
+    for (let i = 0; i < n; i++) {
+      const life = 0.28 + Math.random() * 0.34;
+      const p = allocPart();
+      p.x = x + (Math.random() - 0.5) * 12;
+      p.y = y - Math.random() * 4;
+      p.vx = (Math.random() - 0.5) * 0.9;
+      p.vy = -0.35 - Math.random() * 0.55;
+      p.drag = 0.93; p.grav = -0.015;
+      p.life = life; p.max = life;
+      p.color = ink;
+      p.size = 3.5 + Math.random() * 5.5;
+      p.kind = "smoke";
+      p.rot = null; p.spin = 0;
+      world.particles.push(p);
+    }
+    trimParticles();
+  }
+
+  function ember(x, y, n) {
+    const [ar, ag, ab] = fxAccent();
+    for (let i = 0; i < n; i++) {
+      const life = 0.35 + Math.random() * 0.45;
+      const p = allocPart();
+      p.x = x + (Math.random() - 0.5) * 8;
+      p.y = y;
+      p.vx = (Math.random() - 0.5) * 0.7;
+      p.vy = -0.6 - Math.random() * 1.2;
+      p.drag = 0.96; p.grav = -0.03;
+      p.life = life; p.max = life;
+      p.color = `rgba(${Math.min(255, ar + 40)},${Math.min(255, ag + 20)},${ab | 0},0.9)`;
+      p.size = 1.2 + Math.random() * 1.8;
+      p.kind = "ember";
+      p.rot = null; p.spin = 0;
+      world.particles.push(p);
+    }
+    trimParticles();
   }
 
   function say(text) {
@@ -2576,7 +2881,8 @@
 
   function bossHoldsDoor() {
     const b = world.boss;
-    return !!(b && (b.dropping || b.snatch || b.phase === "intro" || b.phase === "rage" || b.phase === "fall" || b.phase === "boom"));
+    // Door stays shut for the whole fight. It only opens once the boss is gone.
+    return !!(b && b.phase !== "gone");
   }
 
   function bossBlastHits() {
@@ -2605,7 +2911,9 @@
     if (!v) return;
     if (b.say && b.say.age < b.say.life - 0.05 && !force) return;
     let text = "";
-    if (b.dim === 1 && NULL_SAY[kind]) text = NULL_SAY[kind];
+    const kits = window.SURGE_BOSS_KITS;
+    if (b.dim === 1 && NULL_SAY[kind]) text = nullPick(NULL_SAY[kind]);
+    else if (kits && kits.say && kits.say(b.dim, kind)) text = kits.say(b.dim, kind);
     else if (kind === "hi") text = v.hi;
     else if (kind === "close") text = v.close;
     else if (kind === "bored") text = v.bored;
@@ -2627,49 +2935,97 @@
   }
 
   const NULL_DEAD = {
-    spin: "the square got you.",
-    shot: "seven was a lot.",
-    pound: "you didn't jump.",
-    half: "wrong half.",
-    needles: "those lines.",
-    magnet: "I pulled. You stayed.",
-    drive: "should've jumped.",
-    shove: "off my door.",
-    storm: "the fog had gaps.",
-    pop: "it broke on you.",
+    spin: ["the oval got you.", "it slid into you.", "left, right, you.", "that bright one."],
+    shot: ["too many ovals.", "the burst got you.", "you ate the fan.", "eleven was rude."],
+    pound: ["you didn't jump.", "the slam. jump.", "feet stayed down."],
+    half: ["wrong half.", "that side. run.", "I lit your half."],
+    needles: ["those lines.", "the skinny ones.", "you stood in one."],
+    magnet: ["I pulled. You stayed.", "the pull won.", "come here failed."],
+    drive: ["should've jumped.", "I ran the floor.", "dash got your feet."],
+    shove: ["off my door.", "too close.", "I shoved. Sorry."],
+    storm: ["the fog had gaps.", "bright lane. missed.", "fog ate you."],
+    pop: ["it broke on you.", "the split got you.", "four more. oops."],
   };
   const NULL_SAY = {
-    spin: "Square. It's coming.",
-    shot: "Seven. Slip the middle.",
-    pound: "Down. Jump it.",
-    half: "That half. Run.",
-    needles: "Move. They follow slow.",
-    magnet: "Come here. Please don't.",
-    drive: "On the floor. Jump.",
-    shove: "Too close. Get off.",
-    storm: "Find the bright gap.",
-    pop: "This one breaks.",
+    hi: [
+      "You made it. I didn't bet on that.",
+      "Hi. I hoped the floor would end this.",
+      "Oh. You're actually here.",
+      "Wait. I know your jumps.",
+      "Don't walk up. I'm nervous.",
+      "I rehearsed a speech. Forgot it.",
+    ],
+    close: [
+      "No. Stay back. Door's going.",
+      "I'm throwing it. Look away.",
+      "Hands off. I mean that.",
+      "The flames have the door.",
+      "Not your door. Mine. Sorry.",
+    ],
+    bored: [
+      "Thirty seconds. Get off my door.",
+      "I counted to thirty. Move.",
+      "You've hugged that door long enough.",
+      "Thirty. I'm bored and scared.",
+    ],
+    fall: [
+      "Not by you. Way over there.",
+      "I put it somewhere rude.",
+      "Door's gone. Go find it.",
+      "Far side. I panicked.",
+    ],
+    tired: [
+      "I can't. I'm done.",
+      "Arms gave out. You win.",
+      "Okay. I quit. Happy?",
+      "I'm out of fire.",
+    ],
+    back: [
+      "I got scared.",
+      "That was mean. Sorry.",
+      "I flinched. You didn't.",
+      "My bad. Mostly.",
+    ],
   };
+
+  function nullPick(bag) {
+    if (!bag) return "";
+    if (typeof bag === "string") return bag;
+    const b = world.boss;
+    if (!b || !bag.length) return bag[0] || "";
+    let i = Math.floor(bossRand(b) * bag.length);
+    if (bag.length > 1 && bag[i] === b.lastLine) i = (i + 1) % bag.length;
+    b.lastLine = bag[i];
+    return bag[i];
+  }
   const NULL_IDS = ["spin", "shot", "pound", "half", "needles", "magnet", "drive", "pop", "storm", "shove"];
   const NULL_LASER = { half: 1, needles: 1, storm: 1 };
   const NULL_UNLOCK = [
     [0, "spin"], [0, "shot"], [0, "pop"],
-    [4, "pound"],
-    [8, "half"],
-    [12, "needles"],
-    [16, "magnet"],
-    [20, "drive"],
-    [24, "storm"],
-    [28, "shove"],
+    [2, "pound"],
+    [3, "half"],
+    [4, "needles"],
+    [5, "magnet"],
+    [6, "drive"],
+    [7, "storm"],
+    [8, "shove"],
   ];
-  const NULL_COOL = { shot: 3, pound: 45, magnet: 25, drive: 75, half: 150, needles: 15, storm: 60 };
+  const NULL_COOL = { shot: 4.5, pound: 60, magnet: 34, drive: 95, half: 180, needles: 22, storm: 80 };
 
   function bossDeathLine(cause) {
     const id = String(cause || "").replace(/^BOSS\s+/, "").toLowerCase();
     const d = (world.boss && world.boss.dim) || dimIndex || 1;
     const pack = window.SURGE_BOSS_VOICE;
     if (id === "boom") return "I fell on you.";
-    if (d === 1 && NULL_DEAD[id]) return NULL_DEAD[id];
+    const kits = window.SURGE_BOSS_KITS;
+    if (kits && kits.line) {
+      const kitLine = kits.line(d, id, true);
+      if (kitLine) return kitLine.length <= 22 ? kitLine : kitLine.slice(0, 22);
+    }
+    if (d === 1 && NULL_DEAD[id]) {
+      const text = nullPick(NULL_DEAD[id]);
+      return text.length <= 22 ? text : text.slice(0, 22);
+    }
     if (pack && pack.line) {
       const text = pack.line(d, id, true);
       if (text) return text.length <= 22 ? text : text.slice(0, 22);
@@ -2680,6 +3036,15 @@
   function bossRand(b) {
     b.seed = (Math.imul(b.seed || 1, 1664525) + 1013904223) >>> 0;
     return b.seed / 4294967296;
+  }
+
+  function bossReaching(b) {
+    if (!b || b.dim === 1 || !world.door) return false;
+    if (b.dropping) return true;
+    if (b.tell || b.rush || b.wave) return false;
+    if (world.bossZones && world.bossZones.length) return false;
+    if (world.bossShots && world.bossShots.length) return false;
+    return b.phase === "fight" && bossNearDoor() && b.doorCd < 0.55 && (b.moves || 0) < (b.goal || 1);
   }
 
   function bossNearDoor() {
@@ -2710,10 +3075,95 @@
     if (!pool.length && spec.loose) {
       pool = pads.filter((p) => Math.abs(p.x - spec.away) >= Math.min(6, spec.min) && Math.abs(p.x - doorTile) >= 1);
     }
+    if (!pool.length && spec.loose) {
+      // Last pad: farthest free tile from the player. The failsafe must fire.
+      pool = pads.filter((p) => Math.abs(p.x - doorTile) >= 1);
+      pool.sort((a, c) => Math.abs(c.x - spec.away) - Math.abs(a.x - spec.away));
+      return pool[0] || null;
+    }
     if (!pool.length) return null;
     pool.sort((a, c) => Math.abs(c.x - doorTile) - Math.abs(a.x - doorTile));
     const far = pool.slice(0, Math.max(1, Math.ceil(pool.length / 2)));
     return far[Math.floor(bossRand(b) * far.length)];
+  }
+
+  function bossFightAge(b) {
+    if (!b) return world.time;
+    if (b.phase === "intro") return 0;
+    // Cutscenes stamp fightAt when the movie ends. Tests and bot skips leave it null and use world.time.
+    if (b.fightAt == null) return world.time;
+    return Math.max(0, world.time - b.fightAt);
+  }
+
+  function bossBeginFight(b) {
+    if (!b) return;
+    b.phase = "fight";
+    b.fightAt = world.time;
+    b.bars = 0;
+    b.flash = 0;
+    // Cutscene lines stay in the cutscene. Fight starts quiet until enrage.
+    b.say = null;
+    b.saidHi = true;
+  }
+
+  // Thirty seconds into the fight: warn first, then the door leaves on a short fuse.
+  function bossArmBored(b) {
+    if (!b || b.saidBored) return;
+    b.saidBored = true;
+    bossTalk("bored", true);
+    b.doorCd = Math.max(b.doorCd || 0, 1.25);
+    b.attack = Math.max(b.attack || 0, 0.55);
+  }
+
+  function bossFailDrop(b) {
+    if (!b || b.dropping || b.moves >= b.goal) return false;
+    const away = (player.x + player.w / 2) / TILE;
+    const pad = bossPickPad(b, { away: away, min: 8, max: 16, loose: true });
+    if (!pad) {
+      b.doorCd = 0.2;
+      return false;
+    }
+    bossStartDrop(b, pad);
+    b.doorCd = 1.05;
+    return true;
+  }
+
+  function bossClearHazards(b) {
+    if (!b) return;
+    b.drive = null;
+    b.wave = null;
+    b.half = null;
+    b.rush = null;
+    b.tell = null;
+    b.snatch = null;
+    b.echo = null;
+    b.lane = null;
+    b.fog = 0;
+    b.safeW = 0;
+    world.nullBeams = [];
+    world.bossFog = 0;
+    world.magnet = null;
+    world.bossZones = [];
+    world.bossShots = [];
+    world.bossSpikes = {};
+    if (world.drops && world.drops.length) {
+      let n = 0;
+      for (let i = 0; i < world.drops.length; i++) {
+        if (world.drops[i].boss) continue;
+        if (n !== i) world.drops[n] = world.drops[i];
+        n += 1;
+      }
+      world.drops.length = n;
+    }
+    if (world.saws && world.saws.length) {
+      let n = 0;
+      for (let i = 0; i < world.saws.length; i++) {
+        if (world.saws[i].boss) continue;
+        if (n !== i) world.saws[n] = world.saws[i];
+        n += 1;
+      }
+      world.saws.length = n;
+    }
   }
 
   function bossMarkSpent(b) {
@@ -2723,6 +3173,8 @@
     b.rageUntil = world.time + 0.72;
     b.mood = 1;
     b.attack = Math.max(b.attack, 0.8);
+    // Null stops ticking fight logic in rage; freeze-clear so beams/drive can't softlock the door.
+    if (b.dim === 1) bossClearHazards(b);
     bossTalk("tired", true);
   }
 
@@ -2735,6 +3187,7 @@
       const final = ((def.dim || dimIndex) | 0) >= 20;
       audio.theme.boss = true;
       audio.theme.final = final;
+      audio.theme.rage = false;
       audio.theme.bpm = final ? Math.round((th.bpm || 128) * 0.78) : 174;
       audio.theme.root = final ? (th.root || 92.5) * 0.82 : 196;
       if (audio.drone && audio.ctx) {
@@ -2841,21 +3294,29 @@
   function bossSpawnShot(shot) {
     if (!world.bossShots) world.bossShots = [];
     const nullShot = NULL_IDS.indexOf(shot.kind) >= 0;
-    if (!nullShot && world.bossShots.length >= 16) world.bossShots.shift();
+    if (shot.kit) {
+      if (world.bossShots.length >= 24) return;
+    } else if (!nullShot && world.bossShots.length >= 16) {
+      freeShot(world.bossShots.shift());
+    }
     if (nullShot && world.bossShots.length >= 48) return;
-    const box = {
-      x: shot.x,
-      y: shot.y,
-      w: shot.w || 16,
-      h: shot.h || 16,
-      vx: shot.vx || 0,
-      vy: shot.vy || 0,
-      grav: shot.grav || 0,
-      life: shot.life == null ? 2.2 : shot.life,
-      delay: shot.delay || 0,
-      kind: shot.kind || "bolt",
-    };
-    if (rectsOverlap(player, box)) return;
+    const box = allocShot();
+    box.x = shot.x;
+    box.y = shot.y;
+    box.w = shot.w || 16;
+    box.h = shot.h || 16;
+    box.vx = shot.vx || 0;
+    box.vy = shot.vy || 0;
+    box.grav = shot.grav || 0;
+    box.life = shot.life == null ? 2.2 : shot.life;
+    box.maxLife = shot.life == null ? 2.2 : shot.life;
+    box.delay = shot.delay || 0;
+    box.kind = shot.kind || "bolt";
+    box.look = shot.look || "";
+    box.weave = shot.weave || 0;
+    box.kit = shot.kit || 0;
+    box.wob = 0;
+    if (rectsOverlap(player, box)) { freeShot(box); return; }
     world.bossShots.push(box);
   }
 
@@ -3025,13 +3486,32 @@
     if (!world.bossShots) world.bossShots = [];
     for (let i = world.bossShots.length - 1; i >= 0; i--) {
       const s = world.bossShots[i];
-      if (s.delay > 0) { s.delay -= FIXED; continue; }
+      if (s.delay > 0) {
+        s.delay -= FIXED;
+        if (s.delay <= 0 && rectsOverlap(player, s)) {
+          const push = player.w + s.w + 10;
+          s.x += (s.x + s.w / 2 >= player.x + player.w / 2) ? push : -push;
+        }
+        continue;
+      }
       s.vy += s.grav || 0;
-      s.x += s.vx;
-      s.y += s.vy;
+      if (s.weave) {
+        const age = (s.maxLife || 2.2) - s.life;
+        s.x += s.vx;
+        s.y += s.vy + Math.sin(age * 5.2) * 1.15;
+      } else if (s.kind === "spin") {
+        const age = 2.4 - s.life;
+        const wob = Math.sin(age * 6.5) * 48;
+        s.x += s.vx + (wob - (s.wob || 0));
+        s.wob = wob;
+        s.y += s.vy;
+      } else {
+        s.x += s.vx;
+        s.y += s.vy;
+      }
       s.life -= FIXED;
       if (s.life <= 0 || s.y > world.rows * TILE + 40 || s.x < -80 || s.x > world.cols * TILE + 80 || s.y < -120) {
-        world.bossShots.splice(i, 1);
+        freeShot(swapRemove(world.bossShots, i));
       }
     }
   }
@@ -3082,9 +3562,11 @@
     const py = player.y + player.h * 0.45;
     const floor = nullFloorY();
     const side = px < world.cols * TILE * 0.5 ? -1 : 1;
+    // Null used to snap attacks in under a beat. Give a real read.
+    const wind = b.hot ? 0.28 : 0.46;
     b.tell = {
       id,
-      until: world.time + (b.hot ? 0.1 : 0.16),
+      until: world.time + wind,
       px, py,
       feet: player.y + player.h - 10,
       face: Math.sign(player.vx) || player.facing || 1,
@@ -3104,7 +3586,7 @@
     if (!b.plan || b.planI >= b.plan.length) {
       if (b.plan && b.plan.length) {
         b.plan = null;
-        b.rest = b.hot ? 0.28 : 0.42;
+        b.rest = b.hot ? 0.55 : 0.9;
         return;
       }
       b.plan = nullBuildPlan(b);
@@ -3118,6 +3600,7 @@
 
   function nullAddBeam(x, w, warn, life, cause) {
     if (!world.nullBeams) world.nullBeams = [];
+    if (world.nullBeams.length >= 64) return;
     world.nullBeams.push({
       x: Math.max(0, x),
       w,
@@ -3145,8 +3628,10 @@
         life: 2.4, kind: "spin",
       });
     } else if (id === "shot") {
-      for (let i = -3; i <= 3; i++) {
-        const a = ang + i * 0.22;
+      const down = Math.PI / 2;
+      const spread = 140 * Math.PI / 180;
+      for (let i = 0; i < 11; i++) {
+        const a = down - spread / 2 + bossRand(b) * spread;
         bossSpawnShot({
           x: b.x - 8 + Math.cos(a) * 28,
           y: b.y - 8 + Math.sin(a) * 28,
@@ -3187,7 +3672,7 @@
     } else if (id === "drive") {
       const dir = tell.side || 1;
       const start = dir > 0 ? TILE * 2 : world.cols * TILE - TILE * 2;
-      b.drive = { t: 0, warn: b.hot ? 0.24 : 0.36, dir, x: start, live: false };
+      b.drive = { t: 0, warn: b.hot ? 0.55 : 0.78, dir, x: start, live: false };
       b.x = start;
     } else if (id === "pop") {
       bossSpawnShot({
@@ -3215,7 +3700,7 @@
     } else if (id === "shove") {
       nullShove(b);
     }
-    b.gap = b.hot ? 0.18 : 0.28;
+    b.gap = b.hot ? 0.4 : 0.62;
     const heavy = id === "pound" || id === "half" || id === "storm" || id === "drive";
     b.punch = Math.max(b.punch || 0, heavy ? 0.8 : 0.42);
     world.shake = Math.max(world.shake || 0, heavy ? 11 : 3);
@@ -3248,7 +3733,7 @@
           life: 1.3, kind: "shot",
         });
       }
-      shots.splice(i, 1);
+      swapRemove(shots, i);
     }
   }
 
@@ -3266,52 +3751,217 @@
           bm.blast = Math.min(1, bm.blast + FIXED * 4);
         }
         bm.life -= FIXED;
-        if (bm.life <= 0) list.splice(i, 1);
+        if (bm.life <= 0) swapRemove(list, i);
       }
+    }
+  }
+
+  function nullCue(b, key, text, life) {
+    if (b[key]) return;
+    b[key] = true;
+    const pack = window.SURGE_BOSS_VOICE;
+    if (!pack || !pack.voice) return;
+    const v = pack.voice(1);
+    if (!v) return;
+    b.say = {
+      text: text,
+      name: v.name,
+      color: v.color,
+      ink: v.ink,
+      life: life || 3.4,
+      age: 0,
+    };
+  }
+
+  // One opening per boss. Letterbox, feet locked, three lines, then a go line.
+  // The bubble is gone once the bars lift.
+  const BOSS_SCENE = {
+    2: { motion: "rise", lines: ["It's hot. That was the idea.", "Stay off the grate.", "This door cooks with me."], go: "Come get burned." },
+    3: { motion: "drop", lines: ["Cold. Don't touch the metal.", "I heard you slip.", "The door sticks. So will you."], go: "Move, or freeze." },
+    4: { motion: "swing", lines: ["Pretty, and it bites. Hi.", "Don't sniff the middle.", "The door's in my vines."], go: "Pick a fight." },
+    5: { motion: "swing", lines: ["You're late. Four seconds.", "I counted. You crawled.", "Not your minute."], go: "Tick. Your turn." },
+    6: { motion: "heave", lines: ["Ew. You came in anyway.", "I can hear you.", "That's my mouth. Out."], go: "Fine. I'm hungry." },
+    7: { motion: "right", lines: ["That's your face. Rude.", "Stop standing like me.", "Stop copying my door."], go: "I go first." },
+    8: { motion: "right", lines: ["No ticket. Keep walking.", "I don't brake for you.", "Door's in the tender."], go: "Express. Move." },
+    9: { motion: "drop", lines: ["Kssht. You're the noise.", "Hold still. Bad signal.", "Door's on the wrong channel."], go: "I'm not hanging up." },
+    10: { motion: "drop", lines: ["Rattling. You woke me.", "Bones first. Then you.", "Not your door, meat."], go: "Fetch. If you can." },
+    11: { motion: "left", lines: ["Careful. I crack easy.", "Don't tap the pane.", "Don't lean on it."], go: "I'm already cracked." },
+    12: { motion: "heave", lines: ["Hungry. You're not food. Yet.", "I can smell the door.", "Door's not for sale."], go: "Open wide. I mean me." },
+    13: { motion: "drop", lines: ["Buzzing. Don't grab live.", "The pole's awake.", "Hands off the live one."], go: "Your turn. It's hot." },
+    14: { motion: "rise", lines: ["Quiet in here. You aren't.", "I was mid hymn.", "I said quiet. Back."], go: "Hymn's over. Fight." },
+    15: { motion: "streak", lines: ["Too slow. I already left.", "I lapped this room.", "Way too close. Late."], go: "Try to keep up." },
+    16: { motion: "drop", lines: ["Boo. Sorry. Hi.", "I live in the corner.", "That's my square. Boo."], go: "Your move. I'm here." },
+    17: { motion: "rise", lines: ["Poke. That was hello.", "Points go up. You don't.", "Pointy door. Mine."], go: "Mind the points." },
+    18: { motion: "drop", lines: ["Bright. Squint or don't.", "I warmed the floor.", "You'll burn. Back up."], go: "Shade's the only friend." },
+    19: { motion: "left", lines: ["Which me. Both said hi.", "We unfold when we want.", "Both of us said no."], go: "We go together." },
+    20: { motion: "drop", lines: ["Last room. I'm nervous too.", "I saved the worst light.", "Please don't. Not yet."], go: "Okay. Last try." },
+  };
+
+  function sceneSay(b, text, life) {
+    const pack = window.SURGE_BOSS_VOICE;
+    const v = pack && pack.voice ? pack.voice(b.dim || 1) : null;
+    if (!v || !text) return;
+    b.say = {
+      text: text,
+      name: v.name,
+      color: v.color,
+      ink: v.ink,
+      life: life || 3.1,
+      age: 0,
+    };
+    b.saidHi = true;
+  }
+
+  function introStage() {
+    const fit = Math.min(world.cols, 32) * TILE + 36;
+    const focus = player.x + player.w / 2;
+    const lw = world.cols * TILE;
+    let left = 0;
+    let right = lw;
+    if (world.cols > 32) {
+      left = focus - fit * 0.38;
+      const maxCam = Math.max(0, lw - fit);
+      if (left < 0) left = 0;
+      if (left > maxCam) left = maxCam;
+      right = left + fit;
+    }
+    const doorX = world.door ? world.door.x + 16 : (left + right) / 2;
+    const dir = Math.sign(doorX - focus) || 1;
+    let x = focus + dir * Math.min(240, fit * 0.28);
+    const pad = 110;
+    if (x < left + pad) x = left + pad;
+    if (x > right - pad) x = right - pad;
+    return { x: x, left: left, right: right, doorX: doorX, sky: 86 };
+  }
+
+  function placeIntro(b, motion, k, stage) {
+    const ease = 1 - Math.pow(1 - Math.max(0, Math.min(1, k)), 3);
+    const sky = stage.sky;
+    const floor = world.door ? world.door.y - 8 : 260;
+    const home = stage.x;
+    const span = Math.min(170, (stage.right - stage.left) * 0.2);
+    if (motion === "rise") {
+      b.x = home;
+      b.y = floor + (sky - floor) * ease;
+    } else if (motion === "heave") {
+      b.x = home + Math.sin(k * 9) * 12;
+      b.y = floor + 24 + (sky - floor - 24) * ease;
+    } else if (motion === "swing") {
+      b.x = home + Math.sin(k * Math.PI) * span;
+      b.y = sky - 24 + ease * 24;
+    } else if (motion === "left") {
+      b.x = (stage.left - 36) + (home - (stage.left - 36)) * ease;
+      b.y = sky;
+    } else if (motion === "right") {
+      b.x = (stage.right + 36) + (home - (stage.right + 36)) * ease;
+      b.y = sky;
+    } else if (motion === "streak") {
+      b.x = (stage.left - 80) + (home - (stage.left - 80)) * Math.min(1, ease * 1.4);
+      b.y = sky + 6;
+    } else {
+      b.x = home;
+      b.y = -48 + (sky + 48) * ease;
+    }
+  }
+
+  function tickKitIntro(b) {
+    b.introT += FIXED;
+    const u = b.introT;
+    const scene = BOSS_SCENE[b.dim] || BOSS_SCENE[2];
+    const stage = introStage();
+    const marks = [1.35, 3.7, 6.2];
+    for (let i = 0; i < marks.length; i++) {
+      if (u > marks[i] && !b["said" + i]) {
+        b["said" + i] = true;
+        sceneSay(b, scene.lines[i], 2.9);
+      }
+    }
+    if (u < 2.7) {
+      const k = u / 2.7;
+      b.face = "look";
+      b.bars = u < 0.35 ? 1 : Math.max(0.2, 1 - (u - 0.35) * 1.05);
+      b.flash = Math.max(0, 0.75 - u);
+      placeIntro(b, scene.motion, k, stage);
+      b.gaze = Math.sign(stage.x - b.x) || 1;
+      if (u > 0.4 && !b.heardIn) { b.heardIn = true; audio.play("bossIn"); }
+    } else if (u < 5.4) {
+      b.face = "look";
+      b.bars = 0.2;
+      b.flash = 0;
+      const toward = (player.x + player.w / 2) > b.x ? 1 : -1;
+      b.gaze = toward;
+      b.x += ((stage.x - toward * 28) - b.x) * 0.08;
+      b.y += ((stage.sky - 6) - b.y) * 0.08;
+    } else if (u < 8.3) {
+      b.face = "scared";
+      b.bars = 0.18;
+      b.attack = 0.88;
+      const lean = Math.sign(stage.doorX - stage.x) || 1;
+      b.gaze = lean;
+      b.x += ((stage.x + lean * 64) - b.x) * 0.07;
+      b.y += ((stage.sky - 14) - b.y) * 0.08;
+    } else if (u < 10.6) {
+      const k = (u - 8.3) / 2.3;
+      b.face = "fight";
+      b.attack = 0.25;
+      b.bars = Math.max(0, (1 - k) * 0.5);
+      b.flash = k < 0.18 ? 0.45 : 0;
+      b.x += (stage.x - b.x) * 0.08;
+      b.y += (stage.sky - b.y) * 0.08;
+    } else {
+      bossBeginFight(b);
+      b.face = "fight";
+      b.attack = 0;
+      b.doorCd = 0.6;
+      b.rest = 0.55;
+      b.gap = 0.3;
+      b.arrive = 0;
+      b.plan = null;
+      audio.play("stinger");
     }
   }
 
   function tickNullIntro(b) {
     b.introT += FIXED;
     const u = b.introT;
-    const sky = 84;
+    const sky = 40;
     const mid = world.cols * TILE * 0.5;
     tickDoorDrop(b);
-    if (u < 3) {
+    if (u < 3.05) {
       b.face = "sleep";
       b.x = mid;
       b.y = sky + Math.sin(u * 1.4) * 8;
       b.bars = Math.max(0.16, 1 - u / 1.5);
       b.flash = Math.max(0, 0.85 - u * 1.4);
       b.gaze = 0;
-    } else if (u < 6.2) {
+    } else if (u < 6.6) {
       b.face = "look";
-      b.gaze = Math.sin((u - 3) * 2.4);
-      b.x = mid + b.gaze * 36;
-      b.y = sky + Math.sin(u * 2) * 6;
-      b.bars = 0.16;
+      b.gaze = Math.sin((u - 3.05) * 1.7);
+      b.x = mid + b.gaze * 48;
+      b.y = sky + Math.sin(u * 1.6) * 7;
+      b.bars = 0.22;
       b.flash = 0;
-    } else if (u < 9.2) {
+      if (u > 3.4 && !b.heardIn) { b.heardIn = true; audio.play("bossIn"); }
+      if (u > 4.3) nullCue(b, "saidHi", ".....", 3.1);
+    } else if (u < 9.4) {
       b.face = "scared";
       const toward = player.x + player.w / 2 > b.x ? 1 : -1;
       b.gaze = toward;
-      b.x += ((mid - toward * 70) - b.x) * 0.06;
-      b.y += ((sky - 16) - b.y) * 0.08;
-      b.bars = 0.16;
-      if (!b.saidHi) { b.saidHi = true; bossTalk("hi", true); audio.play("bossIn"); }
-    } else if (u < 14.2) {
+      b.x += ((mid - toward * 80) - b.x) * 0.05;
+      b.y += ((sky - 10) - b.y) * 0.08;
+      b.bars = 0.2;
+      if (u > 6.8) nullCue(b, "saidScare", "OH! You're here already!?", 3.2);
+    } else if (u < 16.6) {
       b.face = "scared";
       const gx = world.door.x + 16;
-      const gy = Math.max(72, world.door.y - 108);
-      const dx = gx - b.x;
-      const dy = gy - b.y;
-      const dist = Math.hypot(dx, dy) || 1;
-      const step = Math.min(dist, 9);
-      b.x += (dx / dist) * step;
-      b.y += (dy / dist) * step;
-      b.gaze = Math.sign(dx) || b.gaze;
-      b.slip = dx / dist * 2;
-      if (u > 12.2 && !b.introThrew) {
+      b.x += (gx - b.x) * 0.04;
+      b.y += (sky - b.y) * 0.1;
+      b.gaze = Math.sign(gx - b.x) || b.gaze;
+      b.attack = 0.92;
+      b.slip = (gx - b.x) * 0.015;
+      b.bars = 0.18;
+      if (u > 9.7) nullCue(b, "saidDoor", "If you want to get this door..", 3.3);
+      if (u > 14.4 && !b.introThrew) {
         b.introThrew = true;
         const away = (player.x + player.w / 2) / TILE;
         const pad = bossPickPad(b, {
@@ -3319,25 +3969,28 @@
           from: world.door.x / TILE, fromMin: 12, fromMax: 26,
         });
         if (pad) bossStartDrop(b, pad);
-        if (!b.saidClose) { b.saidClose = true; bossTalk("close", true); }
+        nullCue(b, "saidThrow", "You're going to have beat me for it.", 3.2);
       }
-    } else {
-      const k = (u - 14.2) / 5.8;
-      b.face = "fight";
-      b.bars = k < 0.35 ? 0.16 + k * 1.4 : Math.max(0, (1 - k) * 0.55);
-      b.flash = k < 0.22 ? 0.55 : 0;
+    } else if (u < 22.2) {
+      b.face = "tired";
+      b.bars = 0.16;
       nullHover(b);
-      if (u >= 20) {
-        b.phase = "fight";
-        b.face = "fight";
-        b.bars = 0;
-        b.flash = 0;
-        b.doorCd = 0.32;
-        b.rest = 0.12;
-        b.gap = 0;
-        b.plan = null;
-        audio.play("stinger");
-      }
+      if (u > 17.1) nullCue(b, "saidRest", "Man.. I should have slept earlier...", 3.4);
+    } else if (u < 28) {
+      const k = (u - 22.2) / 5.8;
+      b.face = "fight";
+      b.bars = k < 0.4 ? 0.2 + k * 1.5 : Math.max(0, (1 - k) * 0.7);
+      b.flash = k < 0.25 ? 0.62 : 0;
+      nullHover(b);
+      if (u > 22.8) nullCue(b, "saidGo", "No matter. I can beat you half asleep.", 3.2);
+    } else {
+      bossBeginFight(b);
+      b.face = "fight";
+      b.doorCd = 0.32;
+      b.rest = 0.7;
+      b.gap = 0;
+      b.plan = null;
+      audio.play("stinger");
     }
   }
 
@@ -3355,8 +4008,8 @@
   function nullHover(b) {
     const minX = 130;
     const maxX = Math.max(minX + 40, world.cols * TILE - 130);
-    const minY = 72;
-    const maxY = Math.max(minY + 24, (world.door ? world.door.y : 280) - 78);
+    const minY = 18;
+    const maxY = Math.max(minY + 36, (world.door ? world.door.y : 280) - 120);
     if (!Number.isFinite(b.nvx)) b.nvx = 1.7;
     if (!Number.isFinite(b.nvy)) b.nvy = 0;
     if (!Number.isFinite(b.y)) b.y = minY + 24;
@@ -3366,7 +4019,7 @@
     if (b.x > maxX - 70) b.nvx -= 0.08;
     const cap = b.hot ? 3.1 : 2.35;
     b.nvx = Math.max(-cap, Math.min(cap, b.nvx));
-    const hover = (minY + maxY) * 0.42 + Math.sin(world.time * 1.25) * 14 + Math.cos(world.time * 0.47) * 6;
+    const hover = minY + 12 + Math.sin(world.time * 1.25) * 8 + Math.cos(world.time * 0.47) * 3;
     const nvy = b.nvy;
     b.nvy = nvy + (hover - b.y) * 0.018 - nvy * 0.12;
     const ox = b.x;
@@ -3383,28 +4036,20 @@
   function tickNullSnatch(b) {
     if (!b.snatch || !world.door) return;
     b.snatch.t += FIXED;
+    nullHover(b);
     const gx = world.door.x + 16;
-    const gy = Math.max(70, world.door.y - 102);
-    const dx = gx - b.x;
-    const dy = gy - b.y;
-    const dist = Math.hypot(dx, dy) || 1;
-    b.snatch.spd = Math.min(b.hot ? 13 : 10.5, (b.snatch.spd || 2.4) + 0.62);
-    const step = Math.min(dist, b.snatch.spd);
-    b.x += (dx / dist) * step;
-    b.y += (dy / dist) * step;
-    b.slip = dx / dist * 2;
-    b.gaze = Math.sign(dx) || b.gaze;
+    b.x += (gx - b.x) * 0.03;
+    b.gaze = Math.sign(gx - b.x) || b.gaze;
     b.face = "scared";
-    if (b.snatch.stage === "dash" && dist < 28) {
-      b.snatch.stage = "hover";
-      b.snatch.t = 0;
-    }
-    if (b.snatch.stage === "hover" && b.snatch.t > 0.26) {
+    b.attack = 0.95;
+    if (b.snatch.t > 0.62) {
       const away = (player.x + player.w / 2) / TILE;
-      const pad = bossPickPad(b, {
+      let pad = bossPickPad(b, {
         away, min: 10, max: 40,
         from: world.door.x / TILE, fromMin: 12, fromMax: 26,
       });
+      // After the 30s failsafe, never softlock on a tight pad miss.
+      if (!pad && b.saidBored) pad = bossPickPad(b, { away: away, min: 8, max: 16, loose: true });
       if (pad) bossStartDrop(b, pad);
       else b.doorCd = 0.4;
       b.snatch = null;
@@ -3418,7 +4063,8 @@
     const d = b.drive;
     const floor = nullFloorY();
     d.t += FIXED;
-    b.y += (floor - 52 - b.y) * 0.2;
+    // Ride low so the sweep reads as a floor strike.
+    b.y += (floor - 30 - b.y) * 0.22;
     b.x = d.x;
     b.face = "mad";
     if (!d.live) {
@@ -3426,36 +4072,37 @@
         d.live = true;
         world.shake = Math.max(world.shake || 0, 12);
         b.punch = Math.max(b.punch || 0, 0.65);
+        audio.play("dash");
       }
       return;
     }
     d.x += d.dir * (b.hot ? 33.6 : 27.2);
     b.x = d.x;
     b.slip = d.dir * 4;
-    d.ghostT = (d.ghostT || 0) + FIXED;
-    if (d.ghostT > 0.018) {
-      d.ghostT = 0;
-      if (!b.ghosts) b.ghosts = [];
-      b.ghosts.push({ x: b.x, y: b.y, life: 0.2, max: 0.2, rot: b.rot || 0 });
-      if (b.ghosts.length > 10) b.ghosts.shift();
-    }
     if (d.x < -40 || d.x > world.cols * TILE + 40) b.drive = null;
   }
 
   function tickNullWave(b) {
     if (!b.wave) return;
-    if (b.wave.warn > 0) {
-      b.wave.warn -= FIXED;
-      const gy = Math.max(64, world.door.y - 150);
-      b.x += (b.wave.x - b.x) * 0.14;
-      b.y += (gy - b.y) * 0.14;
-      if (b.wave.warn <= 0) {
-        world.shake = Math.max(world.shake || 0, 18);
-        b.punch = Math.max(b.punch || 0, 0.9);
-      } else return;
+    const land = nullFloorY() - 40;
+    if (!b.wave.landed) {
+      b.x += (b.wave.x - b.x) * 0.18;
+      if (b.wave.warn > 0) {
+        b.wave.warn -= FIXED;
+        const gy = Math.max(64, (world.door ? world.door.y : land) - 150);
+        b.y += (gy - b.y) * 0.14;
+        return;
+      }
+      b.y += (land - b.y) * 0.35;
+      if (Math.abs(b.y - land) > 6) return;
+      b.y = land;
+      b.x = b.wave.x;
+      b.wave.landed = true;
+      world.shake = Math.max(world.shake || 0, 18);
+      b.punch = Math.max(b.punch || 0, 0.9);
     }
+    b.y = land;
     b.wave.live += FIXED;
-    b.y += (nullFloorY() - 40 - b.y) * 0.35;
     b.wave.r = Math.min(280, 20 + b.wave.live * 820);
     if (b.wave.live > 0.42) b.wave = null;
   }
@@ -3477,13 +4124,173 @@
   function tickNullGhosts(b) {
     if (!b.ghosts) return;
     for (let i = b.ghosts.length - 1; i >= 0; i--) {
-      b.ghosts[i].life -= FIXED;
-      if (b.ghosts[i].life <= 0) b.ghosts.splice(i, 1);
+      const g = b.ghosts[i];
+      g.x += (g.vx || 0) * 0.18;
+      g.y += (g.vy || 0) * 0.18;
+      g.life -= FIXED;
+      if (g.life <= 0) freeGhost(swapRemove(b.ghosts, i));
     }
   }
 
-  function tickNullFight(b) {
+  function nullEnrageMusic() {
+    if (!audio.theme || audio.theme.final) return;
+    audio.theme.rage = true;
+    audio.theme.bpm = 208;
+    audio.theme.root = 220;
+  }
+
+  // Aesthetic only. Pink fire and blown ash sit behind the fight; they never hit.
+  function nullEnrageBurst(b) {
+    if (!b || b.raged) return;
+    b.raged = true;
+    b.rageAge = 0;
+    b.rageFire = 0;
+    const pack = window.SURGE_BOSS_VOICE;
+    const v = pack && pack.voice ? pack.voice(1) : null;
+    b.say = {
+      text: "OH MY GOD JUST DIE ALREADY",
+      name: (v && v.name) || "NULL",
+      color: (v && v.color) || "#fe1f6f",
+      ink: "#fff0f6",
+      life: 3.6,
+      age: 0,
+      rage: true,
+    };
+    world.shake = Math.max(world.shake || 0, 22);
+    camFX.punch = Math.max(camFX.punch || 0, 10);
+    world.whiteFlash = 1;
+    world.flash = Math.max(world.flash || 0, 0.08);
+    const floor = world.door ? world.door.y + TILE : (world.rows || 12) * TILE;
+    const W = (world.cols || 32) * TILE;
+    for (let i = 0; i < 48; i++) {
+      const life = 0.55 + Math.random() * 0.7;
+      const p = allocPart();
+      p.x = Math.random() * W;
+      p.y = floor - Math.random() * 40;
+      p.vx = (Math.random() < 0.5 ? -1 : 1) * (4.5 + Math.random() * 7.5);
+      p.vy = -1.2 - Math.random() * 4.2;
+      p.drag = 0.97;
+      p.grav = -0.02;
+      p.life = life;
+      p.max = life;
+      p.color = Math.random() < 0.45
+        ? "rgba(254, 31, 111, 0.55)"
+        : "rgba(255, 160, 200, 0.42)";
+      p.size = 2.2 + Math.random() * 4.5;
+      p.kind = Math.random() < 0.55 ? "smoke" : "ember";
+      p.rot = null;
+      p.spin = 0;
+      world.particles.push(p);
+    }
+    trimParticles();
+    audio.play("stinger");
+  }
+
+  function tickNullRageAura(b) {
+    if (!b || !b.hot) return;
+    b.rageAge = (b.rageAge || 0) + FIXED;
+    const spread = Math.min(1, b.rageAge / 1.15);
+    b.rageFire = spread;
+    const floor = world.door ? world.door.y + TILE : (world.rows || 12) * TILE;
+    const W = (world.cols || 32) * TILE;
+    // Continuous pink ash blown hard across the room. Visual only.
+    const n = b.rageAge < 1.4 ? 5 : 2;
+    for (let i = 0; i < n; i++) {
+      const life = 0.4 + Math.random() * 0.55;
+      const p = allocPart();
+      const fromBoss = Math.random() < 0.35;
+      p.x = fromBoss ? b.x + (Math.random() - 0.5) * 70 : Math.random() * W;
+      p.y = fromBoss ? b.y + (Math.random() - 0.5) * 40 : floor - Math.random() * (30 + spread * 90);
+      const dir = Math.sin(world.time * 1.7 + i) >= 0 ? 1 : -1;
+      p.vx = dir * (3.2 + Math.random() * 6.8 + spread * 2.2);
+      p.vy = -0.6 - Math.random() * 2.8;
+      p.drag = 0.985;
+      p.grav = -0.015;
+      p.life = life;
+      p.max = life;
+      p.color = Math.random() < 0.5
+        ? "rgba(254, 31, 111, 0.38)"
+        : "rgba(255, 190, 220, 0.32)";
+      p.size = 1.6 + Math.random() * 3.8;
+      p.kind = Math.random() < 0.6 ? "smoke" : (Math.random() < 0.5 ? "ember" : "streak");
+      p.rot = null;
+      p.spin = 0;
+      world.particles.push(p);
+    }
+    trimParticles();
+  }
+
+  function drawNullRageAura(b) {
+    if (!b || !b.hot || b.phase === "gone" || b.phase === "boom") return;
+    const floor = world.door ? world.door.y + TILE : (world.rows || 12) * TILE;
+    const W = (world.cols || 32) * TILE;
+    const t = world.time || 0;
+    const spread = Math.max(0.08, b.rageFire || 0);
+    const tongues = Math.max(8, Math.floor(10 + spread * 22));
+    const reach = W * (0.28 + spread * 0.72);
+    const left = Math.max(0, b.x - reach / 2);
+    ctx.save();
+    // Floor wash that crawls outward from Null. No hitbox. No beams.
+    ctx.globalAlpha = 0.16 + spread * 0.28;
+    const wash = ctx.createLinearGradient(0, floor - 70, 0, floor + 8);
+    wash.addColorStop(0, "rgba(254, 31, 111, 0)");
+    wash.addColorStop(0.55, "rgba(254, 31, 111, 0.35)");
+    wash.addColorStop(1, "rgba(40, 0, 18, 0.55)");
+    ctx.fillStyle = wash;
+    ctx.fillRect(left, floor - 70, reach, 78);
+    for (let i = 0; i < tongues; i++) {
+      const u = tongues <= 1 ? 0.5 : i / (tongues - 1);
+      const x = left + u * reach;
+      const seed = i * 1.7 + (b.rageAge || 0);
+      const h = (22 + (i % 5) * 8 + Math.sin(t * 14 + seed) * 10) * (0.55 + spread * 0.7);
+      const w = 7 + (i % 3) * 3;
+      const wob = Math.sin(t * 16 + seed) * 4;
+      ctx.globalAlpha = 0.28 + spread * 0.45;
+      ctx.fillStyle = "#fe1f6f";
+      ctx.beginPath();
+      ctx.moveTo(x - w + wob, floor);
+      ctx.quadraticCurveTo(x + wob * 0.4, floor - h * 0.55, x + wob * 0.2, floor - h);
+      ctx.quadraticCurveTo(x + w * 0.2 - wob * 0.3, floor - h * 0.5, x + w - wob, floor);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 0.35 + spread * 0.35;
+      ctx.fillStyle = "#fff0f6";
+      ctx.beginPath();
+      ctx.moveTo(x - w * 0.28 + wob * 0.3, floor);
+      ctx.quadraticCurveTo(x, floor - h * 0.55, x, floor - h * 0.72);
+      ctx.quadraticCurveTo(x + w * 0.1, floor - h * 0.4, x + w * 0.28 - wob * 0.2, floor);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function nullTrail(b, fastDash) {
     tickNullGhosts(b);
+    const px = b.trailX;
+    const py = b.trailY;
+    b.trailX = b.x;
+    b.trailY = b.y;
+    if (px == null || py == null) return;
+    const moved = Math.hypot(b.x - px, b.y - py);
+    const fast = !!fastDash || moved > 1.2 || Math.abs(b.y - py) > 2;
+    b.ghostT = (b.ghostT || 0) + FIXED;
+    if (!fastDash && moved < 2.4) return;
+    if (!fast || b.ghostT <= (fastDash ? 0.05 : 0.12)) return;
+    b.ghostT = 0;
+    if (!b.ghosts) b.ghosts = [];
+    const life = 0.42;
+    const g = allocGhost();
+    g.x = px; g.y = py; g.life = life; g.max = life;
+    g.vx = b.x - px; g.vy = b.y - py;
+    g.rot = b.rot || 0; g.slip = b.slip || 0;
+    g.face = b.face; g.gaze = b.gaze || 0; g.grab = b.visGrab || 0;
+    g.dim = b.dim || 1;
+    b.ghosts.push(g);
+    if (b.ghosts.length > 7) freeGhost(b.ghosts.shift());
+  }
+
+  function tickNullFight(b) {
     if (nullStormOn()) b.fog = 1;
     else if (b.fog > 0) b.fog = Math.max(0, b.fog - FIXED * 0.85);
     if (b.fog <= 0) b.safeW = 0;
@@ -3495,19 +4302,25 @@
     tickNullHalf(b);
     if (b.shoveCd > 0) b.shoveCd -= FIXED;
     if (b.snatch) tickNullSnatch(b);
-    else if (b.drive || (b.wave && b.wave.warn > 0)) { /* body is committed */ }
+    else if (b.drive || b.wave) { /* body is committed */ }
     else nullHover(b);
 
+    const age = bossFightAge(b);
+    if (age >= 30) bossArmBored(b);
     if (!b.dropping && !b.snatch && b.moves < b.goal && b.doorCd <= 0 && bossNearDoor()) {
       b.snatch = { t: 0, stage: "dash" };
       b.attack = Math.max(b.attack, 0.7);
     } else if (!b.snatch && !b.dropping) {
       b.doorCd -= FIXED;
     }
-    if (world.time >= 30 && bossNearDoor() && b.shoveCd <= 0 && !b.dropping) {
-      nullShove(b);
+    if ((b.moves || 0) >= 4) {
+      if (!b.hot) {
+        nullEnrageMusic();
+        nullEnrageBurst(b);
+      }
+      b.hot = true;
+      tickNullRageAura(b);
     }
-    if (b.moves >= 4) b.hot = true;
 
     if (b.tell && world.time >= b.tell.until) {
       const id = b.tell.id;
@@ -3526,61 +4339,703 @@
     else b.face = "fight";
   }
 
+
+  function kitAim() {
+    const px = player.x + player.w / 2;
+    const py = player.y + player.h * 0.45;
+    const face = Math.sign(player.vx) || player.facing || 1;
+    const floor = nullFloorY();
+    const cols = world.cols || 32;
+    let ptx = Math.floor(px / TILE);
+    if (ptx < 2) ptx = 2;
+    if (ptx > cols - 3) ptx = cols - 3;
+    return { px: px, py: py, face: face, feet: player.y + player.h - 6, ptx: ptx, floor: floor, cols: cols };
+  }
+
+  function kitAngDiff(a, b) {
+    let d = Math.abs(a - b);
+    if (d > Math.PI) d = Math.PI * 2 - d;
+    return d;
+  }
+
+  function kitShot(act, look, x, y, vx, vy, extra) {
+    const s = {
+      x: x, y: y, w: 14, h: 14,
+      vx: vx || 0, vy: vy || 0, grav: 0,
+      life: 2.1, delay: 0, kind: act.id, look: look, kit: 1, weave: 0,
+    };
+    if (extra) {
+      for (const k in extra) s[k] = extra[k];
+    }
+    return s;
+  }
+
+  function kitZone(act, x, y, w, h, life) {
+    return {
+      x: x, y: y, w: w, h: h,
+      warn: 0.04,
+      life: life == null ? 0.28 : life,
+      cause: act.id,
+    };
+  }
+
+  function kitLane(aim, act) {
+    const gap = Math.max(2, act.gap || 3);
+    const cols = aim.cols;
+    let lane;
+    if (act.cover === "move") {
+      let dir = aim.face || 1;
+      if (aim.ptx < 8) dir = 1;
+      if (aim.ptx > cols - 8) dir = -1;
+      lane = aim.ptx + dir * 3;
+    } else {
+      lane = aim.ptx - Math.floor((gap - 1) / 2);
+    }
+    if (lane < 2) lane = 2;
+    if (lane > cols - gap - 2) lane = Math.max(2, cols - gap - 2);
+    if (act.cover === "move" && aim.ptx >= lane && aim.ptx < lane + gap) {
+      if (aim.ptx + 3 + gap <= cols - 2) lane = aim.ptx + 3;
+      else lane = Math.max(2, aim.ptx - 2 - gap);
+    }
+    return { lane: lane, gap: gap, x: lane * TILE, w: gap * TILE };
+  }
+
+  function kitColumns(act, aim) {
+    const spec = kitLane(aim, act);
+    const zones = [];
+    const count = act.count || 5;
+    const safeHere = act.cover !== "move" && !act.home;
+    for (let i = 0; i < aim.cols * 2 && zones.length < count; i++) {
+      const step = Math.ceil(i / 2);
+      const tx = aim.ptx + (i % 2 === 0 ? 1 : -1) * step;
+      if (tx < 2 || tx > aim.cols - 3) continue;
+      if (!act.home && tx >= spec.lane && tx < spec.lane + spec.gap) continue;
+      if (safeHere && tx === aim.ptx) continue;
+      let crowded = false;
+      for (let z = 0; z < zones.length; z++) {
+        if (Math.abs(zones[z].tx - tx) < 2) crowded = true;
+      }
+      if (crowded) continue;
+      const low = !!act.low;
+      const zone = kitZone(act, tx * TILE, low ? aim.floor - 20 : 0, TILE, low ? 20 : aim.floor, low ? 0.62 : 0.26);
+      zone.tx = tx;
+      zones.push(zone);
+    }
+    if (act.home && act.low) {
+      let has = false;
+      for (let z = 0; z < zones.length; z++) if (zones[z].tx === aim.ptx) has = true;
+      if (!has) {
+        const zone = kitZone(act, aim.ptx * TILE, aim.floor - 20, TILE, 20, 0.62);
+        zone.tx = aim.ptx;
+        zones.unshift(zone);
+      }
+    }
+    if (act.cover === "move") {
+      const onLane = aim.ptx >= spec.lane && aim.ptx < spec.lane + spec.gap;
+      let has = false;
+      for (let z = 0; z < zones.length; z++) if (zones[z].tx === aim.ptx) has = true;
+      if (!onLane && !has) {
+        const zone = kitZone(act, aim.ptx * TILE, 0, TILE, aim.floor, 0.26);
+        zone.tx = aim.ptx;
+        zones.push(zone);
+      }
+    }
+    return { zones: zones, lane: act.home ? null : { x: spec.x, w: spec.w } };
+  }
+
+  function kitAside(aim, tiles) {
+    let tx = aim.ptx + (aim.face || 1) * tiles;
+    if (tx < 3 || tx > aim.cols - 4) tx = aim.ptx - (aim.face || 1) * tiles;
+    tx = Math.max(2, Math.min(aim.cols - 3, tx));
+    if (tx === aim.ptx) tx = Math.min(aim.cols - 3, aim.ptx + tiles);
+    return tx;
+  }
+
+  function kitPreview(b, act, aim) {
+    const look = (window.SURGE_BOSS_KITS.kit(b.dim) || {}).look || "";
+    const preview = { shots: [], zones: [], lane: null, fx: {}, aim: { px: aim.px, py: aim.py } };
+    const spd = act.speed || 3.15;
+    if (act.type === "seek" || act.type === "wisp") {
+      const ang = Math.atan2(aim.py - (b.y + 8), (aim.px - b.x) || 0.01);
+      const v = act.type === "wisp" ? 1.45 : spd;
+      preview.shots.push(kitShot(act, look, b.x - 7, b.y + 4, Math.cos(ang) * v, Math.sin(ang) * v, {
+        weave: act.type === "wisp" ? 1 : 0,
+        life: act.type === "wisp" ? 2.6 : 2.1,
+      }));
+    } else if (act.type === "lob") {
+      let tx = kitAside(aim, act.lead || 3);
+      const landX = tx * TILE + 8;
+      const landY = aim.floor - 18;
+      const n = 42;
+      const grav = 0.16;
+      const y0 = 24;
+      preview.shots.push(kitShot(act, look, landX, y0, 0, (landY - y0 - grav * n * (n - 1) / 2) / n, {
+        grav: grav, life: 1.35, w: 16, h: 16,
+      }));
+      preview.mark = { x: tx * TILE + 4, y: aim.floor - 18, w: 24, h: 16 };
+    } else if (act.type === "columns" || act.type === "shade") {
+      const made = kitColumns(act, aim);
+      preview.zones = made.zones;
+      preview.lane = made.lane;
+    } else if (act.type === "fan") {
+      const origins = [{ x: b.x, y: b.y }];
+      if (act.echo) origins.push({ x: aim.cols * TILE - b.x, y: b.y });
+      for (let o = 0; o < origins.length; o++) {
+        const ang = Math.atan2(aim.py - (origins[o].y + 8), (aim.px - origins[o].x) || 0.01);
+        for (let i = -1; i <= 1; i++) {
+          const a = ang + i * 0.48;
+          preview.shots.push(kitShot(act, look, origins[o].x - 7 + Math.cos(a) * 20, origins[o].y + 6 + Math.sin(a) * 20, Math.cos(a) * 3.05, Math.sin(a) * 3.05));
+        }
+      }
+    } else if (act.type === "dash" || act.type === "lunge") {
+      const mid = aim.cols * TILE * 0.5;
+      let dir = aim.px < mid ? -1 : 1;
+      let x = dir > 0 ? 28 : aim.cols * TILE - 28;
+      let dist = aim.cols * TILE;
+      if (act.type === "lunge") {
+        dir = Math.sign(aim.px - b.x) || aim.face || 1;
+        x = b.x;
+        dist = 6 * TILE;
+      }
+      const rush = {
+        x: x, dir: dir, y: aim.floor - 18, w: 46, h: 18,
+        speed: act.type === "lunge" ? 6.4 : 6.1,
+        dist: dist, cause: act.id,
+        warn: act.type === "lunge" ? 0.38 : 0.48,
+        gone: 0, live: false,
+      };
+      const body = { x: player.x, y: player.y, w: player.w, h: player.h };
+      for (let n = 0; n < 6; n++) {
+        const box = { x: rush.x - rush.w / 2, y: rush.y, w: rush.w, h: rush.h };
+        if (!rectsOverlap(body, box)) break;
+        rush.x -= rush.dir * 48;
+      }
+      preview.rush = rush;
+      if (act.slip) preview.fx.slip = act.slip;
+    } else if (act.type === "ring" || act.type === "orbit") {
+      const n = act.type === "orbit" ? 8 : 7;
+      const open = Math.atan2(aim.py - b.y, (aim.px - b.x) || 0.01) + (act.type === "orbit" ? 0.95 : 1.05);
+      const v = act.speed || (act.type === "orbit" ? 2.45 : 2.7);
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        if (kitAngDiff(a, open) < (act.type === "orbit" ? 0.7 : 0.9)) continue;
+        preview.shots.push(kitShot(act, look, b.x + Math.cos(a) * 34 - 7, b.y + Math.sin(a) * 34, Math.cos(a) * v, Math.sin(a) * v));
+      }
+      preview.fx.safeAng = open;
+      if (act.grav) preview.fx.grav = act.grav;
+    } else if (act.type === "rain") {
+      const spec = kitLane(aim, act);
+      const count = act.count || 5;
+      for (let i = 0; i < aim.cols * 2 && preview.shots.length < count; i++) {
+        const step = Math.ceil(i / 2) + 2;
+        const tx = aim.ptx + (i % 2 === 0 ? 1 : -1) * step;
+        if (tx < 2 || tx > aim.cols - 3) continue;
+        if (tx >= spec.lane && tx < spec.lane + spec.gap) continue;
+        preview.shots.push(kitShot(act, look, tx * TILE + 9, 12, 0, act.speed || 3.5, { life: 2.4 }));
+      }
+      preview.lane = { x: spec.x, w: spec.w };
+    } else if (act.type === "lane") {
+      const dir = aim.px < aim.cols * TILE * 0.5 ? 1 : -1;
+      const start = dir > 0 ? Math.max(TILE, aim.px - TILE * 8) : Math.min(aim.cols * TILE - TILE, aim.px + TILE * 8);
+      for (let i = 0; i < 6; i++) {
+        const x = start - dir * i * 42;
+        if (Math.abs((x + 8) - aim.px) < 30) continue;
+        if (x < 8 || x > aim.cols * TILE - 8) continue;
+        preview.shots.push(kitShot(act, look, x, aim.floor - 18, dir * 3.35, 0, { w: 16, h: 12, life: 2.3 }));
+      }
+      preview.mark = { x: TILE, y: aim.floor - 20, w: (aim.cols - 2) * TILE, h: 14 };
+    } else if (act.type === "pull") {
+      const tx = kitAside(aim, 4);
+      preview.zones.push(kitZone(act, tx * TILE, 0, TILE, aim.floor, 0.3));
+      preview.fx.magnet = { x: tx * TILE + 16, y: aim.floor - 48 };
+      preview.mark = { x: tx * TILE, y: aim.floor - 16, w: TILE, h: 14 };
+    } else if (act.type === "blink") {
+      let dest = aim.px + (aim.face || 1) * TILE * 5;
+      if (dest < 90) dest = 90;
+      if (dest > aim.cols * TILE - 90) dest = aim.cols * TILE - 90;
+      if (Math.abs(dest - aim.px) < 120) dest = aim.px + (aim.ptx < aim.cols / 2 ? 180 : -180);
+      preview.fx.blink = dest;
+      const tx = kitAside(aim, 3);
+      preview.zones.push(kitZone(act, tx * TILE, 0, TILE, aim.floor, 0.28));
+    } else if (act.type === "saw") {
+      const high = !!act.away;
+      // Low saws sit in a standing body. High ones clear a jump's underside.
+      const y = high ? aim.floor - 78 : aim.floor - 22;
+      let dir = aim.px < aim.cols * TILE * 0.5 ? 1 : -1;
+      let x = dir > 0 ? 48 : aim.cols * TILE - 48;
+      if (act.away && world.door) {
+        dir = (world.door.x + 16) < aim.px ? -1 : 1;
+        x = aim.px - dir * 78;
+      }
+      preview.saw = { x: x, y: y, vx: dir * 2.15, life: 2.35, cause: act.id };
+      if (act.echo) {
+        preview.saw2 = { x: aim.cols * TILE - x, y: y, vx: -dir * 2.15, life: 2.35, cause: act.id };
+      }
+      preview.mark = { x: TILE, y: y - 16, w: (aim.cols - 2) * TILE, h: 8 };
+    } else if (act.type === "guard") {
+      preview.fx.guard = 1;
+    } else if (act.type === "beat") {
+      let tx = aim.ptx - (aim.face || 1) * 4;
+      tx = Math.max(2, Math.min(aim.cols - 3, tx));
+      if (tx === aim.ptx) tx = Math.min(aim.cols - 3, aim.ptx + 4);
+      preview.zones.push(kitZone(act, tx * TILE, 0, TILE, aim.floor, 0.26));
+      if (act.reverse) preview.fx.reverse = act.reverse;
+    } else if (act.type === "mirror") {
+      let x = aim.cols * TILE - aim.px;
+      const y = aim.py - 8;
+      if (Math.abs(x - aim.px) < 100) x = aim.px < aim.cols * TILE * 0.5 ? aim.px + 180 : aim.px - 180;
+      const ang = Math.atan2(aim.py - y, (aim.px - x) || 0.01);
+      preview.shots.push(kitShot(act, look, x, y, Math.cos(ang) * 3.2, Math.sin(ang) * 3.2));
+      preview.fx.mirror = x;
+    } else if (act.type === "crack") {
+      const tx = kitAside(aim, 3);
+      preview.zones.push(kitZone(act, tx * TILE, 0, TILE * 2, aim.floor, 0.36));
+    } else if (act.type === "band") {
+      if (act.high) {
+        // Above a standing head, inside a full jump. A flat ceiling never meets the player.
+        preview.zones.push(kitZone(act, 0, Math.max(28, aim.floor - 158), aim.cols * TILE, 22, 0.55));
+      } else {
+        preview.zones.push(kitZone(act, 0, aim.floor - 22, aim.cols * TILE, 22, 0.34));
+      }
+    } else if (act.type === "pillar") {
+      const tx = kitAside(aim, act.lead || 3);
+      preview.drop = { x: tx * TILE, y: 18, w: TILE, h: TILE, life: 1.55, cause: act.id };
+      preview.mark = { x: tx * TILE, y: aim.floor - 16, w: TILE, h: 14 };
+    } else if (act.type === "seam") {
+      for (let s = 0; s < 2; s++) {
+        const tx = aim.ptx + (s === 0 ? -3 : 3);
+        if (tx < 2 || tx > aim.cols - 3) continue;
+        preview.shots.push(kitShot(act, look, tx * TILE + 8, 16, 0, 3.15, { life: 2.2 }));
+      }
+      preview.lane = { x: (aim.ptx - 1) * TILE, w: TILE * 3 };
+    } else if (act.type === "wave") {
+      let x = aim.px + (aim.face || 1) * TILE * 2;
+      if (x < TILE * 3) x = TILE * 3;
+      if (x > aim.cols * TILE - TILE * 3) x = aim.cols * TILE - TILE * 3;
+      preview.wave = { x: x, y: aim.floor - 8, warn: 0.12, max: act.max || 120, cause: act.id, live: 0, r: 8, hot: false };
+    }
+    const kept = [];
+    for (let i = 0; i < preview.shots.length; i++) {
+      if (!rectsOverlap(player, preview.shots[i])) kept.push(preview.shots[i]);
+    }
+    preview.shots = kept;
+    return preview;
+  }
+
+  function kitRole() {
+    if (!player.onGround && player.vy < -1.2) return "air";
+    if (bossNearDoor()) return "door";
+    if (player.onGround && Math.abs(player.vx) < 0.4) return "camp";
+    if (Math.abs(player.vx) > 1.05) return "run";
+    return "any";
+  }
+
+  function kitBusy(b) {
+    if (b.rush) return true;
+    if (b.wave) return true;
+    const zones = world.bossZones || [];
+    for (let i = 0; i < zones.length; i++) if (zones[i].h > 40) return true;
+    return false;
+  }
+
+  function kitArm(b, act) {
+    const pack = window.SURGE_BOSS_KITS;
+    const aim = kitAim();
+    const preview = kitPreview(b, act, aim);
+    const wind = pack.wind(act, b.band || "open");
+    b.tell = {
+      id: act.id,
+      type: act.type,
+      heavy: !!act.heavy,
+      until: world.time + wind,
+      preview: preview,
+      tx: aim.ptx,
+      ty: Math.max(1, Math.floor(aim.floor / TILE) - 1),
+      tw: act.type === "band" ? Math.max(1, aim.cols - 2) : 1,
+      th: 1,
+      px: aim.px,
+      py: aim.py,
+      feet: aim.feet,
+      face: aim.face,
+    };
+    audio.play(act.heavy ? "bossHeavy" : "bossTell");
+    bossTalk(act.id, false);
+    b.attack = Math.max(b.attack || 0, act.heavy ? 0.8 : 0.5);
+  }
+
+  function kitGuard(b) {
+    // Door is locked until the boss falls. No knockback on approach.
+    if (!world.door) return;
+    b.attack = Math.max(b.attack || 0, 0.45);
+    b.guarded = true;
+  }
+
+  function kitCast(b, tell) {
+    const pack = window.SURGE_BOSS_KITS;
+    const k = pack.kit(b.dim);
+    const act = pack.act(k, tell.id);
+    if (!act) return;
+    const p = tell.preview || {};
+    audio.play(act.heavy ? "bossHeavy" : "bossShot");
+    world.shake = Math.max(world.shake || 0, act.heavy ? 9 : 4);
+    b.punch = Math.max(b.punch || 0, act.heavy ? 0.7 : 0.35);
+    const shots = p.shots || [];
+    for (let i = 0; i < shots.length; i++) bossSpawnShot(shots[i]);
+    if (!world.bossZones) world.bossZones = [];
+    const zones = p.zones || [];
+    for (let i = 0; i < zones.length; i++) {
+      if (world.bossZones.length >= 18) break;
+      world.bossZones.push({
+        x: zones[i].x, y: zones[i].y, w: zones[i].w, h: zones[i].h,
+        warn: zones[i].warn, life: zones[i].life, cause: zones[i].cause,
+      });
+    }
+    if (p.rush) {
+      b.rush = {
+        x: p.rush.x, dir: p.rush.dir, y: p.rush.y, w: p.rush.w, h: p.rush.h,
+        speed: p.rush.speed, dist: p.rush.dist, cause: p.rush.cause,
+        warn: p.rush.warn > 0 ? p.rush.warn : 0.48,
+        gone: 0, live: false,
+      };
+    }
+    if (p.wave) b.wave = { x: p.wave.x, y: p.wave.y, warn: p.wave.warn, max: p.wave.max, cause: p.wave.cause, live: 0, r: 8, hot: false };
+    if (p.drop) world.drops.push({ x: p.drop.x, y: p.drop.y, w: p.drop.w, h: p.drop.h, vy: 0, life: p.drop.life, boss: true, cause: p.drop.cause });
+    if (p.saw) world.saws.push({ x: p.saw.x, y: p.saw.y, vx: p.saw.vx, vy: 0, chase: false, spin: 0, boss: true, life: p.saw.life, cause: p.saw.cause });
+    if (p.saw2) world.saws.push({ x: p.saw2.x, y: p.saw2.y, vx: p.saw2.vx, vy: 0, chase: false, spin: 0, boss: true, life: p.saw2.life, cause: p.saw2.cause });
+    const fx = p.fx || {};
+    if (fx.blink != null) { b.x = fx.blink; b.mvx = 0; }
+    if (fx.magnet) world.magnet = { x: fx.magnet.x, y: fx.magnet.y, until: world.time + 0.42, str: 0.18 };
+    if (fx.reverse) { world.reverse = true; b.flipUntil = world.time + fx.reverse; }
+    if (fx.grav) { b.gravWas = world.gravity; world.gravity = fx.grav; b.gravUntil = world.time + 0.85; }
+    if (fx.slip) world.slipT = Math.max(world.slipT || 0, fx.slip);
+    if (fx.guard) kitGuard(b);
+    if (fx.mirror != null) b.echo = { x: fx.mirror, y: b.y, life: 0.7 };
+    if (p.lane) b.lane = { x: p.lane.x, w: p.lane.w, until: world.time + 0.95 };
+    if (!b.cool) b.cool = {};
+    b.cool[act.id] = world.time + act.cool;
+    b.gap = pack.gapAfter(act, b.band || "open");
+    b.attack = Math.max(b.attack || 0, 0.7);
+  }
+
+  function kitAdvance(b, k) {
+    const pack = window.SURGE_BOSS_KITS;
+    if (b.rest > 0) { b.rest -= FIXED; return; }
+    if (b.gap > 0) { b.gap -= FIXED; return; }
+    if (!b.plan || b.planI >= b.plan.length) {
+      if (b.plan && b.plan.length) {
+        b.plan = null;
+        b.rest = pack.rest(b.band || "open");
+        return;
+      }
+      b.plan = pack.build(k, {
+        band: b.band || "open",
+        role: kitRole(),
+        rand: function () { return bossRand(b); },
+        last: b.lastAct || "",
+        cool: b.cool || {},
+        now: world.time,
+      });
+      b.planI = 0;
+      if (!b.plan || !b.plan.length) { b.rest = 0.4; return; }
+    }
+    const id = b.plan[b.planI];
+    const act = pack.act(k, id);
+    if (!act) { b.planI += 1; return; }
+    if (b.cool && b.cool[id] > world.time) { b.planI += 1; return; }
+    if (act.heavy && kitBusy(b)) return;
+    b.planI += 1;
+    b.lastAct = id;
+    kitArm(b, act);
+  }
+
+  function kitTrail(b) {
+    const px = b.trailX;
+    const py = b.trailY;
+    b.trailX = b.x;
+    b.trailY = b.y;
+    if (px == null || py == null) return;
+    const moved = Math.hypot(b.x - px, b.y - py);
+    // Standing still must not stack solid copies on the live boss.
+    if (moved < 2.4) return;
+    b.ghostT = (b.ghostT || 0) + FIXED;
+    if (b.ghostT < 0.12) return;
+    b.ghostT = 0;
+    if (!b.ghosts) b.ghosts = [];
+    const kg = allocGhost();
+    kg.x = px; kg.y = py; kg.life = 0.38; kg.max = 0.38;
+    kg.dim = b.dim; kg.face = b.face;
+    kg.gaze = b.gaze != null ? b.gaze : 1;
+    kg.grab = b.visGrab || 0; kg.rot = b.rot || 0; kg.slip = b.slip || 0;
+    kg.vx = b.x - px; kg.vy = b.y - py;
+    b.ghosts.push(kg);
+    if (b.ghosts.length > 8) freeGhost(b.ghosts.shift());
+  }
+
+  function clearBossGhosts(b) {
+    if (!b || !b.ghosts || !b.ghosts.length) return;
+    for (let i = 0; i < b.ghosts.length; i++) freeGhost(b.ghosts[i]);
+    b.ghosts.length = 0;
+  }
+
+  function kitMove(b, mv) {
+    if (!mv || !world.door) return;
+    if (b.ghosts && b.ghosts.length) {
+      for (let i = b.ghosts.length - 1; i >= 0; i--) {
+        b.ghosts[i].life -= FIXED;
+        if (b.ghosts[i].life <= 0) freeGhost(swapRemove(b.ghosts, i));
+      }
+    }
+    const floor = world.door.y;
+    const minX = 110;
+    const maxX = Math.max(minX + 40, world.cols * TILE - 110);
+    const mid = (minX + maxX) * 0.5;
+    const span = (maxX - minX) * (mv.patrol || 0.4);
+    let tx = mid + Math.sin(world.time * (mv.freq || 0.8) + b.dim) * span;
+    let ty = floor - (mv.y || 120) + Math.sin(world.time * (mv.freq || 1) * 1.7 + 1.2) * (mv.amp || 10);
+    if (mv.flag === "mirror") tx = world.cols * TILE - (player.x + player.w / 2);
+    else if (mv.flag === "twin") tx = Math.sin(world.time * 0.55 + b.dim) > 0 ? minX + 50 : maxX - 50;
+    else if (mv.flag === "stalk") tx = player.x + player.w / 2 - (player.facing || 1) * 130;
+    else if (mv.flag === "orbit") {
+      const ang = world.time * (mv.freq || 0.6);
+      tx = mid + Math.cos(ang) * span;
+      ty = (floor - 150) + Math.sin(ang) * (mv.amp || 30);
+    } else if (mv.flag === "jitter") {
+      if (!b.hopAt || world.time >= b.hopAt) {
+        b.hopAt = world.time + 0.9;
+        b.jx = minX + bossRand(b) * (maxX - minX);
+        b.jy = floor - (mv.y || 120);
+      }
+      tx = b.jx;
+      ty = b.jy;
+    } else if (mv.flag === "beat") {
+      const step = Math.floor(world.time * 2);
+      const spanX = Math.max(1, maxX - minX);
+      tx = minX + ((step * 113 + b.dim * 37) % spanX);
+    } else if (mv.flag === "rail") {
+      ty = floor - (mv.y || 80);
+    }
+    // Wide rooms scroll. Keep the body inside the view or the fight is a voice from offscreen.
+    const px = player.x + player.w / 2;
+    const leash = 320;
+    if (Math.abs(tx - px) > leash) {
+      const roomMid = (minX + maxX) * 0.5;
+      const rel = (tx - roomMid) / Math.max(1, (maxX - minX) * 0.5);
+      tx = px + Math.max(-1, Math.min(1, rel)) * leash;
+    }
+    if (tx < minX) tx = minX;
+    if (tx > maxX) tx = maxX;
+    if (ty < 36) ty = 36;
+    if (ty > floor - 56) ty = floor - 56;
+    bossGlide(b, tx, ty, mv.stiff || 0.04, 0.16);
+    b.gaze = (b.mvx || 0) >= 0 ? 1 : -1;
+    if (mv.flag === "trail" || b.band === "desperate") kitTrail(b);
+  }
+
+  function tickKitRush(b) {
+    const r = b.rush;
+    if (!r) return;
+    if (r.warn > 0) { r.warn -= FIXED; return; }
+    if (!r.live) {
+      r.live = true;
+      audio.play("dash");
+      world.shake = Math.max(world.shake || 0, 6);
+    }
+    r.x += r.dir * r.speed;
+    r.gone = (r.gone || 0) + r.speed;
+    if (r.x < -80 || r.x > world.cols * TILE + 80 || (r.dist && r.gone > r.dist)) b.rush = null;
+  }
+
+  function tickKitWave(b) {
+    const w = b.wave;
+    if (!w) return;
+    if (w.warn > 0) { w.warn -= FIXED; return; }
+    if (!w.hot) {
+      w.hot = true;
+      w.live = 0;
+      audio.play("bossLand");
+      world.shake = Math.max(world.shake || 0, 8);
+    }
+    w.live += FIXED;
+    w.r = Math.min(w.max || 120, 18 + w.live * 460);
+    if (w.live > 0.4) b.wave = null;
+  }
+
+  function tickKitHazards(b) {
+    const zones = world.bossZones || [];
+    let popped = false;
+    for (let i = zones.length - 1; i >= 0; i--) {
+      const z = zones[i];
+      if (z.warn > 0) z.warn -= FIXED;
+      else {
+        if (!z.hot) {
+          z.hot = true;
+          if (!popped) {
+            popped = true;
+            audio.play("spike");
+            world.shake = Math.max(world.shake || 0, 5);
+          }
+        }
+        z.life -= FIXED;
+        if (z.life <= 0) swapRemove(zones, i);
+      }
+    }
+    tickKitRush(b);
+    tickKitWave(b);
+    if (b.echo) {
+      b.echo.life -= FIXED;
+      if (b.echo.life <= 0) b.echo = null;
+    }
+    if (b.windUntil && world.time >= b.windUntil) { world.wind = 0; b.windUntil = 0; }
+    if (b.flipUntil && world.time >= b.flipUntil) { world.reverse = false; b.flipUntil = 0; }
+    if (b.gravUntil && world.time >= b.gravUntil) {
+      world.gravity = b.gravWas || world.baseGravity || 0.55;
+      b.gravUntil = 0;
+    }
+    if (b.lane && world.time > b.lane.until) b.lane = null;
+  }
+
+  function tickKitDoor(b) {
+    const age = bossFightAge(b);
+    if (age >= 30) bossArmBored(b);
+    if (!b.dropping && b.phase === "fight" && age < 30 && bossNearDoor() && b.doorCd < 0.28 && b.moves < b.goal) {
+      b.attack = Math.max(b.attack, 0.45);
+    }
+    if (!b.dropping && b.phase === "fight" && b.moves < b.goal) {
+      b.doorCd -= FIXED;
+      if (b.doorCd <= 0) {
+        if (age >= 30) {
+          bossFailDrop(b);
+        } else if (bossNearDoor()) {
+          const away = (player.x + player.w / 2) / TILE;
+          const pad = bossPickPad(b, {
+            away: away, min: 5, max: 40,
+            from: world.door.x / TILE, fromMin: 10, fromMax: 16,
+          });
+          if (pad) { bossYoink(b, pad); b.doorCd = 0.36; }
+          else b.doorCd = 0.35;
+        }
+      }
+    }
+  }
+
+  function tickKitFight(b) {
+    const pack = window.SURGE_BOSS_KITS;
+    const k = pack && pack.kit(b.dim);
+    if (!k) {
+      bossCruise(b);
+      tickKitDoor(b);
+      return;
+    }
+    if ((b.arrive || 0) > 0) {
+      b.arrive -= FIXED;
+      const ty = (world.door ? world.door.y : 280) - 150;
+      b.y += (ty - b.y) * 0.07;
+      b.x += (world.cols * TILE * 0.5 - b.x) * 0.04;
+      b.face = "look";
+      b.attack = Math.max(b.attack || 0, 0.35);
+      return;
+    }
+    if (!b.band) b.band = "open";
+    const next = pack.band(b.moves || 0, b.goal || 1, b.dim);
+    if (b.band !== next) {
+      b.band = next;
+      b.plan = null;
+      b.planI = 0;
+      b.flash = 0.45;
+      if (next === "desperate" && audio.theme && !audio.theme.final) audio.theme.rage = true;
+      bossTalk(next, true);
+    }
+    const u = (b.moves || 0) / Math.max(1, b.goal || 1);
+    b.mood = b.band === "desperate" ? 1 : b.band === "strain" ? Math.max(u, 0.55) : u;
+    const style = (k.move && k.move[b.band]) || k.move.open;
+    if (!(b.rush && b.rush.live)) kitMove(b, style);
+    tickKitDoor(b);
+    tickKitHazards(b);
+    if (b.phase !== "fight" || b.dropping) return;
+    if (b.tell && world.time >= b.tell.until) {
+      kitCast(b, b.tell);
+      b.tell = null;
+    } else if (!b.tell) kitAdvance(b, k);
+    if (b.tell && b.tell.heavy) b.face = "scared";
+    else if (b.band === "desperate") b.face = "mad";
+    else if (b.band === "strain") b.face = "tired";
+    else if (!b.tell) b.face = "fight";
+    else b.face = "look";
+    if (b.flash > 0) b.flash = Math.max(0, b.flash - FIXED);
+  }
+
+  function kitHurt(b) {
+    if (!b || player.dead || player.win) return false;
+    if (b.phase !== "fight" && b.phase !== "rage") return false;
+    const zones = world.bossZones || [];
+    for (let i = 0; i < zones.length; i++) {
+      const z = zones[i];
+      if (z.warn > 0) continue;
+      if (rectsOverlap(player, z)) {
+        die("BOSS " + String(z.cause || "spike").toUpperCase());
+        return true;
+      }
+    }
+    if (b.rush && b.rush.live) {
+      const r = b.rush;
+      HIT.x = r.x - r.w / 2; HIT.y = r.y; HIT.w = r.w; HIT.h = r.h;
+      if (rectsOverlap(player, HIT)) {
+        die("BOSS " + String(r.cause || "dash").toUpperCase());
+        return true;
+      }
+    }
+    if (b.wave && b.wave.hot && b.wave.live > 0) {
+      const floor = nullFloorY();
+      const mid = player.x + player.w / 2;
+      if (player.y + player.h > floor - 22 && Math.abs(mid - b.wave.x) < b.wave.r) {
+        die("BOSS " + String(b.wave.cause || "wave").toUpperCase());
+        return true;
+      }
+    }
+    return false;
+  }
+
+
   function tickBoss() {
     const b = world.boss;
     if (!b || !world.door || player.dead || player.win) return;
     tickBossShots();
-    if (b.dim === 1 && b.punch > 0) b.punch = Math.max(0, b.punch - FIXED * 1.8);
-    if (b.say) b.say.age += FIXED;
-    if (b.dim === 1 && b.phase === "intro") {
-      tickNullIntro(b);
+    if (b.punch > 0) b.punch = Math.max(0, b.punch - FIXED * 1.8);
+    if (b.say) {
+      b.say.age += FIXED;
+      if (b.say.age >= b.say.life) b.say = null;
+    }
+    if (b.phase === "intro") {
+      if (b.dim === 1) tickNullIntro(b);
+      else tickKitIntro(b);
+      nullBossPose(b);
+      if (b.dim === 1) nullTrail(b, false);
       return;
     }
-    if (!b.saidHi) { b.saidHi = true; bossTalk("hi", true); }
+    if (!b.saidHi) b.saidHi = true;
     tickDoorDrop(b);
 
     if (b.phase === "fight" || b.phase === "rage") {
       if (b.dim === 1 && b.phase === "fight") {
         tickNullFight(b);
       } else if (b.dim !== 1) {
-        bossCruise(b);
-        if (!b.saidBored && world.time >= 30) { b.saidBored = true; bossTalk("bored", true); }
-        if (!b.dropping && b.phase === "fight" && world.time < 30 && bossNearDoor() && b.doorCd < 0.28 && b.moves < b.goal) {
-          b.attack = Math.max(b.attack, 0.45);
-        }
-        if (!b.dropping && b.phase === "fight" && b.moves < b.goal) {
-          b.doorCd -= FIXED;
-          if (b.doorCd <= 0) {
-            const away = (player.x + player.w / 2) / TILE;
-            if (world.time >= 30) {
-              const pad = bossPickPad(b, { away, min: 8, max: 16, loose: true });
-              if (pad) { bossStartDrop(b, pad); b.doorCd = 1.05; }
-              else b.doorCd = 0.4;
-            } else if (bossNearDoor()) {
-              const pad = bossPickPad(b, {
-                away, min: 5, max: 40,
-                from: world.door.x / TILE, fromMin: 10, fromMax: 16,
-              });
-              if (pad) { bossYoink(b, pad); b.doorCd = 0.36; }
-              else b.doorCd = 0.35;
-            }
-          }
-        }
+        tickKitFight(b);
       }
       if (b.phase === "rage" && world.time >= (b.rageUntil || 0)) {
         b.phase = "fall";
-        b.tell = null;
+        clearBossGhosts(b);
+        bossClearHazards(b);
         b.fallVy = -3.1;
         b.mood = 1;
         b.face = "tired";
         world.wind = 0;
+        if (b.flipUntil) { world.reverse = false; b.flipUntil = 0; }
+        if (b.gravUntil) {
+          world.gravity = b.gravWas || world.baseGravity || 0.55;
+          b.gravUntil = 0;
+        }
         audio.play("bossFall");
-      } else if (b.dim !== 1 && world.time > 1.2 && (b.phase === "fight" || b.phase === "rage")) {
-        b.atkCd -= FIXED;
-        if (b.tell && world.time >= b.tell.until) {
-          bossPattern(b.tell.id);
-          b.tell = null;
-        } else if (!b.tell && b.atkCd <= 0) bossArm(b);
+        bossTalk("fall", true);
       }
     } else if (b.phase === "fall") {
       b.fallVy = Math.min(9.5, (b.fallVy || 0) + 0.32);
@@ -3602,15 +5057,417 @@
       if (bossBlastHits()) die("BOSS BOOM");
       if (b.boom > 0.92) {
         b.phase = "gone";
+        clearBossGhosts(b);
         world.wind = 0;
       }
     }
+    nullBossPose(b);
+    if (b.dim === 1 && b.phase !== "gone" && b.phase !== "boom") {
+      nullTrail(b, !!(b.drive && b.drive.live));
+    }
+  }
+
+  function nullBossPose(b) {
     if (b.attack > 0) b.attack -= FIXED;
-    const grabNow = b.attack > 0 ? Math.sin(Math.max(0, Math.min(1, 1 - b.attack / 0.72)) * Math.PI) : 0;
+    const grabNow = b.attack > 0.72 ? 1 : (b.attack > 0 ? Math.sin(Math.max(0, Math.min(1, 1 - b.attack / 0.72)) * Math.PI) : 0);
     b.visGrab = (b.visGrab || 0) + (grabNow - (b.visGrab || 0)) * 0.28;
     const leanNow = Math.max(-0.22, Math.min(0.22, (b.slip || 0) * 0.045));
     b.visLean = (b.visLean || 0) + (leanNow - (b.visLean || 0)) * 0.18;
+    if (b.dim === 1 && (b.visGrab || 0) > 0.4 && world.door) {
+      b.emberT = (b.emberT || 0) + FIXED;
+      if (b.emberT > 0.045) {
+        b.emberT = 0;
+        for (let si = 0; si < 2; si++) {
+          const side = SIDE_PAIR[si];
+          const hand = nullHandPoint(b, world.time, b.visGrab || 0, side, HAND_PT);
+          const life = 0.28;
+          const p = allocPart();
+          p.x = hand.x; p.y = hand.y;
+          p.vx = (world.door.x + 16 - b.x) * 0.04 + side * 0.6;
+          p.vy = (world.door.y - b.y) * 0.04;
+          p.drag = 0.9; p.grav = 0; p.life = life; p.max = life;
+          p.color = side < 0 ? "#ff2f86" : "#ffd6ea";
+          p.size = 2.4; p.kind = "spark";
+          p.rot = null; p.spin = 0;
+          world.particles.push(p);
+        }
+        trimParticles();
+      }
+    }
   }
+
+
+  function drawKitShot(s, col) {
+    const look = s.look || "";
+    const rw = Math.max(6, s.w * 0.46);
+    const rh = Math.max(5, s.h * 0.4);
+    ctx.save();
+    ctx.translate(s.x + s.w / 2, s.y + s.h / 2);
+    ctx.fillStyle = col;
+    ctx.strokeStyle = "#fff6e8";
+    ctx.lineWidth = 2;
+    if (look === "ember" || look === "coal" || look === "ray") {
+      ctx.rotate(world.time * (look === "ray" ? 4 : 8));
+      ctx.beginPath();
+      ctx.arc(0, 0, rw, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = look === "coal" ? "#1a0e0c" : "#fff1c8";
+      ctx.beginPath();
+      ctx.arc(-rw * 0.15, -rw * 0.15, rw * 0.38, 0, Math.PI * 2);
+      ctx.fill();
+      if (look === "ray") {
+        ctx.strokeStyle = "#fff6d0";
+        for (let i = 0; i < 4; i++) {
+          ctx.rotate(Math.PI / 2);
+          ctx.beginPath();
+          ctx.moveTo(rw * 0.5, 0);
+          ctx.lineTo(rw * 1.15, 0);
+          ctx.stroke();
+        }
+      } else {
+        ctx.fillStyle = look === "coal" ? "#ff5a28" : "#ffb45a";
+        ctx.beginPath();
+        ctx.moveTo(-rw * 0.2, rw * 0.2);
+        ctx.lineTo(0, -rw * 0.55);
+        ctx.lineTo(rw * 0.28, rw * 0.1);
+        ctx.fill();
+      }
+    } else if (look === "ice" || look === "shard" || look === "salt") {
+      ctx.rotate(world.time * 2 + (look === "salt" ? 0.4 : 0));
+      ctx.beginPath();
+      ctx.moveTo(0, -rh);
+      ctx.lineTo(rw * 0.7, 0);
+      ctx.lineTo(0, rh);
+      ctx.lineTo(-rw * 0.7, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.moveTo(0, -rh * 0.45);
+      ctx.lineTo(rw * 0.28, 0);
+      ctx.lineTo(0, rh * 0.2);
+      ctx.closePath();
+      ctx.fill();
+      if (look === "salt") {
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        ctx.moveTo(rw * 0.2, -rh * 0.1);
+        ctx.lineTo(rw * 0.7, -rh * 0.7);
+        ctx.lineTo(rw * 0.55, rh * 0.15);
+        ctx.fill();
+      }
+    } else if (look === "petal" || look === "wisp") {
+      ctx.globalAlpha = look === "wisp" ? 0.78 : 1;
+      ctx.rotate(world.time * 3);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rw, rh * 0.62, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.rotate(Math.PI / 2);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rw * 0.72, rh * 0.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = look === "wisp" ? "rgba(255,255,255,0.7)" : "#ffe6a8";
+      ctx.beginPath();
+      ctx.arc(0, 0, Math.max(2, rw * 0.22), 0, Math.PI * 2);
+      ctx.fill();
+    } else if (look === "gear") {
+      ctx.rotate(world.time * 6);
+      ctx.beginPath();
+      ctx.arc(0, 0, rw * 0.62, 0, Math.PI * 2);
+      ctx.fill();
+      for (let i = 0; i < 6; i++) {
+        ctx.rotate(Math.PI / 3);
+        ctx.fillRect(rw * 0.35, -2.2, rw * 0.55, 4.4);
+      }
+      ctx.fillStyle = "#6a5018";
+      ctx.beginPath();
+      ctx.arc(0, 0, rw * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (look === "bile") {
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rw, rh, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#e8ffc0";
+      ctx.beginPath();
+      ctx.ellipse(-rw * 0.25, -rh * 0.25, rw * 0.28, rh * 0.22, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(-2, rh * 0.4);
+      ctx.lineTo(1, rh * 1.05);
+      ctx.lineTo(4, rh * 0.35);
+      ctx.fill();
+    } else if (look === "bite") {
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rw, rh * 0.7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.moveTo(-rw * 0.45, -rh * 0.1);
+      ctx.lineTo(-rw * 0.1, -rh * 0.7);
+      ctx.lineTo(rw * 0.15, -rh * 0.05);
+      ctx.lineTo(rw * 0.45, -rh * 0.65);
+      ctx.lineTo(rw * 0.5, rh * 0.15);
+      ctx.fill();
+    } else if (look === "mirror" || look === "fold") {
+      ctx.rotate(look === "fold" ? 0.3 : world.time);
+      ctx.beginPath();
+      ctx.moveTo(0, -rh);
+      ctx.lineTo(rw, 0);
+      ctx.lineTo(0, rh);
+      ctx.lineTo(-rw, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255,255,255,0.75)";
+      ctx.beginPath();
+      ctx.moveTo(-rw * 0.15, -rh * 0.45);
+      ctx.lineTo(rw * 0.15, -rh * 0.1);
+      ctx.lineTo(-rw * 0.05, rh * 0.05);
+      ctx.fill();
+    } else if (look === "spark" || look === "zap") {
+      ctx.beginPath();
+      ctx.moveTo(-rw, rh * 0.2);
+      ctx.lineTo(-rw * 0.15, -rh);
+      ctx.lineTo(rw * 0.05, rh * 0.05);
+      ctx.lineTo(rw, -rh * 0.35);
+      ctx.stroke();
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(-rw * 0.15, -rh * 0.2, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+      if (look === "zap") {
+        ctx.beginPath();
+        ctx.moveTo(-rw * 0.2, rh * 0.1);
+        ctx.lineTo(rw * 0.45, rh * 0.7);
+        ctx.stroke();
+      }
+    } else if (look === "bone") {
+      ctx.rotate(0.5);
+      ctx.fillRect(-rw, -2.4, rw * 2, 4.8);
+      ctx.beginPath();
+      ctx.arc(-rw, 0, 4.2, 0, Math.PI * 2);
+      ctx.arc(rw, 0, 4.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#b8a484";
+      ctx.fillRect(-rw * 0.2, -1.2, rw * 0.4, 2.4);
+    } else if (look === "needle") {
+      ctx.rotate(0.6);
+      ctx.fillRect(-rw, -1.3, rw * 2, 2.6);
+      ctx.beginPath();
+      ctx.moveTo(rw, -3.5);
+      ctx.lineTo(rw + 7, 0);
+      ctx.lineTo(rw, 3.5);
+      ctx.fill();
+      ctx.strokeStyle = "#ff8aa0";
+      ctx.beginPath();
+      ctx.arc(-rw * 0.2, 0, 4, 0.4, 2.4);
+      ctx.stroke();
+    } else if (look === "red") {
+      ctx.rotate(Math.atan2(s.vy || 0.01, s.vx || 1));
+      ctx.globalAlpha = 0.35;
+      ctx.fillRect(-rw * 1.6, -rh * 0.35, rw, rh * 0.7);
+      ctx.globalAlpha = 0.6;
+      ctx.fillRect(-rw * 0.9, -rh * 0.45, rw * 0.7, rh * 0.9);
+      ctx.globalAlpha = 1;
+      ctx.fillRect(-rw * 0.2, -rh * 0.55, rw * 1.1, rh * 1.1);
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(rw * 0.35, -rh * 0.2, rw * 0.35, rh * 0.4);
+    } else if (look === "star") {
+      ctx.rotate(world.time * 3);
+      ctx.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const rad = i % 2 ? rw : rw * 0.4;
+        const a = (i / 8) * Math.PI * 2 - Math.PI / 2;
+        const x = Math.cos(a) * rad;
+        const y = Math.sin(a) * rad;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(0, 0, rw * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillRect(-s.w / 2, -s.h / 2, s.w, s.h);
+    }
+    ctx.restore();
+  }
+
+  function kitStamp(look, x, y, s) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = "#fff6e8";
+    ctx.strokeStyle = "#fff6e8";
+    ctx.lineWidth = 2;
+    if (look === "gear") {
+      ctx.rotate(world.time * 4);
+      ctx.fillRect(-s, -2, s * 2, 4);
+      ctx.fillRect(-2, -s, 4, s * 2);
+    } else if (look === "ice" || look === "shard" || look === "salt" || look === "mirror" || look === "fold") {
+      ctx.beginPath();
+      ctx.moveTo(0, -s);
+      ctx.lineTo(s, 0);
+      ctx.lineTo(0, s);
+      ctx.lineTo(-s, 0);
+      ctx.closePath();
+      ctx.stroke();
+    } else if (look === "spark" || look === "zap") {
+      ctx.beginPath();
+      ctx.moveTo(-s, s * 0.4);
+      ctx.lineTo(0, -s);
+      ctx.lineTo(s * 0.2, s * 0.1);
+      ctx.lineTo(s, -s * 0.3);
+      ctx.stroke();
+    } else if (look === "bone" || look === "needle") {
+      ctx.fillRect(-s, -1.5, s * 2, 3);
+      ctx.beginPath();
+      ctx.arc(-s, 0, 3, 0, Math.PI * 2);
+      ctx.arc(s, 0, 3, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (look === "star" || look === "ray") {
+      ctx.beginPath();
+      ctx.moveTo(0, -s);
+      ctx.lineTo(s * 0.3, -s * 0.3);
+      ctx.lineTo(s, 0);
+      ctx.lineTo(s * 0.3, s * 0.3);
+      ctx.lineTo(0, s);
+      ctx.lineTo(-s * 0.3, s * 0.3);
+      ctx.lineTo(-s, 0);
+      ctx.lineTo(-s * 0.3, -s * 0.3);
+      ctx.closePath();
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.arc(0, 0, Math.max(3, s * 0.55), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawKitFx(b, col) {
+    const floor = world.door ? world.door.y + TILE : world.rows * TILE;
+    const preview = b.tell && b.tell.preview;
+    ctx.save();
+    if ((b.flash || 0) > 0.02) {
+      ctx.globalAlpha = Math.min(0.28, b.flash * 0.45);
+      ctx.fillStyle = col;
+      ctx.fillRect(0, 0, world.cols * TILE, floor);
+    }
+    if (b.band === "desperate" || b.band === "strain") {
+      ctx.globalAlpha = b.band === "desperate" ? 0.45 : 0.22;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = b.band === "desperate" ? 3 : 2;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.band === "desperate" ? 46 : 34, world.time * 2, world.time * 2 + 1.4);
+      ctx.stroke();
+    }
+    const zones = world.bossZones || [];
+    for (let i = 0; i < zones.length; i++) {
+      const z = zones[i];
+      ctx.globalAlpha = z.warn > 0 ? 0.22 : 0.5;
+      ctx.fillStyle = z.warn > 0 ? "#fff6e8" : col;
+      ctx.fillRect(z.x, z.y, z.w, z.h);
+      if (z.warn > 0) {
+        ctx.globalAlpha = 0.8;
+        ctx.strokeStyle = "#fff6e8";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(z.x + 2, z.y + 2, Math.max(4, z.w - 4), Math.max(4, z.h - 4));
+      }
+      if (z.w >= 24 && z.h >= 16) {
+        ctx.globalAlpha = z.warn > 0 ? 0.85 : 0.95;
+        kitStamp(b.look, z.x + z.w / 2, z.y + z.h / 2, Math.max(4, Math.min(10, z.w * 0.12, z.h * 0.28)));
+      }
+    }
+    const lane = (preview && preview.lane) || b.lane;
+    if (lane && lane.w > 0) {
+      ctx.globalAlpha = 0.28;
+      ctx.fillStyle = "#fff6e8";
+      ctx.fillRect(lane.x, floor - 10, lane.w, 8);
+    }
+    if (preview && preview.mark) {
+      const m = preview.mark;
+      ctx.globalAlpha = 0.45 + Math.sin(world.time * 24) * 0.2;
+      ctx.strokeStyle = "#fff6e8";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(m.x, m.y, m.w, m.h);
+    }
+    const rush = (preview && preview.rush) || b.rush;
+    if (rush) {
+      const left = rush.dir > 0 ? rush.x : rush.x - rush.dist;
+      ctx.globalAlpha = rush.live ? 0.55 : 0.28;
+      ctx.fillStyle = col;
+      ctx.fillRect(left, rush.y, rush.dist, rush.h);
+      if (rush.live) {
+        ctx.globalAlpha = 0.9;
+        ctx.fillRect(rush.x - rush.w / 2, rush.y, rush.w, rush.h);
+        ctx.fillStyle = "#fff6e8";
+        const nose = rush.x + rush.dir * (rush.w / 2);
+        ctx.beginPath();
+        ctx.moveTo(nose + rush.dir * 14, rush.y + rush.h / 2);
+        ctx.lineTo(nose, rush.y - 2);
+        ctx.lineTo(nose, rush.y + rush.h + 2);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    const wave = b.wave || (preview && preview.wave);
+    if (wave) {
+      const rad = wave.hot ? wave.r : 16;
+      ctx.globalAlpha = wave.hot ? 0.7 : 0.35;
+      ctx.strokeStyle = "#fff6e8";
+      ctx.fillStyle = col;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.ellipse(wave.x, floor - 6, Math.max(12, rad), wave.hot ? 14 : 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.globalAlpha = wave.hot ? 0.9 : 0.55;
+      const crest = Math.max(12, rad);
+      for (let i = -1; i <= 1; i++) {
+        ctx.beginPath();
+        ctx.moveTo(wave.x + i * crest * 0.28, floor - 8);
+        ctx.lineTo(wave.x + i * crest * 0.28, floor - 16 - (i === 0 ? 6 : 0));
+        ctx.stroke();
+      }
+    }
+    if (preview && preview.fx && preview.fx.blink != null) {
+      ctx.globalAlpha = 0.7;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(preview.fx.blink, b.y, 22, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    if (preview && preview.shots) {
+      ctx.globalAlpha = 0.7;
+      ctx.strokeStyle = "#fff6e8";
+      ctx.lineWidth = 2;
+      for (let i = 0; i < preview.shots.length; i++) {
+        const s = preview.shots[i];
+        ctx.beginPath();
+        ctx.moveTo(s.x + s.w / 2, s.y + s.h / 2);
+        if (s.grav && preview.mark) {
+          ctx.lineTo(preview.mark.x + preview.mark.w / 2, preview.mark.y + preview.mark.h / 2);
+        } else {
+          ctx.lineTo(s.x + s.w / 2 + (s.vx || 0) * 10, s.y + s.h / 2 + (s.vy || 0) * 10);
+        }
+        ctx.stroke();
+      }
+    }
+    if (b.echo) {
+      ctx.globalAlpha = Math.max(0, b.echo.life);
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(b.echo.x, b.echo.y, 16, 0, Math.PI * 2);
+      ctx.fill();
+      kitStamp(b.look, b.echo.x, b.echo.y, 8);
+    }
+    ctx.restore();
+  }
+
 
   function drawBossShots(col) {
     const shots = world.bossShots || [];
@@ -3619,6 +5476,15 @@
     for (let i = 0; i < shots.length; i++) {
       const s = shots[i];
       if (s.delay > 0) continue;
+      if (s.look) {
+        ctx.save();
+        ctx.globalAlpha = 0.16;
+        ctx.fillStyle = col;
+        ctx.fillRect(s.x, s.y, s.w, s.h);
+        ctx.restore();
+        drawKitShot(s, col);
+        continue;
+      }
       ctx.globalAlpha = 0.45;
       ctx.strokeStyle = col;
       ctx.lineWidth = Math.max(2, Math.min(s.w, s.h) * 0.45);
@@ -3631,13 +5497,26 @@
         ctx.save();
         ctx.translate(s.x + s.w / 2, s.y + s.h / 2);
         ctx.rotate(world.time * (s.kind === "spin" ? 14 : 7) + i);
-        ctx.fillStyle = "#ff2f86";
-        ctx.shadowColor = "#ff4d9a";
-        ctx.shadowBlur = 12;
-        ctx.fillRect(-s.w / 2, -s.h / 2, s.w, s.h);
+        const pulse = s.kind === "spin" ? 1 + Math.sin(world.time * 18) * 0.14 : 1;
+        const rw = s.w * (s.kind === "spin" ? 0.62 : 0.52) * pulse;
+        const rh = s.h * (s.kind === "spin" ? 0.46 : 0.44) * pulse;
+        ctx.globalAlpha = 0.4;
+        ctx.fillStyle = "#fe92b8";
+        ctx.beginPath();
+        ctx.ellipse(0, 0, rw * 1.45, rh * 1.45, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "#fe1f6f";
+        ctx.shadowColor = "#fe92b8";
+        ctx.shadowBlur = s.kind === "spin" ? 18 : 10;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, rw, rh, 0, 0, Math.PI * 2);
+        ctx.fill();
         ctx.shadowBlur = 0;
-        ctx.fillStyle = "#fff6e8";
-        ctx.fillRect(-s.w * 0.18, -s.h * 0.18, s.w * 0.36, s.h * 0.36);
+        ctx.fillStyle = "#fff0f6";
+        ctx.beginPath();
+        ctx.ellipse(-rw * 0.12, -rh * 0.16, rw * 0.36, rh * 0.28, 0, 0, Math.PI * 2);
+        ctx.fill();
         ctx.restore();
         continue;
       }
@@ -3666,38 +5545,69 @@
     ctx.beginPath();
     ctx.rect(0, 0, W, H);
     if (lane) ctx.rect(b.safeX, 0, b.safeW, H);
-    ctx.clip("evenodd");
-    ctx.fillStyle = "rgba(22, 4, 14, " + (0.42 + amt * 0.46) + ")";
+    // Solid bands (no per-frame gradients). evenodd digs the safe lane out of the fog.
+    if (typeof ctx.clip === "function") ctx.clip("evenodd");
+    ctx.globalAlpha = 0.42 + amt * 0.46;
+    ctx.fillStyle = "#16040e";
     ctx.fillRect(0, 0, W, H);
-    ctx.globalAlpha = 0.35 + amt * 0.4;
-    for (let i = 0; i < 6; i++) {
+    ctx.globalAlpha = 0.22 + amt * 0.28;
+    for (let i = 0; i < 4; i++) {
       const drift = world.time * (22 + i * 9) + i * 110;
       const y = ((drift % (H + 90)) - 45);
-      const g = ctx.createLinearGradient(0, y, 0, y + 78);
-      g.addColorStop(0, "rgba(255, 47, 134, 0)");
-      g.addColorStop(0.5, i % 2 ? "rgba(255, 170, 210, 0.55)" : "rgba(120, 8, 48, 0.7)");
-      g.addColorStop(1, "rgba(255, 47, 134, 0)");
-      ctx.fillStyle = g;
-      ctx.fillRect(-20, y, W + 40, 78);
+      ctx.fillStyle = i % 2 ? "#ffaad2" : "#780830";
+      ctx.fillRect(-20, y, W + 40, 28);
+      ctx.globalAlpha = 0.12 + amt * 0.18;
+      ctx.fillRect(-20, y + 28, W + 40, 36);
+      ctx.globalAlpha = 0.22 + amt * 0.28;
     }
     ctx.restore();
     if (!lane) return;
     const x = b.safeX;
     const w = b.safeW;
     ctx.save();
-    const edge = ctx.createLinearGradient(x - 36, 0, x + w + 36, 0);
-    edge.addColorStop(0, "rgba(18, 4, 12, " + (0.5 + amt * 0.4) + ")");
-    edge.addColorStop(0.22, "rgba(18, 4, 12, 0)");
-    edge.addColorStop(0.78, "rgba(18, 4, 12, 0)");
-    edge.addColorStop(1, "rgba(18, 4, 12, " + (0.5 + amt * 0.4) + ")");
-    ctx.fillStyle = edge;
-    ctx.fillRect(x - 36, 0, w + 72, H);
+    ctx.globalAlpha = 0.5 + amt * 0.4;
+    ctx.fillStyle = "#12040c";
+    ctx.fillRect(x - 36, 0, 36, H);
+    ctx.fillRect(x + w, 0, 36, H);
     ctx.globalAlpha = 0.16 + amt * 0.22;
     ctx.fillStyle = "#ffd6ea";
     ctx.fillRect(x + 6, 0, Math.max(8, w - 12), floor);
     ctx.globalAlpha = 0.85;
     ctx.fillStyle = "#fff6e8";
     ctx.fillRect(x, floor - 10, w, 8);
+    ctx.restore();
+  }
+
+  function drawFlameColumn(x, w, floor, hot, seed) {
+    const t = world.time || 0;
+    const steps = 7;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x, floor);
+    for (let i = 0; i <= steps; i++) {
+      const yy = floor - (floor * i / steps);
+      const wob = Math.sin(t * 13 + i * 0.9 + seed) * (hot ? w * 0.18 : w * 0.08);
+      ctx.lineTo(x + wob, yy);
+    }
+    ctx.quadraticCurveTo(x + w * 0.5, -16 - Math.sin(t * 9 + seed) * 8, x + w, 0);
+    for (let i = steps; i >= 0; i--) {
+      const yy = floor - (floor * i / steps);
+      const wob = Math.sin(t * 13 + i * 0.9 + seed + 2.1) * (hot ? w * 0.18 : w * 0.08);
+      ctx.lineTo(x + w + wob, yy);
+    }
+    ctx.closePath();
+    ctx.fillStyle = hot ? "#fe1f6f" : "rgba(254, 146, 184, 0.55)";
+    ctx.globalAlpha = hot ? 0.88 : 0.32;
+    ctx.fill();
+    ctx.globalAlpha = hot ? 0.7 : 0.28;
+    ctx.fillStyle = "#fff0f6";
+    ctx.fillRect(x + w * 0.38, 8, Math.max(3, w * 0.22), floor - 16);
+    ctx.fillStyle = "#fe92b8";
+    ctx.globalAlpha = hot ? 0.9 : 0.4;
+    const tip = 10 + Math.sin(t * 16 + seed) * 6;
+    ctx.beginPath();
+    ctx.ellipse(x + w * 0.5, floor - 6, w * 0.42, tip, 0, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 
@@ -3708,47 +5618,53 @@
     for (let i = 0; i < beams.length; i++) {
       const bm = beams[i];
       const hot = bm.warn <= 0;
-      ctx.save();
-      ctx.globalAlpha = hot ? 0.9 : 0.35;
-      ctx.fillStyle = bm.cause === "STORM" ? "#ffd0ea" : "#ff2f86";
-      ctx.fillRect(bm.x, 0, bm.w, floor);
-      if (!hot) {
-        ctx.globalAlpha = 0.9;
-        ctx.fillStyle = "#fff6e8";
-        ctx.fillRect(bm.x + 2, floor - 6, Math.max(4, bm.w - 4), 4);
-      }
+      drawFlameColumn(bm.x, bm.w, floor, hot, i * 1.7);
       if (bm.blast > 0 && bm.blast < 1) {
         const p = bm.blast;
         const rad = 8 + p * (bm.cause === "STORM" ? 62 : 40);
         const cx = bm.x + bm.w / 2;
+        ctx.save();
         ctx.globalAlpha = 0.85 * (1 - p);
-        ctx.strokeStyle = "#fff6e8";
+        ctx.strokeStyle = "#fff0f6";
         ctx.lineWidth = 5;
         ctx.beginPath();
         ctx.ellipse(cx, floor - 2, rad, rad * 0.42, 0, 0, Math.PI * 2);
         ctx.stroke();
-        ctx.fillStyle = "rgba(255, 47, 134, " + (0.45 * (1 - p)) + ")";
+        ctx.fillStyle = "rgba(254, 31, 111, " + (0.45 * (1 - p)) + ")";
         ctx.beginPath();
         ctx.ellipse(cx, floor - 2, rad * 0.45, rad * 0.2, 0, 0, Math.PI * 2);
         ctx.fill();
+        ctx.restore();
       }
-      ctx.restore();
     }
     if (b.half) {
       const w = b.half.reach || world.cols * TILE * 0.42;
       const x = b.half.side < 0 ? 0 : world.cols * TILE - w;
+      const hot = !!b.half.hot;
       ctx.save();
-      ctx.globalAlpha = b.half.hot ? 0.55 : 0.22;
-      ctx.fillStyle = "#ff2f86";
+      ctx.globalAlpha = hot ? 0.28 : 0.12;
+      ctx.fillStyle = "#7a1038";
       ctx.fillRect(x, 0, w, floor);
       ctx.restore();
+      const tongues = Math.max(5, Math.floor(w / 48));
+      for (let i = 0; i < tongues; i++) {
+        const tx = x + (i + 0.35) * (w / tongues);
+        drawFlameColumn(tx, 22, floor, hot, i * 0.8);
+      }
     }
     if (b.wave) {
       ctx.save();
       ctx.globalAlpha = b.wave.live > 0 ? 0.85 : 0.4;
-      ctx.fillStyle = "#ff2f86";
-      const ww = b.wave.live > 0 ? b.wave.r * 2 : 48;
-      ctx.fillRect(b.wave.x - ww / 2, floor - (b.wave.live > 0 ? 18 : 8), ww, b.wave.live > 0 ? 18 : 8);
+      ctx.fillStyle = "#fe1f6f";
+      const ww = b.wave.live > 0 ? b.wave.r : 24;
+      ctx.beginPath();
+      ctx.ellipse(b.wave.x, floor - 6, ww, b.wave.live > 0 ? 16 : 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fff0f6";
+      ctx.globalAlpha = 0.55;
+      ctx.beginPath();
+      ctx.ellipse(b.wave.x, floor - 6, ww * 0.55, b.wave.live > 0 ? 6 : 3, 0, 0, Math.PI * 2);
+      ctx.fill();
       if (b.wave.live > 0) {
         ctx.globalAlpha = Math.max(0.15, 0.7 - b.wave.live);
         ctx.strokeStyle = "#fff6e8";
@@ -3763,12 +5679,52 @@
       ctx.save();
       ctx.translate(world.magnet.x, world.magnet.y);
       ctx.rotate(world.time * 3);
-      ctx.fillStyle = "#ff2f86";
-      ctx.shadowColor = "#ff4d9a";
+      ctx.fillStyle = "#fe1f6f";
+      ctx.shadowColor = "#fe92b8";
       ctx.shadowBlur = 14;
-      ctx.fillRect(-8, -8, 16, 16);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 11, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#fff0f6";
+      ctx.beginPath();
+      ctx.ellipse(-2, -1, 4, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
       ctx.restore();
     }
+    if (b.drive) {
+      const d = b.drive;
+      const hot = !!d.live;
+      ctx.save();
+      ctx.globalAlpha = hot ? 0.55 : 0.22 + Math.sin(world.time * 22) * 0.1;
+      ctx.fillStyle = hot ? "#fe1f6f" : "#fff0f6";
+      ctx.fillRect(0, floor - 18, world.cols * TILE, 16);
+      ctx.globalAlpha = hot ? 0.9 : 0.55;
+      ctx.fillStyle = "#fff6e8";
+      ctx.fillRect(d.x - 30, floor - 20, 60, 18);
+      if (!hot) {
+        // Chevron marks instead of fillText — no font measure/churn on the warn frames.
+        const pulse = 0.55 + Math.sin(world.time * 18) * 0.35;
+        ctx.globalAlpha = pulse;
+        ctx.fillStyle = "#fff6e8";
+        const base = floor - 34;
+        for (let i = 0; i < 3; i++) {
+          const y = base - i * 10;
+          ctx.beginPath();
+          ctx.moveTo(d.x, y);
+          ctx.lineTo(d.x - 10, y + 8);
+          ctx.lineTo(d.x - 4, y + 8);
+          ctx.lineTo(d.x - 4, y + 14);
+          ctx.lineTo(d.x + 4, y + 14);
+          ctx.lineTo(d.x + 4, y + 8);
+          ctx.lineTo(d.x + 10, y + 8);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+    drawNullRageAura(b);
   }
 
   function drawNullBars() {
@@ -3787,15 +5743,15 @@
     if (flash > 0.01) {
       const pulse = 0.72 + Math.sin((world.time || 0) * 34) * 0.28;
       const a = Math.min(0.9, flash) * pulse;
-      const cx = VIEW_W * 0.5;
-      const cy = VIEW_H * 0.42;
-      const g = ctx.createRadialGradient(cx, cy, VIEW_H * 0.04, cx, cy, Math.max(VIEW_W, VIEW_H) * 0.72);
-      g.addColorStop(0, "rgba(255, 214, 232, " + (a * 0.22) + ")");
-      g.addColorStop(0.28, "rgba(255, 47, 134, " + (a * 0.18) + ")");
-      g.addColorStop(0.72, "rgba(120, 8, 48, " + (a * 0.45) + ")");
-      g.addColorStop(1, "rgba(20, 0, 10, " + (a * 0.7) + ")");
-      ctx.fillStyle = g;
+      ctx.globalAlpha = a * 0.55;
+      ctx.fillStyle = "#14000a";
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      ctx.globalAlpha = a * 0.28;
+      ctx.fillStyle = "#ff2f86";
+      ctx.fillRect(VIEW_W * 0.12, VIEW_H * 0.08, VIEW_W * 0.76, VIEW_H * 0.72);
+      ctx.globalAlpha = a * 0.16;
+      ctx.fillStyle = "#ffd6e8";
+      ctx.fillRect(VIEW_W * 0.28, VIEW_H * 0.18, VIEW_W * 0.44, VIEW_H * 0.42);
       ctx.globalAlpha = Math.min(0.55, a * 0.5);
       for (let i = 0; i < 6; i++) {
         const y = ((world.time * (180 + i * 40) + i * 97) % (VIEW_H + 48)) - 24;
@@ -3811,23 +5767,77 @@
     ctx.restore();
   }
 
-  function drawBossTalk() {
-    const b = world.boss;
-    const say = b && b.say;
-    if (!say || say.age >= say.life || deathShow || player.dead || player.win) return;
-    const left = say.life - say.age;
+  function layoutBossSay(say) {
+    if (!say) return;
+    if (say._fitText === say.text && say._fitTw && !!say._fitRage === !!say.rage) return;
     const text = say.text || "";
-    ctx.save();
-    ctx.globalAlpha = Math.max(0, Math.min(1, left * 4));
+    if (say.rage) {
+      let size = 44;
+      ctx.font = "800 " + size + "px Bungee, sans-serif";
+      while (size > 26 && ctx.measureText(text).width > VIEW_W - 36) {
+        size -= 1;
+        ctx.font = "800 " + size + "px Bungee, sans-serif";
+      }
+      say._fitSize = size;
+      say._fitTw = Math.min(VIEW_W - 24, ctx.measureText(text).width + 36);
+      say._fitText = text;
+      say._fitFont = "800 " + size + "px Bungee, sans-serif";
+      say._fitRage = true;
+      return;
+    }
     ctx.font = "800 22px Bungee, sans-serif";
     let size = 22;
     while (size > 14 && ctx.measureText(text).width > 420) {
       size -= 1;
       ctx.font = "800 " + size + "px Bungee, sans-serif";
     }
-    const tw = Math.max(160, Math.min(480, ctx.measureText(text).width + 28));
+    say._fitSize = size;
+    say._fitTw = Math.max(160, Math.min(480, ctx.measureText(text).width + 28));
+    say._fitText = text;
+    say._fitFont = "800 " + size + "px Bungee, sans-serif";
+    say._fitRage = false;
+  }
+
+  function drawBossTalk() {
+    const b = world.boss;
+    const say = b && b.say;
+    if (!say || say.age >= say.life || deathShow || player.win) return;
+    if (player.dead && b.phase !== "intro") return;
+    const left = say.life - say.age;
+    const text = say.text || "";
+    layoutBossSay(say);
+    const size = say._fitSize || 22;
+    const tw = say._fitTw || 160;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, left * 4));
+    if (say.rage) {
+      const shake = Math.min(14, (world.shake || 0) + (left > 2.4 ? 10 : 4));
+      const jx = Math.sin((world.time || 0) * 62) * shake * 0.55;
+      const jy = Math.cos((world.time || 0) * 78) * shake * 0.35;
+      const x = Math.max(8, (VIEW_W - tw) / 2) + jx;
+      const y = VIEW_H * 0.28 + jy;
+      const th = size + 36;
+      ctx.fillStyle = "rgba(12, 0, 8, 0.82)";
+      ctx.fillRect(x, y, tw, th);
+      ctx.strokeStyle = "#fe1f6f";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(x + 2, y + 2, tw - 4, th - 4);
+      ctx.font = "700 12px Rubik, sans-serif";
+      ctx.fillStyle = say.color || "#fe1f6f";
+      ctx.fillText(say.name || "NULL", x + 16, y + 18);
+      ctx.font = say._fitFont || ("800 " + size + "px Bungee, sans-serif");
+      ctx.fillStyle = say.ink || "#fff0f6";
+      ctx.shadowColor = "#fe1f6f";
+      ctx.shadowBlur = 18;
+      ctx.fillText(text, x + 16, y + 18 + size);
+      ctx.shadowBlur = 0;
+      ctx.restore();
+      return;
+    }
     const x = Math.max(16, (VIEW_W - tw) / 2);
-    const y = 62 + ((world.boss && world.boss.bars) || 0) * 36;
+    const bars = (world.boss && world.boss.bars) || 0;
+    const barH = bars > 0.01 ? Math.min(VIEW_H * 0.28, 28 + bars * 90) : 0;
+    const y = Math.max(62, barH + 16);
     ctx.fillStyle = "rgba(8, 6, 12, 0.9)";
     ctx.fillRect(x, y, tw, 52);
     ctx.strokeStyle = say.color || "#fff";
@@ -3836,7 +5846,7 @@
     ctx.font = "700 13px Rubik, sans-serif";
     ctx.fillStyle = say.color || "#fff";
     ctx.fillText(say.name || "", x + 14, y + 18);
-    ctx.font = "800 " + size + "px Bungee, sans-serif";
+    ctx.font = say._fitFont || ("800 " + size + "px Bungee, sans-serif");
     ctx.fillStyle = say.ink || "#fff6e8";
     ctx.fillText(text, x + 14, y + 42);
     ctx.restore();
@@ -3873,10 +5883,31 @@
       ev.fired = true;
       triggerTrap(ev);
     }
-    for (const q of world.queued) {
-      if (q.done || world.time < q.at) continue;
-      q.done = true;
-      for (const a of q.do) runAction(a);
+    const queued = world.queued;
+    let qLive = 0;
+    for (let qi = 0; qi < queued.length; qi++) {
+      const q = queued[qi];
+      if (q.done) continue;
+      if (world.time >= q.at) {
+        q.done = true;
+        for (let ai = 0; ai < q.do.length; ai++) runAction(q.do[ai]);
+        continue;
+      }
+      if (qLive !== qi) queued[qLive] = q;
+      qLive += 1;
+    }
+    if (qLive < queued.length) queued.length = qLive;
+
+    const restores = world.restores;
+    if (restores && restores.length > 48) {
+      let rLive = 0;
+      for (let ri = 0; ri < restores.length; ri++) {
+        const r = restores[ri];
+        if (r.done) continue;
+        if (rLive !== ri) restores[rLive] = r;
+        rLive += 1;
+      }
+      restores.length = rLive;
     }
   }
 
@@ -3946,11 +5977,19 @@
             if (!player.wasOnGround && (player.airTime || 0) > 0.08 && Math.abs(player.vy) > 2.2) {
               audio.play("land");
               player.justLanded = true;
-              world.squash = 0.42;
-              camFX.punch = Math.max(camFX.punch, 4.2);
-              dust(player.x + player.w / 2, player.y + player.h, 8, 0.4);
-              shock(player.x + player.w / 2, player.y + player.h, "rgba(244,234,216,0.8)");
-              burst(player.x + player.w / 2, player.y + player.h - 2, "#fff6d8", 4, 2.2);
+              const impact = Math.min(1.7, Math.abs(player.vy) / 7.5);
+              world.squash = 0.32 + impact * 0.22;
+              camFX.punch = Math.max(camFX.punch, 3.2 + impact * 3.4);
+              const feetX = player.x + player.w / 2;
+              const feetY = player.y + player.h;
+              dust(feetX, feetY, Math.round(5 + impact * 8), 0.35 + impact * 0.4);
+              shock(feetX, feetY, fxAccentRgb(0.55 + impact * 0.3));
+              puff(feetX, feetY - 2, Math.round(2 + impact * 3), fxAccentRgb(0.28));
+              if (impact > 0.55) burst(feetX, feetY - 2, "#fff6d8", Math.round(3 + impact * 4), 1.8 + impact);
+              if (impact > 1.05) {
+                world.shake = Math.max(world.shake, 2 + impact);
+                ember(feetX, feetY - 4, 3);
+              }
               if (stickyNext > 0) {
                 lockTimer = Math.max(lockTimer, stickyNext);
                 stickyNext = 0;
@@ -3960,7 +5999,7 @@
             }
             player.onGround = true;
             player.airTime = 0;
-            player.coyote = 0.09;
+            player.coyote = 0.12;
           }
           player.vy = 0;
           hit = true;
@@ -3976,7 +6015,6 @@
     world.qte = null;
     player.dead = true;
     deaths += 1;
-    deathGhost = { x: player.x, y: player.y, facing: player.facing };
     world.deathReason = deathCopy(msg);
     world.flash = 0.22;
     world.shake = 18;
@@ -3988,6 +6026,7 @@
     burst(player.x + player.w / 2, player.y + player.h / 2, "#e31b1b", 36, 7);
     burst(player.x + player.w / 2, player.y + 4, "#3a2010", 10, 3.4);
     burst(player.x + player.w / 2, player.y + player.h / 2, "#ffd24a", 8, 5);
+    if (!world.blood) world.blood = [];
     for (let i = 0; i < 10; i++) {
       world.blood.push({
         x: player.x + Math.random() * player.w,
@@ -3996,7 +6035,13 @@
         a: 0.32 + Math.random() * 0.4,
       });
     }
+    if (world.blood.length > 48) {
+      const drop = world.blood.length - 48;
+      for (let bi = 0; bi < 48; bi++) world.blood[bi] = world.blood[bi + drop];
+      world.blood.length = 48;
+    }
     audio.play("die");
+    if (!testMode && !creatorPlay) parkClock();
     updateHud();
     updateComboHud();
     if (creatorPlay) {
@@ -4004,7 +6049,13 @@
       deathTimer = 0.85;
       return;
     }
-    if (testMode && !(typeof location !== "undefined" && /#d1boss/.test(String(location.hash || "")))) return;
+    const trailerOn = window.SURGE_TRAILER && window.SURGE_TRAILER.on;
+    const trailerRoast = trailerOn && window.SURGE_TRAILER.wantsRoast;
+    const bossPreview = typeof location !== "undefined" && /#d1boss/.test(String(location.hash || ""));
+    if (testMode && !bossPreview && !trailerRoast) {
+      if (trailerOn) deathTimer = 6;
+      return;
+    }
     startDeathRoast(deathKind(msg));
   }
 
@@ -4068,6 +6119,12 @@
 
   function winLevel() {
     if (player.win || player.dead) return;
+    hold.jump = false;
+    hold.dash = false;
+    player.jumpHeld = false;
+    player.buffer = 0;
+    const jumpCodes = (binds && binds.jump) || BIND_DEFAULTS.jump;
+    for (let ji = 0; ji < jumpCodes.length; ji++) keys.delete(jumpCodes[ji]);
     player.win = true;
     burst(player.x + 12, player.y + 10, "#f0c14b", 28, 5);
     burst(player.x + 12, player.y + 10, "#fff6d8", 12, 3);
@@ -4106,7 +6163,7 @@
       mode = "win";
       dimIntro = 0;
       if (dimCard) dimCard.classList.add("hidden");
-      const secs = Math.round((performance.now() - startedAt) / 1000);
+      const secs = runSeconds();
       const rating = surgeRating(deaths, secs);
       const prev = loadSave();
       const rec = Object.assign({}, prev.dimRecords || {});
@@ -4179,9 +6236,19 @@
       ix = botIx;
       jumpDown = botJump;
     } else {
-    if (keys.has("ArrowLeft") || keys.has("KeyA") || hold.left) ix -= 1;
-    if (keys.has("ArrowRight") || keys.has("KeyD") || hold.right) ix += 1;
-      jumpDown = keys.has("Space") || keys.has("ArrowUp") || keys.has("KeyW") || hold.jump;
+    if (bindHeld("left") || hold.left) ix -= 1;
+    if (bindHeld("right") || hold.right) ix += 1;
+      jumpDown = bindHeld("jump") || hold.jump;
+    }
+    if (window.SURGE_TRAILER && window.SURGE_TRAILER.lock) {
+      ix = 0;
+      jumpDown = false;
+      hold.dash = false;
+    }
+    if (!useBot && world.boss && world.boss.phase === "intro") {
+      ix = 0;
+      jumpDown = false;
+      player.vx = 0;
     }
     if (lockTimer > 0) { ix = 0; jumpDown = false; lockTimer -= FIXED; }
     if (world.qte && world.qte.lock) { ix = 0; jumpDown = false; }
@@ -4211,12 +6278,13 @@
 
     dashCool = Math.max(0, dashCool - FIXED);
     dashT = Math.max(0, dashT - FIXED);
-    const wantDash = keys.has("ShiftLeft") || keys.has("ShiftRight") || hold.dash;
+    const wantDash = bindHeld("dash") || hold.dash;
     const dashEdge = wantDash && !dashHeld;
     dashHeld = wantDash;
     if (
       dimIndex >= 3 && dashEdge && dashCool <= 0 && !player.dead &&
-      lockTimer <= 0 && !(world.qte && world.qte.lock)
+      lockTimer <= 0 && !(world.qte && world.qte.lock) &&
+      !(world.boss && world.boss.phase === "intro")
     ) {
       dashDir = ix || player.facing || 1;
       player.facing = dashDir;
@@ -4224,17 +6292,26 @@
       player.vy *= 0.35;
       dashCool = 0.72;
       dashT = 0.16;
+      world.squash = -0.28;
       audio.play("dash");
-      burst(player.x + player.w / 2, player.y + player.h / 2, "#ffe8a0", 14, 5);
+      burst(player.x + player.w / 2, player.y + player.h / 2, "#ffe8a0", 12, 5);
+      burst(player.x + player.w / 2, player.y + player.h / 2, fxAccentRgb(0.95), 6, 4.2);
       shock(player.x + player.w / 2, player.y + player.h / 2, "rgba(255,232,170,0.85)");
+      puff(player.x + player.w / 2 - dashDir * 8, player.y + player.h / 2, 4, "rgba(255,232,170,0.35)");
+      ember(player.x + player.w / 2, player.y + player.h / 2, 4);
       camFX.punch = Math.max(camFX.punch, 6);
+    } else if (
+      dimIndex >= 3 && dashEdge && dashCool > 0 && !player.dead && !testMode &&
+      lockTimer <= 0 && !(world.boss && world.boss.phase === "intro")
+    ) {
+      audio.play("tick");
     }
     const cap = dashT > 0 ? 10 : 4.5;
     player.vx = Math.max(-cap, Math.min(cap, player.vx));
 
-    if (jumpDown && !player.jumpHeld) player.buffer = 0.1;
+    if (jumpDown && !player.jumpHeld) player.buffer = 0.13;
     player.jumpHeld = jumpDown;
-    if (player.onGround) player.coyote = 0.09;
+    if (player.onGround) player.coyote = 0.12;
     else player.coyote -= FIXED;
     player.buffer -= FIXED;
     player.bounceLock -= FIXED;
@@ -4252,7 +6329,10 @@
       world.jumps += 1;
       world.squash = -0.36;
       audio.play("jump");
-      dust(player.x + player.w / 2, player.y + player.h, 4);
+      dust(player.x + player.w / 2, player.y + player.h, 5, player.facing * 0.35);
+      shock(player.x + player.w / 2, player.y + player.h, fxAccentRgb(0.45));
+      burst(player.x + player.w / 2, player.y + player.h - 2, fxAccentRgb(0.9), 3, 2.1);
+      camFX.punch = Math.max(camFX.punch, 2.4);
     }
     if (!jumpDown) {
       if (gSign > 0 && player.vy < -4) player.vy *= 0.55;
@@ -4272,15 +6352,16 @@
     if (player.x > world.maxX) world.maxX = player.x;
 
     player.ghostT = (player.ghostT || 0) + FIXED;
-    const fast = dashT > 0 || Math.abs(movedX) > 1.8 || (!player.onGround && Math.abs(player.vy) > 3.2);
-    if (fast && player.ghostT > (dashT > 0 ? 0.018 : 0.04)) {
+    const fast = dashT > 0 || Math.abs(movedX) > 2.4 || (!player.onGround && Math.abs(player.vy) > 4.2);
+    if (fast && player.ghostT > (dashT > 0 ? 0.05 : 0.11)) {
       player.ghostT = 0;
-      const life = dashT > 0 ? 0.2 : 0.12;
-      world.afterimages.push({
-        x: player.x, y: player.y, facing: player.facing,
-        life, max: life, vx: player.vx, vy: player.vy,
-      });
-      if (world.afterimages.length > 10) world.afterimages.shift();
+      const life = dashT > 0 ? 0.26 : 0.4;
+      const a = allocAfter();
+      a.x = player.x; a.y = player.y; a.facing = player.facing;
+      a.life = life; a.max = life; a.vx = player.vx; a.vy = player.vy;
+      a.anim = player.anim; a.lean = player.lean || 0; a.sq = player.visSq || 0; a.bob = player.bob || 0;
+      world.afterimages.push(a);
+      if (world.afterimages.length > 28) freeAfter(world.afterimages.shift());
     }
 
     const midX = player.x + player.w / 2;
@@ -4291,7 +6372,11 @@
       player.bounceLock = 0.2;
       audio.play("jump");
       burst(midX, player.y + player.h, "#ffd27a", 10, 3);
+      burst(midX, player.y + player.h, fxAccentRgb(0.9), 5, 2.6);
       shock(midX, player.y + player.h, "rgba(255,210,122,0.9)");
+      puff(midX, player.y + player.h - 4, 3, "rgba(255,210,122,0.35)");
+      ember(midX, player.y + player.h - 6, 3);
+      camFX.punch = Math.max(camFX.punch, 4);
     }
 
     crumbleUnderPlayer();
@@ -4309,16 +6394,22 @@
       if (hz) { die(bossTileCause(hx, hy) || hz); return; }
     }
 
-    const leanTarget = Math.max(-0.28, Math.min(0.28, player.vx * 0.034 + (player.onGround ? 0 : player.vy * 0.004)));
-    player.lean += (leanTarget - player.lean) * 0.22;
-    const airSq = player.onGround ? 0 : Math.max(-0.2, Math.min(0.16, player.vy * 0.014));
-    player.visSq += ((world.squash || 0) + airSq - player.visSq) * 0.28;
-    const bobTarget = player.onGround ? Math.sin(player.anim) * 1.5 : Math.sin(world.time * 10) * 0.4;
-    player.bob += (bobTarget - player.bob) * 0.34;
+    const leanTarget = Math.max(-0.28, Math.min(0.28,
+      player.vx * 0.035 + (player.onGround ? 0 : player.vy * 0.012)));
+    player.lean += (leanTarget - player.lean) * 0.28;
+    const airSq = player.onGround
+      ? 0
+      : (player.vy < -1 ? -0.16 : Math.min(0.2, player.vy * 0.018));
+    player.visSq += ((world.squash || 0) + airSq - player.visSq) * 0.42;
+    const stride = Math.min(1, Math.abs(player.vx) / 3.4);
+    const bobTarget = player.onGround
+      ? Math.abs(Math.sin(player.anim)) * -2.1 * stride
+      : (player.vy < 0 ? -1.4 : 0.4);
+    player.bob += (bobTarget - player.bob) * 0.4;
 
     player.stepCool = Math.max(0, (player.stepCool || 0) - FIXED);
     if (ix && player.onGround && Math.abs(movedX) > 0.35) {
-      player.anim += Math.abs(movedX) * 0.22;
+      player.anim += Math.abs(movedX) * 0.38;
       if (!player.justLanded && player.stepCool <= 0) {
         player.stepCool = 0.16;
         dust(player.x + player.w / 2, player.y + player.h, 2, Math.sign(ix) * 0.9);
@@ -4330,8 +6421,8 @@
       const dx = midX - saw.x;
       const dy = player.y + player.h / 2 - saw.y;
       const d2 = dx * dx + dy * dy;
-      if (d2 < 15 * 15) { die(saw.boss ? "BOSS SAW" : "SAW SAID HI"); return; }
-      if (d2 < 30 * 30 && nearCool <= 0) {
+      if (d2 < 15 * 15) { die(saw.boss ? ("BOSS " + String(saw.cause || "saw").toUpperCase()) : "SAW SAID HI"); return; }
+      if (!(world.boss && world.boss.phase === "intro") && d2 < 30 * 30 && nearCool <= 0) {
         nearCool = 0.4;
         burst((midX + saw.x) / 2, (player.y + 10 + saw.y) / 2, "#ffe0a0", 5, 2.8);
         if (!testMode) audio.play("near");
@@ -4353,38 +6444,55 @@
           die("BOSS " + String(shot.kind || "bolt").toUpperCase());
           return;
         }
+        if (nearCool <= 0 && world.boss && world.boss.dim !== 1) {
+          const dx = (shot.x + shot.w / 2) - midX;
+          const dy = (shot.y + shot.h / 2) - (player.y + player.h / 2);
+          const near = dx * dx + dy * dy;
+          if (near < 36 * 36) {
+            nearCool = 0.35;
+            nearFlare = 0.18;
+            if (!testMode) audio.play("near");
+          }
+        }
       }
     }
 
+    if (world.boss && world.boss.dim !== 1 && kitHurt(world.boss)) return;
+
     if (world.boss && world.boss.dim === 1 && !player.dead) {
       const nb = world.boss;
-      const mid = player.x + player.w / 2;
-      const floor = world.door ? world.door.y + TILE : player.y + player.h;
-      if (nb.drive && nb.drive.live && rectsOverlap(player, { x: nb.x - 28, y: floor - 46, w: 56, h: 46 })) {
-        die("BOSS DRIVE");
-        return;
-      }
-      if (nb.wave && nb.wave.live > 0 && player.y + player.h > floor - 22 && Math.abs(mid - nb.wave.x) < nb.wave.r) {
-        die("BOSS POUND");
-        return;
-      }
-      if (nb.half && nb.half.hot) {
-        const bad = nb.half.side < 0 ? mid < nb.half.reach : mid > world.cols * TILE - nb.half.reach;
-        if (bad) { die("BOSS HALF"); return; }
-      }
-      const beams = world.nullBeams || [];
-      for (let bi = 0; bi < beams.length; bi++) {
-        const bm = beams[bi];
-        if (bm.warn > 0) continue;
-        if (player.x + player.w > bm.x && player.x < bm.x + bm.w) {
-          die("BOSS " + (bm.cause || "NEEDLES"));
+      if (nb.phase === "fight" || nb.phase === "rage") {
+        const mid = player.x + player.w / 2;
+        const floor = world.door ? world.door.y + TILE : player.y + player.h;
+        if (nb.drive && nb.drive.live) {
+          HIT.x = nb.x - 28; HIT.y = floor - 20; HIT.w = 56; HIT.h = 20;
+          if (rectsOverlap(player, HIT)) {
+            die("BOSS DRIVE");
+            return;
+          }
+        }
+        if (nb.wave && nb.wave.live > 0 && player.y + player.h > floor - 22 && Math.abs(mid - nb.wave.x) < nb.wave.r) {
+          die("BOSS POUND");
           return;
+        }
+        if (nb.half && nb.half.hot) {
+          const bad = nb.half.side < 0 ? mid < nb.half.reach : mid > world.cols * TILE - nb.half.reach;
+          if (bad) { die("BOSS HALF"); return; }
+        }
+        const beams = world.nullBeams || [];
+        for (let bi = 0; bi < beams.length; bi++) {
+          const bm = beams[bi];
+          if (bm.warn > 0) continue;
+          if (player.x + player.w > bm.x && player.x < bm.x + bm.w) {
+            die("BOSS " + (bm.cause || "NEEDLES"));
+            return;
+          }
         }
       }
     }
 
     for (const drop of world.drops) {
-      if (rectsOverlap(player, drop)) { die(drop.boss ? "BOSS DROP" : "BRICK"); return; }
+      if (rectsOverlap(player, drop)) { die(drop.boss ? ("BOSS " + String(drop.cause || "drop").toUpperCase()) : "BRICK"); return; }
     }
 
     for (const coin of world.coins) {
@@ -4404,7 +6512,11 @@
       }
     }
 
-    const doorHit = (d) => d && !world.doorHidden && rectsOverlap(player, { x: d.x + 4, y: d.y + 2, w: 24, h: 30 });
+    const doorHit = (d) => {
+      if (!d || world.doorHidden) return false;
+      HIT.x = d.x + 4; HIT.y = d.y + 2; HIT.w = 24; HIT.h = 30;
+      return rectsOverlap(player, HIT);
+    };
     if (bossBlastHits()) { die("BOSS BOOM"); return; }
     if (tileAt(midX, player.y + player.h + 1) === "!") { die("HIDDEN TEETH"); return; }
 
@@ -4422,7 +6534,12 @@
   }
 
   function tickSaws() {
-    for (const saw of world.saws) {
+    for (let i = world.saws.length - 1; i >= 0; i--) {
+      const saw = world.saws[i];
+      if (saw.life != null) {
+        saw.life -= FIXED;
+        if (saw.life <= 0) { swapRemove(world.saws, i); continue; }
+      }
       saw.spin += 0.32;
       if (saw.chase && !player.dead) {
         const tx = player.x + player.w / 2;
@@ -4444,7 +6561,7 @@
     for (let i = world.lasers.length - 1; i >= 0; i--) {
       const laser = world.lasers[i];
       laser.life -= FIXED;
-      if (laser.life <= 0) { world.lasers.splice(i, 1); continue; }
+      if (laser.life <= 0) { swapRemove(world.lasers, i); continue; }
       audio.hear(laser, laser.fake ? "glow" : "laser", laser.x + laser.w / 2, laser.y + laser.h / 2);
     }
   }
@@ -4464,9 +6581,17 @@
   }
 
   function tickDrops() {
-    for (const d of world.drops) {
+    for (let i = world.drops.length - 1; i >= 0; i--) {
+      const d = world.drops[i];
       d.vy += 0.4;
       d.y += d.vy;
+      if (d.life != null) {
+        d.life -= FIXED;
+        if (d.life <= 0 || d.y > world.rows * TILE + 24) {
+          swapRemove(world.drops, i);
+          continue;
+        }
+      }
       audio.hear(d, "brick", d.x + d.w / 2, d.y + d.h / 2, {
         rate: 0.7 + Math.min(1.5, Math.abs(d.vy) / 8),
       });
@@ -4519,7 +6644,7 @@
     for (let i = world.entities.length - 1; i >= 0; i--) {
       const e = world.entities[i];
       e.life -= FIXED;
-      if (e.life <= 0) { world.entities.splice(i, 1); continue; }
+      if (e.life <= 0) { swapRemove(world.entities, i); continue; }
 
       if (e.kind === "stalker") {
         const tx = midX;
@@ -4657,9 +6782,51 @@
     }
   }
 
+  function tickAmbientFx() {
+    if (mode !== "play" || player.dead || player.win || testMode) return;
+    if (world.particles.length > 220) return;
+    const weather = (currentTheme().weather || "shards");
+    const [ar, ag, ab] = fxAccent();
+    const wind = world.wind || 0;
+    // Sparse theme motes around the player so rooms feel alive.
+    if (Math.random() < (weather === "spores" || weather === "ember" ? 0.22 : 0.12)) {
+      const p = allocPart();
+      p.x = player.x + (Math.random() - 0.5) * 180;
+      p.y = player.y + (Math.random() - 0.5) * 110;
+      p.vx = (Math.random() - 0.5) * 0.35 + wind * 0.4;
+      p.vy = weather === "ember" || weather === "sparks"
+        ? -0.35 - Math.random() * 0.5
+        : (Math.random() - 0.5) * 0.3;
+      p.drag = 0.98;
+      p.grav = weather === "ember" ? -0.02 : (weather === "snow" || weather === "rain" ? 0.04 : 0.01);
+      const life = 0.5 + Math.random() * 0.7;
+      p.life = life; p.max = life;
+      p.color = `rgba(${ar},${ag},${ab},${weather === "ember" ? 0.75 : 0.45})`;
+      p.size = weather === "spores" ? 2.2 + Math.random() * 2.4 : 1.1 + Math.random() * 1.6;
+      p.kind = weather === "ember" || weather === "sparks" ? "ember" : "mote";
+      p.rot = null; p.spin = 0;
+      world.particles.push(p);
+    }
+    // Lamppost / hanging lamp sparkle.
+    const bag = world.scenery || [];
+    for (let i = 0; i < bag.length; i++) {
+      const sp = bag[i];
+      if (sp.kind !== "lamppost" && sp.kind !== "lamp" && sp.kind !== "bulb") continue;
+      if (Math.random() > 0.04) continue;
+      const s = sp.s || 1;
+      const lx = sp.kind === "lamppost" ? sp.x + 14 * s : sp.x;
+      const ly = sp.kind === "lamppost" ? sp.y - 42 * s : (sp.float ? sp.y : sp.y + 16 * s);
+      if (Math.abs(lx - (player.x + 8)) > 260) continue;
+      ember(lx, ly, 1);
+    }
+  }
+
   function tickParticles() {
-    for (let i = world.particles.length - 1; i >= 0; i--) {
-      const p = world.particles[i];
+    tickAmbientFx();
+    const bag = world.particles;
+    let n = 0;
+    for (let i = 0; i < bag.length; i++) {
+      const p = bag[i];
       const drag = p.drag != null ? p.drag : 0.985;
       p.vx *= drag;
       p.vy *= drag;
@@ -4668,21 +6835,40 @@
       p.y += p.vy;
       p.life -= FIXED;
       if (p.rot != null) p.rot += p.spin || 0;
-      if (p.life <= 0) world.particles.splice(i, 1);
+      if (p.life > 0) {
+        if (n !== i) bag[n] = p;
+        n += 1;
+      } else freePart(p);
     }
+    bag.length = n;
     if (world.rings) {
-      for (let i = world.rings.length - 1; i >= 0; i--) {
-        const ring = world.rings[i];
+      const rings = world.rings;
+      let rn = 0;
+      for (let i = 0; i < rings.length; i++) {
+        const ring = rings[i];
         ring.vr *= ring.drag != null ? ring.drag : 0.9;
         ring.r += ring.vr * FIXED;
         ring.life -= FIXED;
-        if (ring.life <= 0) world.rings.splice(i, 1);
+        if (ring.life > 0) {
+          if (rn !== i) rings[rn] = ring;
+          rn += 1;
+        } else freeRing(ring);
       }
+      rings.length = rn;
     }
-    for (let i = world.afterimages.length - 1; i >= 0; i--) {
-      world.afterimages[i].life -= FIXED;
-      if (world.afterimages[i].life <= 0) world.afterimages.splice(i, 1);
+    const after = world.afterimages;
+    let an = 0;
+    for (let i = 0; i < after.length; i++) {
+      const a = after[i];
+      a.x += (a.vx || 0) * 0.18;
+      a.y += (a.vy || 0) * 0.18;
+      a.life -= FIXED;
+      if (a.life > 0) {
+        if (an !== i) after[an] = a;
+        an += 1;
+      } else freeAfter(a);
     }
+    after.length = an;
   }
 
   function camera() {
@@ -4701,14 +6887,14 @@
     if (VIEW_H > lh * scale + 120) oy = Math.max(48, Math.min(oy, VIEW_H - lh * scale - 56));
     let ox = (VIEW_W - Math.min(lw, fitCols * TILE) * scale) / 2;
     if (world.cols > 32) {
-      const focus = player.x + player.w / 2 + player.vx * 7;
+      const focus = player.x + player.w / 2 + player.vx * 11;
       const viewW = VIEW_W / scale;
       let cam = focus - viewW * 0.38;
       const maxCam = Math.max(0, lw - viewW);
       if (cam < 0) cam = 0;
       if (cam > maxCam) cam = maxCam;
       if (camSmoothX == null) camSmoothX = cam;
-      camSmoothX += (cam - camSmoothX) * 0.14;
+      camSmoothX += (cam - camSmoothX) * 0.22;
       ox = -camSmoothX * scale;
     }
     if (world.rows > 12) {
@@ -4720,7 +6906,7 @@
         if (camY < 0) camY = 0;
         if (camY > maxCamY) camY = maxCamY;
         if (camSmoothY == null) camSmoothY = camY;
-        camSmoothY += (camY - camSmoothY) * 0.16;
+        camSmoothY += (camY - camSmoothY) * 0.22;
         oy = -camSmoothY * scale;
       }
     }
@@ -4763,13 +6949,17 @@
     // Base slab
     ctx.fillStyle = body;
     ctx.fillRect(px, py, TILE, TILE);
-    // Soft vertical shade so blocks read as volumes
-    const shade = ctx.createLinearGradient(px, py, px + TILE, py);
-    shade.addColorStop(0, "rgba(255,255,255,0.07)");
-    shade.addColorStop(0.45, "rgba(255,255,255,0)");
-    shade.addColorStop(1, "rgba(0,0,0,0.22)");
-    ctx.fillStyle = shade;
-    ctx.fillRect(px, py, TILE, TILE);
+    // Soft vertical shade — baked once, drawn every brick (same look, no per-brick gradient).
+    const shade = ensureBrickShade();
+    if (shade) ctx.drawImage(shade, px, py);
+    else {
+      const g = ctx.createLinearGradient(px, py, px + TILE, py);
+      g.addColorStop(0, "rgba(255,255,255,0.07)");
+      g.addColorStop(0.45, "rgba(255,255,255,0)");
+      g.addColorStop(1, "rgba(0,0,0,0.22)");
+      ctx.fillStyle = g;
+      ctx.fillRect(px, py, TILE, TILE);
+    }
     // Top walk lip
     const lipH = crumbly ? 5 : 7;
     ctx.fillStyle = lip;
@@ -4947,41 +7137,56 @@
 
   function drawWeather(t, pulse, heat, weather, accent) {
     const [ar, ag, ab] = accent;
+    const wind = (world && world.wind) || 0;
     if (weather === "ember") {
-      for (let i = 0; i < 40; i++) {
+      for (let i = 0; i < 48; i++) {
         const n = frac(i * 5.7);
-        const x = (frac(i * 11.3) * VIEW_W + t * (8 + n * 18)) % VIEW_W;
+        const x = (frac(i * 11.3) * VIEW_W + t * (8 + n * 18) + wind * 30) % VIEW_W;
         const y = (VIEW_H + 40 - ((t * (30 + n * 50) + n * 400) % (VIEW_H + 80)));
-        ctx.fillStyle = `rgba(${220 + n * 35},${80 + n * 80},40,${0.35 + n * 0.4})`;
+        const a = 0.28 + n * 0.4 + pulse * 0.12;
+        ctx.fillStyle = `rgba(${220 + n * 35},${80 + n * 80},40,${a})`;
         ctx.beginPath();
-        ctx.arc(x, y, 1.2 + n * 2.2, 0, Math.PI * 2);
+        ctx.arc(x, y, 1.2 + n * 2.2 + pulse * 0.4, 0, Math.PI * 2);
         ctx.fill();
+        if (n > 0.72) {
+          ctx.globalAlpha = a * 0.35;
+          ctx.beginPath();
+          ctx.arc(x, y, 4 + n * 3, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
       }
     } else if (weather === "snow") {
-      for (let i = 0; i < 70; i++) {
+      for (let i = 0; i < 78; i++) {
         const n = frac(i * 8.1);
-        const x = (frac(i * 3.9) * VIEW_W + Math.sin(t * 0.6 + i) * 18) % VIEW_W;
+        const drift = Math.sin(t * 0.6 + i) * 18 + wind * 40;
+        const x = (frac(i * 3.9) * VIEW_W + drift) % VIEW_W;
         const y = (t * (18 + n * 28) + n * 900) % (VIEW_H + 20);
-        ctx.fillStyle = `rgba(230,240,255,${0.35 + n * 0.5})`;
-        ctx.fillRect(x, y, n > 0.8 ? 3 : 1.4, n > 0.8 ? 3 : 1.4);
+        ctx.fillStyle = `rgba(230,240,255,${0.3 + n * 0.5})`;
+        const s = n > 0.8 ? 3 : 1.4;
+        ctx.fillRect(x, y, s, s);
+        if (n > 0.9) {
+          ctx.fillStyle = "rgba(255,255,255,0.35)";
+          ctx.fillRect(x - 1, y - 1, 1, 1);
+        }
       }
     } else if (weather === "spores") {
-      for (let i = 0; i < 36; i++) {
+      for (let i = 0; i < 42; i++) {
         const n = frac(i * 6.4);
-        const x = (frac(i * 14.2) * VIEW_W + Math.sin(t * 0.4 + i) * 40) % VIEW_W;
+        const x = (frac(i * 14.2) * VIEW_W + Math.sin(t * 0.4 + i) * 40 + wind * 20) % VIEW_W;
         const y = (frac(i * 9.8) * VIEW_H + Math.cos(t * 0.3 + i) * 24) % VIEW_H;
-        ctx.fillStyle = `rgba(${ar},${ag},${ab},${0.12 + n * 0.22})`;
+        ctx.fillStyle = `rgba(${ar},${ag},${ab},${0.1 + n * 0.22 + pulse * 0.05})`;
         ctx.beginPath();
         ctx.arc(x, y, 3 + n * 6 + pulse * 2, 0, Math.PI * 2);
         ctx.fill();
       }
     } else if (weather === "sparks") {
-      for (let i = 0; i < 28; i++) {
+      for (let i = 0; i < 34; i++) {
         const n = frac(i * 4.4);
         const life = (t * (90 + n * 140) + n * 500) % (VIEW_H + 80);
-        const x = frac(i * 17.1) * VIEW_W;
-        ctx.strokeStyle = `rgba(255,${180 + n * 60},60,${0.5 + heat * 0.3})`;
-        ctx.lineWidth = 1.2;
+        const x = (frac(i * 17.1) * VIEW_W + wind * 20) % VIEW_W;
+        ctx.strokeStyle = `rgba(255,${180 + n * 60},60,${0.45 + heat * 0.35 + pulse * 0.1})`;
+        ctx.lineWidth = 1.2 + (n > 0.8 ? 0.6 : 0);
         ctx.beginPath();
         ctx.moveTo(x, VIEW_H - life);
         ctx.lineTo(x + (n - 0.5) * 12, VIEW_H - life - 10 - n * 16);
@@ -4990,14 +7195,22 @@
     } else if (weather === "rain") {
       ctx.strokeStyle = `rgba(${ar},${ag},${ab},0.28)`;
       ctx.lineWidth = 1;
-      for (let i = 0; i < 90; i++) {
+      for (let i = 0; i < 100; i++) {
         const n = frac(i * 2.2);
-        const x = (frac(i * 19) * VIEW_W + t * 40) % VIEW_W;
+        const x = (frac(i * 19) * VIEW_W + t * (40 + wind * 50)) % VIEW_W;
         const y = (t * (280 + n * 120) + n * 700) % (VIEW_H + 30);
         ctx.beginPath();
         ctx.moveTo(x, y);
-        ctx.lineTo(x + 4, y + 12 + n * 10);
+        ctx.lineTo(x + 4 + wind * 2, y + 12 + n * 10);
         ctx.stroke();
+      }
+      // Ground splash ticks near the bottom band.
+      ctx.fillStyle = `rgba(${ar},${ag},${ab},0.18)`;
+      for (let i = 0; i < 12; i++) {
+        const n = frac(i * 7.7 + t * 3);
+        if (n > 0.55) continue;
+        const x = frac(i * 13.1 + t * 0.4) * VIEW_W;
+        ctx.fillRect(x, VIEW_H - 18 - n * 8, 2, 2);
       }
     } else if (weather === "static") {
       if (((t * 24) | 0) % 7 === 0) {
@@ -5006,12 +7219,16 @@
           ctx.fillRect(frac(t * 9 + i) * VIEW_W, frac(t * 5 + i * 3) * VIEW_H, 40 + frac(i) * 80, 2);
         }
       }
-        } else {
-      for (let i = 0; i < 34; i++) {
+      if (((t * 11) | 0) % 13 === 0) {
+        ctx.fillStyle = `rgba(${ar},${ag},${ab},0.04)`;
+        ctx.fillRect(0, frac(t * 2.3) * VIEW_H, VIEW_W, 3);
+      }
+    } else {
+      for (let i = 0; i < 40; i++) {
         const n = frac(i * 7.3);
         const speed = 22 + n * 50;
         const life = (t * speed + n * 800) % (VIEW_H + 140);
-        const x = frac(i * 21.9) * VIEW_W;
+        const x = (frac(i * 21.9) * VIEW_W + wind * 25) % VIEW_W;
         const y = VIEW_H + 50 - life;
         const len = 8 + n * 22;
         ctx.save();
@@ -5037,9 +7254,12 @@
     const dim = world.dim || 1;
     const trip = Math.min(0.85, 0.32 + heat * 0.28 + Math.max(0, dim - 1) * 0.015);
     if (window.SURGE_VOID && window.SURGE_VOID.draw) {
+      const titleIdle = mode === "title" || mode === "levels";
       window.SURGE_VOID.draw({
         ctx, w: VIEW_W, h: VIEW_H, t, theme: th, pulse, heat, trip,
         floorShade: true, bolt: true,
+        // Title: reuse cached sky frames while dim/theme unchanged (~20Hz refresh).
+        reuseMs: titleIdle ? 50 : 0,
       });
       return;
     }
@@ -5088,11 +7308,25 @@
   function drawDoorShell(x, y, fake) {
     const pulseT = mode === "play" ? world.time : performance.now() / 1000;
     const pulse = 0.55 + Math.sin(pulseT * 5) * 0.45;
+    const qPulse = (pulse * 20) | 0;
     ctx.save();
-    // Aura
-    const aura = ctx.createRadialGradient(x + 18, y + 28, 6, x + 18, y + 28, 34);
-    aura.addColorStop(0, fake ? `rgba(255,80,80,${0.2 + pulse * 0.12})` : `rgba(255,200,80,${0.18 + pulse * 0.14})`);
-    aura.addColorStop(1, "rgba(0,0,0,0)");
+    // Aura — reuse gradient when door pose / pulse bucket unchanged.
+    const auraKey = x + "," + y + "," + (fake ? 1 : 0) + "," + qPulse;
+    let aura = doorGradCache.aura;
+    if (doorGradCache.key !== auraKey || doorGradCache.x !== x || doorGradCache.y !== y) {
+      aura = ctx.createRadialGradient(x + 18, y + 28, 6, x + 18, y + 28, 34);
+      aura.addColorStop(0, fake ? `rgba(255,80,80,${0.2 + pulse * 0.12})` : `rgba(255,200,80,${0.18 + pulse * 0.14})`);
+      aura.addColorStop(1, "rgba(0,0,0,0)");
+      const panel = ctx.createLinearGradient(x + 3, y + 10, x + 33, y + 48);
+      panel.addColorStop(0, "rgba(255,255,255,0.12)");
+      panel.addColorStop(0.5, "rgba(0,0,0,0)");
+      panel.addColorStop(1, "rgba(0,0,0,0.28)");
+      doorGradCache.key = auraKey;
+      doorGradCache.aura = aura;
+      doorGradCache.panel = panel;
+      doorGradCache.x = x;
+      doorGradCache.y = y;
+    }
     ctx.fillStyle = aura;
     ctx.beginPath();
     ctx.arc(x + 18, y + 28, 34, 0, Math.PI * 2);
@@ -5122,11 +7356,7 @@
     // Door face
     ctx.fillStyle = fake ? "#6e1414" : "#c41e1e";
     ctx.fillRect(x + 3, y + 10, 30, 38);
-    const panel = ctx.createLinearGradient(x + 3, y + 10, x + 33, y + 48);
-    panel.addColorStop(0, "rgba(255,255,255,0.12)");
-    panel.addColorStop(0.5, "rgba(0,0,0,0)");
-    panel.addColorStop(1, "rgba(0,0,0,0.28)");
-    ctx.fillStyle = panel;
+    ctx.fillStyle = doorGradCache.panel;
     ctx.fillRect(x + 3, y + 10, 30, 38);
     // Windows
     ctx.fillStyle = "#4a0c0c";
@@ -5160,6 +7390,39 @@
     ctx.restore();
   }
 
+  // Afterimages only. Newest copy is already faint, then it eases out to nothing.
+  function trailAlpha(life, max) {
+    const u = max > 0 ? life / max : 0;
+    if (u <= 0) return 0;
+    const t = u > 1 ? 1 : u;
+    return 0.2 * t * t;
+  }
+
+  function drawNullGhost(g, t, accent, look, S, alpha) {
+    if (alpha <= 0.01) return;
+    const pack = window.SURGE_BOSS_FORMS;
+    if (!pack || !pack.paint) return;
+    ctx.save();
+    ctx.globalCompositeOperation = "source-over";
+    ctx.translate(g.x, g.y);
+    ctx.rotate(g.rot || 0);
+    ctx.scale(S / 200, S / 200);
+    // Low-alpha trails blit a cached silhouette; the live boss still paints full animated form.
+    if (pack.paintCached) {
+      pack.paintCached(ctx, g.dim || 1, t, g.grab || 0, accent, look, {
+        face: g.face || "fight",
+        phase: "fight",
+      }, alpha);
+    } else {
+      ctx.globalAlpha = alpha;
+      pack.paint(ctx, g.dim || 1, t, g.grab || 0, accent, look, {
+        face: g.face || "fight",
+        phase: "fight",
+      });
+    }
+    ctx.restore();
+  }
+
   function drawBoss() {
     const b = world.boss;
     if (!b || !world.door) return;
@@ -5169,11 +7432,19 @@
     const accent = th.accent || [255, 196, 120];
     const t = world.time || 0;
     const grab = b.visGrab || 0;
-    const col = `rgb(${accent[0] | 0},${accent[1] | 0},${accent[2] | 0})`;
+    const ar = accent[0] | 0;
+    const ag = accent[1] | 0;
+    const ab = accent[2] | 0;
+    if (b._colR !== ar || b._colG !== ag || b._colB !== ab || !b._col) {
+      b._colR = ar; b._colG = ag; b._colB = ab;
+      b._col = "rgb(" + ar + "," + ag + "," + ab + ")";
+    }
+    const col = b._col;
     const S = b.dim === 1 ? 270 : 248;
     const phase = b.phase || "fight";
     drawBossShots(b.dim === 1 ? "#ff2f86" : col);
     if (b.dim === 1) drawNullFx(b);
+    else drawKitFx(b, col);
 
     if (phase === "gone") {
       ctx.save();
@@ -5197,7 +7468,17 @@
       for (let i = 0; i < n; i++) {
         const a = (i / n) * Math.PI * 2 + b.boom * 6;
         const s = 16 + (i % 3) * 10;
-        ctx.fillRect(b.x + Math.cos(a) * rad - s / 2, b.y + 20 + Math.sin(a) * rad * 0.62 - s / 2, s, s);
+        const x = b.x + Math.cos(a) * rad;
+        const y = b.y + 20 + Math.sin(a) * rad * 0.62;
+        if (b.dim === 1) {
+          ctx.fillRect(x - s / 2, y - s / 2, s, s);
+        } else {
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(a + i);
+          kitStamp(b.look, 0, 0, s * 0.38);
+          ctx.restore();
+        }
       }
       ctx.fillStyle = "#fff6d0";
       ctx.globalAlpha = Math.max(0, 1 - b.boom * 1.4);
@@ -5214,7 +7495,7 @@
     ctx.fill();
     ctx.restore();
 
-    if (b.tell) {
+    if (b.tell && !b.tell.preview) {
       const pulse = 0.4 + Math.sin(t * 30) * 0.4;
       ctx.save();
       ctx.globalAlpha = pulse;
@@ -5234,7 +7515,8 @@
       ctx.restore();
     }
 
-    if ((phase === "fight" || phase === "rage") && grab > 0.12) {
+    const reaching = bossReaching(b);
+    if (b.dim !== 1 && reaching) {
       ctx.save();
       ctx.strokeStyle = col;
       ctx.globalAlpha = 0.22 + grab * 0.65;
@@ -5248,7 +7530,7 @@
       ctx.restore();
     }
 
-    if (b.attack > 0.15) {
+    if (b.attack > 0.15 && (b.dim === 1 || reaching)) {
       ctx.save();
       ctx.globalAlpha = 0.35 + b.attack * 0.45;
       ctx.strokeStyle = col;
@@ -5257,7 +7539,7 @@
       ctx.restore();
     }
 
-    if (b.dim !== 1 && grab > 0.12 && (phase === "fight" || phase === "rage")) {
+    if (reaching) {
       const gx = b.x + (door.x + 16 - b.x) * grab;
       const gy = b.y + 24 + (door.y + 6 - b.y) * grab;
       ctx.save();
@@ -5265,13 +7547,69 @@
       ctx.rotate(Math.sin(t * 22) * 0.18);
       ctx.fillStyle = col;
       ctx.globalAlpha = 0.92;
+      const look = b.look || "";
       ctx.beginPath();
-      ctx.moveTo(-18, 2);
-      ctx.lineTo(-8, -16);
-      ctx.lineTo(0, -4);
-      ctx.lineTo(8, -16);
-      ctx.lineTo(18, 2);
-      ctx.lineTo(0, 12);
+      if (b.dim === 1 || !look) {
+        ctx.moveTo(-18, 2);
+        ctx.lineTo(-8, -16);
+        ctx.lineTo(0, -4);
+        ctx.lineTo(8, -16);
+        ctx.lineTo(18, 2);
+        ctx.lineTo(0, 12);
+      } else if (look === "petal" || look === "wisp") {
+        ctx.moveTo(-16, 6);
+        ctx.quadraticCurveTo(-20, -14, -4, -8);
+        ctx.quadraticCurveTo(0, -20, 4, -8);
+        ctx.quadraticCurveTo(20, -14, 16, 6);
+        ctx.lineTo(0, 12);
+      } else if (look === "gear") {
+        ctx.moveTo(-16, 4);
+        ctx.lineTo(-16, -12);
+        ctx.lineTo(-8, -12);
+        ctx.lineTo(-8, -2);
+        ctx.lineTo(8, -2);
+        ctx.lineTo(8, -12);
+        ctx.lineTo(16, -12);
+        ctx.lineTo(16, 4);
+        ctx.lineTo(0, 12);
+      } else if (look === "ice" || look === "shard" || look === "salt") {
+        ctx.moveTo(0, -18);
+        ctx.lineTo(8, -4);
+        ctx.lineTo(16, 6);
+        ctx.lineTo(0, 12);
+        ctx.lineTo(-16, 6);
+        ctx.lineTo(-8, -4);
+      } else if (look === "spark" || look === "zap") {
+        ctx.moveTo(-14, 8);
+        ctx.lineTo(-4, -16);
+        ctx.lineTo(0, -2);
+        ctx.lineTo(6, -14);
+        ctx.lineTo(14, 6);
+        ctx.lineTo(0, 12);
+      } else if (look === "bone" || look === "needle") {
+        ctx.moveTo(-14, 2);
+        ctx.lineTo(-18, -8);
+        ctx.lineTo(-6, -6);
+        ctx.lineTo(0, -16);
+        ctx.lineTo(6, -6);
+        ctx.lineTo(18, -8);
+        ctx.lineTo(14, 2);
+        ctx.lineTo(0, 12);
+      } else if (look === "red" || look === "star" || look === "ray") {
+        ctx.moveTo(-6, 8);
+        ctx.lineTo(0, -18);
+        ctx.lineTo(6, 8);
+        ctx.lineTo(18, 4);
+        ctx.lineTo(0, 14);
+        ctx.lineTo(-18, 4);
+      } else {
+        ctx.moveTo(-18, 2);
+        ctx.lineTo(-8, -16);
+        ctx.lineTo(0, -4);
+        ctx.lineTo(8, -16);
+        ctx.lineTo(18, 2);
+        ctx.lineTo(0, 12);
+      }
       ctx.closePath();
       ctx.fill();
       ctx.restore();
@@ -5282,14 +7620,7 @@
       const look = b.dim === 1 ? (b.gaze || 0) : (door.x + 16 >= b.x ? 1 : -1);
       for (let i = 0; i < b.ghosts.length; i++) {
         const g = b.ghosts[i];
-        const u = g.max ? g.life / g.max : g.life;
-        ctx.save();
-        ctx.globalAlpha = Math.min(0.28, u * u * 0.42);
-        ctx.translate(g.x, g.y);
-        ctx.rotate(g.rot || 0);
-        ctx.scale(S / 200, S / 200);
-        paintBossBody(b.dim || 1, t, 0, accent, look);
-        ctx.restore();
+        drawNullGhost(g, t, accent, g.gaze != null ? g.gaze : look, S, trailAlpha(g.life, g.max));
       }
     }
 
@@ -5297,10 +7628,77 @@
     const jitter = flameBoss ? 0 : (b.mood || 0) * Math.sin(t * 11) * 2.2;
     ctx.translate(b.x + jitter, b.y + (flameBoss ? grab * 6 : grab * 18) + Math.sin(t * 1.35) * (flameBoss ? 1.2 : 4));
     ctx.rotate((b.rot || 0) + (b.visLean || 0));
-    const squash = 1 + grab * 0.1 + (phase === "rage" ? 0.06 : 0);
-    const sag = phase === "fall" ? 0.16 : 0;
-    ctx.scale((S / 200) * squash, (S / 200) * (1 - grab * 0.06 - sag));
+    const squash = 1 + grab * 0.16 + (phase === "rage" ? 0.1 : 0);
+    const sag = phase === "fall" ? 0.22 : 0;
+    const smear = flameBoss ? Math.max(-0.16, Math.min(0.22, (b.slip || 0) * 0.035)) : 0;
+    ctx.scale((S / 200) * squash * (1 + Math.abs(smear)), (S / 200) * (1 - grab * 0.08 - sag) * (1 - Math.abs(smear) * 0.55));
     paintBossBody(b.dim || 1, t, grab, accent, b.dim === 1 ? (b.gaze || 0) : (door.x + 16 >= b.x ? 1 : -1));
+    ctx.restore();
+    if (flameBoss && grab > 0.12 && (phase === "intro" || phase === "fight" || phase === "rage")) {
+      drawNullHands(b, door, t, grab);
+    }
+  }
+
+  function nullHandPoint(b, t, grab, side, out) {
+    const sc = 270 / 200;
+    const phase = side < 0 ? 0 : 1.7;
+    const lift = Math.sin(t * 6.8 + phase) * 7 + (b.face === "scared" ? -12 : 0) + grab * 10;
+    const pt = out || HAND_PT;
+    pt.x = b.x + side * 1.05 * 58 * sc;
+    pt.y = b.y + grab * 6 + (0.32 * 58 + lift) * sc;
+    return pt;
+  }
+
+  function drawFlameRibbon(x0, y0, cx, cy, x1, y1, width) {
+    const n = RIBBON_N;
+    const pts = RIBBON_PTS;
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      const u = 1 - t;
+      const x = u * u * x0 + 2 * u * t * cx + t * t * x1;
+      const y = u * u * y0 + 2 * u * t * cy + t * t * y1;
+      const t2 = Math.min(1, t + 0.08);
+      const u2 = 1 - t2;
+      const x2 = u2 * u2 * x0 + 2 * u2 * t2 * cx + t2 * t2 * x1;
+      const y2 = u2 * u2 * y0 + 2 * u2 * t2 * cy + t2 * t2 * y1;
+      const len = Math.hypot(x2 - x, y2 - y) || 1;
+      const p = pts[i];
+      p.x = x;
+      p.y = y;
+      p.nx = -(y2 - y) / len;
+      p.ny = (x2 - x) / len;
+      p.w = width * (0.28 + (1 - t) * 0.9);
+    }
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x + pts[0].nx * pts[0].w, pts[0].y + pts[0].ny * pts[0].w);
+    for (let i = 1; i <= n; i++) ctx.lineTo(pts[i].x + pts[i].nx * pts[i].w, pts[i].y + pts[i].ny * pts[i].w);
+    for (let i = n; i >= 0; i--) ctx.lineTo(pts[i].x - pts[i].nx * pts[i].w, pts[i].y - pts[i].ny * pts[i].w);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawNullHands(b, door, t, grab) {
+    const x1 = door.x + 16;
+    const y1 = door.y + 10;
+    ctx.save();
+    for (let si = 0; si < 2; si++) {
+      const side = SIDE_PAIR[si];
+      const handPt = nullHandPoint(b, t, grab, side, HAND_PT);
+      const hx = handPt.x;
+      const hy = handPt.y;
+      const wob = Math.sin(t * 16 + side) * 18;
+      const cx = (hx + x1) * 0.5 + wob * side;
+      const cy = (hy + y1) * 0.5 + 20;
+      ctx.fillStyle = "#fe92b8";
+      ctx.globalAlpha = 0.55;
+      drawFlameRibbon(hx, hy, cx, cy, x1, y1, 16);
+      ctx.fillStyle = "#fe1f6f";
+      ctx.globalAlpha = 0.72;
+      drawFlameRibbon(hx, hy, cx, cy + 6, x1, y1, 8);
+      ctx.fillStyle = "#fff0f6";
+      ctx.globalAlpha = 0.5;
+      drawFlameRibbon(hx, hy, cx, cy + 4, x1, y1, 3.2);
+    }
     ctx.restore();
   }
 
@@ -5322,8 +7720,15 @@
     const ax = d.x + 16;
     const ay = d.y + 8;
     ctx.save();
+    let flyX = 1;
+    let flyY = 1;
+    const drop = world.boss && world.boss.dropping && world.boss.drop && d === world.door;
+    if (drop) {
+      flyX = 0.82;
+      flyY = 1.28;
+    }
     ctx.translate(ax, ay);
-    ctx.scale(pop, pop);
+    ctx.scale(pop * flyX, pop * flyY);
     ctx.translate(-ax, -ay);
     drawDoorShell(d.x - 2, d.y - 18, d.fake);
     ctx.restore();
@@ -5706,6 +8111,145 @@
     }
   }
 
+  function drawBossDrop(d) {
+    const look = (world.boss && world.boss.look) || "";
+    const x = d.x;
+    const y = d.y;
+    const w = d.w;
+    const h = d.h;
+    ctx.save();
+    ctx.translate(x + w / 2, y + h / 2);
+    ctx.fillStyle = "#fff6e8";
+    if (look === "salt") {
+      ctx.fillStyle = "#f4ecd4";
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.28, h * 0.46);
+      ctx.lineTo(-w * 0.18, -h * 0.48);
+      ctx.lineTo(w * 0.18, -h * 0.48);
+      ctx.lineTo(w * 0.28, h * 0.46);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#c8b98a";
+      ctx.fillRect(-w * 0.34, -h * 0.5, w * 0.68, h * 0.16);
+      ctx.fillRect(-w * 0.38, h * 0.28, w * 0.76, h * 0.2);
+    } else if (look === "ember" || look === "coal" || look === "ray") {
+      ctx.fillStyle = look === "ray" ? "#ffd15a" : "#ff5a18";
+      ctx.beginPath();
+      ctx.moveTo(0, -h * 0.48);
+      ctx.lineTo(w * 0.36, h * 0.1);
+      ctx.lineTo(w * 0.16, h * 0.46);
+      ctx.lineTo(-w * 0.2, h * 0.4);
+      ctx.lineTo(-w * 0.38, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#fff1c8";
+      ctx.beginPath();
+      ctx.arc(-w * 0.08, -h * 0.08, Math.max(3, w * 0.12), 0, Math.PI * 2);
+      ctx.fill();
+    } else if (look === "ice" || look === "shard") {
+      ctx.fillStyle = "#e7f6ff";
+      ctx.beginPath();
+      ctx.moveTo(0, -h * 0.5);
+      ctx.lineTo(w * 0.32, h * 0.1);
+      ctx.lineTo(0, h * 0.48);
+      ctx.lineTo(-w * 0.32, h * 0.05);
+      ctx.closePath();
+      ctx.fill();
+    } else if (look === "fold") {
+      ctx.fillStyle = "#e4d8ff";
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.4, -h * 0.2);
+      ctx.lineTo(w * 0.1, -h * 0.48);
+      ctx.lineTo(w * 0.42, h * 0.1);
+      ctx.lineTo(-w * 0.05, h * 0.46);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#6c5c9a";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.15, -h * 0.34);
+      ctx.lineTo(w * 0.18, h * 0.28);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = "#fff6e8";
+      ctx.fillRect(-w / 2, -h / 2, w, h);
+      kitStamp(look, 0, 0, Math.min(w, h) * 0.28);
+    }
+    ctx.restore();
+  }
+
+  function drawBossSaw(saw) {
+    const look = (world.boss && world.boss.look) || "";
+    ctx.save();
+    ctx.translate(saw.x, saw.y);
+    ctx.rotate(saw.spin || world.time * 6);
+    if (look === "petal") {
+      ctx.fillStyle = "#e7a0ff";
+      for (let i = 0; i < 6; i++) {
+        ctx.rotate(Math.PI / 3);
+        ctx.beginPath();
+        ctx.ellipse(0, 12, 5, 9, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = "#ffe6a8";
+      ctx.beginPath();
+      ctx.arc(0, 0, 5, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (look === "fold") {
+      ctx.fillStyle = "#e4d8ff";
+      for (let i = 0; i < 4; i++) {
+        ctx.rotate(Math.PI / 2);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(6, 16);
+        ctx.lineTo(-6, 16);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.fillStyle = "#6c5c9a";
+      ctx.beginPath();
+      ctx.arc(0, 0, 4, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (look === "bite") {
+      ctx.fillStyle = "#e07088";
+      ctx.beginPath();
+      ctx.arc(0, 0, 14, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      for (let i = 0; i < 8; i++) {
+        ctx.rotate(Math.PI / 4);
+        ctx.beginPath();
+        ctx.moveTo(-2, 8);
+        ctx.lineTo(0, 16);
+        ctx.lineTo(2, 8);
+        ctx.fill();
+      }
+    } else if (look === "coal" || look === "ember") {
+      ctx.fillStyle = "#3a241c";
+      ctx.beginPath();
+      ctx.arc(0, 0, 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#ff5a28";
+      for (let i = 0; i < 8; i++) {
+        ctx.rotate(Math.PI / 4);
+        ctx.beginPath();
+        ctx.moveTo(-2, 8);
+        ctx.lineTo(0, 18);
+        ctx.lineTo(2, 8);
+        ctx.fill();
+      }
+      ctx.fillStyle = "#fff1c8";
+      ctx.beginPath();
+      ctx.arc(0, 0, 4, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.restore();
+      drawSaw(saw);
+      return;
+    }
+    ctx.restore();
+  }
+
   function drawSaw(saw) {
     ctx.save();
     ctx.translate(saw.x, saw.y);
@@ -5787,8 +8331,9 @@
     ctx.globalAlpha = alpha;
     ctx.translate(ox + player.w / 2, oy + player.h / 2);
     const lean = opts.lean != null ? opts.lean : 0;
-    if (lean) ctx.rotate(Math.max(-0.32, Math.min(0.32, lean)));
-    ctx.scale(facing < 0 ? -1 : 1, world.gravity < 0 ? -1 : 1);
+    if (lean) ctx.rotate(Math.max(-0.38, Math.min(0.38, lean)));
+    const stretch = Math.abs(opts.stretch || 0);
+    ctx.scale((facing < 0 ? -1 : 1) * (1 + stretch), (world.gravity < 0 ? -1 : 1) * (1 - stretch * 0.35));
     let sq = squash;
     const sy = 1 - sq * 0.5;
     const sx = 1 + sq * 0.34;
@@ -5796,8 +8341,10 @@
     ctx.translate(-player.w / 2, -player.h / 2);
 
     const demo = mode === "title" || mode === "levels";
-    const gait = opts.gait != null ? opts.gait : (demo ? Math.sin(performance.now() / 90) : Math.sin(player.anim));
+    const gait = opts.gait != null ? opts.gait : (demo ? Math.sin(performance.now() / 140) : Math.sin(player.anim));
     const air = opts.air != null ? opts.air : (demo ? false : !player.onGround);
+    const vy = opts.vy != null ? opts.vy : (demo ? 0 : player.vy);
+    const speed = opts.speed != null ? opts.speed : (demo ? 3.2 : Math.abs(player.vx || 0));
     const blink = opts.blink != null ? opts.blink : ((demo ? performance.now() / 1000 : world.time) % 3.4) < 0.09;
 
     // Horns
@@ -5826,26 +8373,49 @@
     ctx.fillStyle = "rgba(0,0,0,0.18)";
     ctx.fillRect(16, 8, 7, 16);
 
-    // Red cube hands (no arms)
-    const handY = air ? 16 : 17 + gait * 1.2;
-    ctx.fillStyle = "#e31b1b";
-    ctx.fillRect(-4, handY, 5, 5);
-    ctx.fillRect(23, handY - gait * 0.8, 5, 5);
-    ctx.fillStyle = "#ff5a5a";
-    ctx.fillRect(-3, handY + 1, 2, 2);
-    ctx.fillRect(24, handY - gait * 0.8 + 1, 2, 2);
-
-    const leg = air ? -2 : gait * 3.2;
-    ctx.fillStyle = "#7a0e0e";
-    ctx.fillRect(3, 24, 6, 5 + (air ? 1 : Math.max(0, -leg)));
-    ctx.fillRect(15, 24, 6, 5 + (air ? 1 : Math.max(0, leg)));
-    ctx.fillStyle = "#1a100c";
-    ctx.fillRect(2, 27 + (air ? 1 : Math.max(0, -leg)), 7, 3);
-    ctx.fillRect(14, 27 + (air ? 1 : Math.max(0, leg)), 7, 3);
-    // Hoof tips
-    ctx.fillStyle = "#e31b1b";
-    ctx.fillRect(2, 29 + (air ? 1 : Math.max(0, -leg)), 3, 1.5);
-    ctx.fillRect(14, 29 + (air ? 1 : Math.max(0, leg)), 3, 1.5);
+    // Arms and legs swing opposite each other. Jump tucks on the way up, extends on the way down.
+    const stride = Math.min(1, speed / 3.2);
+    const swing = gait * 0.72 * (air ? 0.15 : Math.max(0.25, stride));
+    let armL = -0.55 - swing;
+    let armR = -0.55 + swing;
+    let legL = 0.18 + swing * 1.15;
+    let legR = 0.18 - swing * 1.15;
+    let legLen = 8;
+    let armLen = 7.5;
+    if (air) {
+      if (vy < -1.2) {
+        armL = -1.55; armR = -1.35;
+        legL = -0.85; legR = 0.95;
+        legLen = 6.2;
+      } else if (vy > 1.4) {
+        armL = -0.25; armR = 0.55;
+        legL = 0.22; legR = -0.08;
+        legLen = 9.2;
+      } else {
+        armL = -1.05; armR = -0.7;
+        legL = -0.35; legR = 0.45;
+        legLen = 7;
+      }
+    } else if (stride < 0.12) {
+      armL = -0.15; armR = 0.12;
+      legL = 0.06; legR = -0.04;
+      legLen = 7.4;
+    }
+    const limb = (hx, hy, ang, len, w, color, hoof) => {
+      ctx.save();
+      ctx.translate(hx, hy);
+      ctx.rotate(ang);
+      ctx.fillStyle = color;
+      ctx.fillRect(-w * 0.5, 0, w, len);
+      ctx.fillStyle = hoof ? "#1a100c" : "#ff5a5a";
+      if (hoof) ctx.fillRect(-w * 0.7, len - 1, w * 1.5, 3.4);
+      else ctx.fillRect(-w * 0.35, len - 2.2, w * 0.7, 2.6);
+      ctx.restore();
+    };
+    limb(3, 11, armL, armLen, 3.4, "#c41414", false);
+    limb(21, 11, armR, armLen, 3.4, "#e31b1b", false);
+    limb(7, 22, legL, legLen, 4.2, "#7a0e0e", true);
+    limb(17, 22, legR, legLen, 4.2, "#9a1010", true);
 
     // Eyes
     ctx.fillStyle = "#fff6d8";
@@ -5884,7 +8454,10 @@
       ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
       ctx.fill();
     };
-    if (!player.dead) blob(player.x + player.w / 2, player.y + player.h + 3, 13, 4.5, 0.4);
+    if (!player.dead) {
+      const airK = player.onGround ? 1 : Math.max(0.35, 1 - Math.min(1, Math.abs(player.vy) / 12));
+      blob(player.x + player.w / 2, player.y + player.h + 3, 13 * airK, 4.5 * airK, 0.4 * airK);
+    }
     for (const saw of world.saws) blob(saw.x, saw.y + 16, 13, 4.2, 0.34);
     for (const coin of world.coins) {
       if (!coin.dead) blob(coin.x, coin.y + 10, 6, 2.4, 0.22);
@@ -5912,6 +8485,14 @@
     const light = (wx, wy, radius, r, g, b, a) => {
       const p = toScreen(wx, wy);
       const rad = radius * view.scale;
+      const cookie = lightCookie(r, g, b);
+      if (cookie) {
+        const prev = ctx.globalAlpha;
+        ctx.globalAlpha = a;
+        ctx.drawImage(cookie, p.x - rad, p.y - rad, rad * 2, rad * 2);
+        ctx.globalAlpha = prev;
+        return;
+      }
       const grd = ctx.createRadialGradient(p.x, p.y, rad * 0.08, p.x, p.y, rad);
       grd.addColorStop(0, `rgba(${r},${g},${b},${a})`);
       grd.addColorStop(1, "rgba(0,0,0,0)");
@@ -5943,6 +8524,30 @@
       light(l.x + l.w / 2, l.y + l.h / 2, 110, l.fake ? 180 : 255, l.fake ? 220 : 80, l.fake ? 255 : 40, 0.28);
     }
     if (world.door && !world.doorHidden) light(world.door.x + 16, world.door.y + 8, 70, 255, 210, 80, 0.18);
+    // Scenery lamps / lampposts breathe with the theme accent.
+    const scenery = world.scenery || [];
+    for (let i = 0; i < scenery.length; i++) {
+      const sp = scenery[i];
+      if (sp.kind !== "lamppost" && sp.kind !== "lamp" && sp.kind !== "bulb") continue;
+      const flicker = 0.82 + Math.sin((world.time || 0) * 6.5 + (sp.phase || 0)) * 0.14
+        + Math.sin((world.time || 0) * 17 + (sp.phase || 0) * 2) * 0.04;
+      const s = sp.s || 1;
+      let lx = sp.x;
+      let ly = sp.y;
+      let rad = 64;
+      if (sp.kind === "lamppost") {
+        lx = sp.x + 14 * s * (sp.face < 0 ? -1 : 1);
+        ly = sp.y - 42 * s;
+        rad = 78;
+      } else if (sp.role === "float" || sp.float) {
+        ly = sp.y;
+        rad = 58;
+      } else {
+        ly = sp.y + 18 * s;
+        rad = 62;
+      }
+      light(lx, ly, rad, ar, ag, ab, 0.12 * flicker);
+    }
     if (nearFlare > 0) {
       light(player.x + player.w / 2, player.y + 10, 240, 255, 240, 200, nearFlare * 1.4);
     }
@@ -5950,16 +8555,23 @@
   }
 
   function drawDevil() {
-    if (deathGhost && !player.dead) {
-      const fade = 0.18 + Math.sin(world.time * 6) * 0.04;
-      drawDevilBody(deathGhost.x, deathGhost.y, deathGhost.facing, fade, 0);
-    }
     if (player.dead) return;
     for (const a of world.afterimages) {
-      const u = a.max ? a.life / a.max : a.life;
-      drawDevilBody(a.x, a.y, a.facing, Math.min(0.28, u * u * 0.42), 0, { lean: 0 });
+      drawDevilBody(a.x, a.y + (a.bob || 0), a.facing, trailAlpha(a.life, a.max), a.sq || 0, {
+        lean: a.lean || 0,
+        gait: Math.sin(a.anim || 0),
+        air: Math.abs(a.vy || 0) > 1.4,
+        vy: a.vy || 0,
+        speed: Math.abs(a.vx || 0),
+      });
     }
-    drawDevilBody(player.x, player.y + (player.bob || 0), player.facing, 1, player.visSq || 0, { lean: player.lean || 0 });
+    const dashStretch = dashT > 0 ? 0.42 : Math.max(-0.08, Math.min(0.16, player.vx * 0.02));
+    drawDevilBody(player.x, player.y + (player.bob || 0), player.facing, 1, player.visSq || 0, {
+      lean: player.lean || 0,
+      stretch: dashStretch,
+      vy: player.vy,
+      speed: Math.abs(player.vx || 0),
+    });
     const [ar, ag, ab] = (currentTheme().accent || [227, 27, 27]);
     ctx.save();
     ctx.globalCompositeOperation = "overlay";
@@ -5996,6 +8608,24 @@
         ctx.lineTo(-p.size * 0.4, 0);
         ctx.closePath();
         ctx.fill();
+      } else if (p.kind === "smoke") {
+        const r = p.size * (0.7 + (1 - u) * 0.9);
+        ctx.globalAlpha = Math.pow(u, 1.1) * 0.45;
+        ctx.beginPath();
+        ctx.arc(0, 0, Math.max(1.5, r), 0, Math.PI * 2);
+        ctx.fill();
+      } else if (p.kind === "ember") {
+        ctx.globalAlpha = Math.pow(u, 0.55);
+        ctx.beginPath();
+        ctx.arc(0, 0, Math.max(0.8, p.size * u), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = Math.pow(u, 0.8) * 0.35;
+        ctx.beginPath();
+        ctx.arc(0, 0, p.size * 2.4, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (p.kind === "mote") {
+        ctx.globalAlpha = Math.pow(u, 0.85) * 0.7;
+        ctx.fillRect(-p.size * 0.4, -p.size * 0.4, p.size * 0.8, p.size * 0.8);
       } else {
         ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
       }
@@ -6025,31 +8655,48 @@
   }
 
   function drawLasers() {
-    for (const l of world.lasers) {
+    for (let li = 0; li < world.lasers.length; li++) {
+      const l = world.lasers[li];
       const a = Math.min(1, l.life * 3);
       const flicker = 0.85 + Math.sin(world.time * 48 + l.x) * 0.15;
       if (l.fake) {
-        ctx.fillStyle = `rgba(160,200,255,${0.1 * a})`;
+        ctx.globalAlpha = 0.1 * a;
+        ctx.fillStyle = "#a0c8ff";
         ctx.fillRect(l.x - 5, l.y - 6, l.w + 10, l.h + 12);
-        ctx.fillStyle = `rgba(210,230,255,${0.35 * a})`;
+        ctx.globalAlpha = 0.35 * a;
+        ctx.fillStyle = "#d2e6ff";
         ctx.fillRect(l.x, l.y, l.w, l.h);
-        ctx.fillStyle = `rgba(255,255,255,${0.25 * a})`;
+        ctx.globalAlpha = 0.25 * a;
+        ctx.fillStyle = "#fff";
         ctx.fillRect(l.x + 1, l.y + 1, Math.max(1, l.w - 2), Math.max(1, Math.min(2, l.h - 2)));
         continue;
       }
-      ctx.fillStyle = `rgba(255,40,40,${0.2 * a * flicker})`;
+      ctx.globalAlpha = 0.2 * a * flicker;
+      ctx.fillStyle = "#ff2828";
       ctx.fillRect(l.x - 6, l.y - 6, l.w + 12, l.h + 12);
-      ctx.fillStyle = `rgba(255,80,80,${0.45 * a})`;
+      ctx.globalAlpha = 0.45 * a;
+      ctx.fillStyle = "#ff5050";
       ctx.fillRect(l.x - 2, l.y - 2, l.w + 4, l.h + 4);
-      ctx.fillStyle = `rgba(255,230,230,${0.92 * a * flicker})`;
+      ctx.globalAlpha = 0.92 * a * flicker;
+      ctx.fillStyle = "#ffe6e6";
       ctx.fillRect(l.x, l.y, l.w, l.h);
-      ctx.fillStyle = `rgba(255,255,255,${0.7 * a})`;
+      ctx.globalAlpha = 0.7 * a;
+      ctx.fillStyle = "#fff";
       if (l.w >= l.h) ctx.fillRect(l.x + 1, l.y + Math.max(0, l.h / 2 - 1), Math.max(1, l.w - 2), 2);
       else ctx.fillRect(l.x + Math.max(0, l.w / 2 - 1), l.y + 1, 2, Math.max(1, l.h - 2));
     }
+    ctx.globalAlpha = 1;
   }
 
   function drawOverlay() {
+    if ((world.whiteFlash || 0) > 0) {
+      const a = Math.min(1, world.whiteFlash);
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      ctx.restore();
+    }
     if (world.flash > 0) {
       const a = Math.min(0.55, world.flash * 1.6);
       const g = ctx.createRadialGradient(VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.15, VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.72);
@@ -6180,6 +8827,20 @@
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     }
     drawCinema();
+    if (roomFade > 0.02 && mode === "play" && !player.dead) {
+      ctx.fillStyle = `rgba(5,4,3,${roomFade})`;
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    }
+    if (deathShow && deathShow.t >= 0.55 && mode === "play" && !testMode) {
+      const coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+      ctx.save();
+      ctx.font = "800 13px Rubik, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillStyle = "rgba(244,234,216,0.78)";
+      ctx.fillText(coarse ? "TAP" : "R", VIEW_W / 2, VIEW_H - 18);
+      ctx.restore();
+    }
   }
 
   function drawSpeedLines() {
@@ -6189,18 +8850,19 @@
     const dir = dashDir || player.facing || 1;
     const px = (player.x + player.w / 2) * view.scale + view.ox;
     const py = (player.y + player.h * 0.45) * view.scale + view.oy;
+    const [ar, ag, ab] = fxAccent();
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
-    ctx.strokeStyle = "#ffe8a0";
     ctx.lineCap = "round";
-    for (let i = 0; i < 7; i++) {
-      const off = (i - 3) * 6.5 * view.scale;
-      const len = (22 + i * 9) * a * view.scale;
-      ctx.globalAlpha = a * (0.12 + (1 - Math.abs(i - 3) / 4) * 0.42);
-      ctx.lineWidth = Math.max(1, (i === 3 ? 2.2 : 1.15) * view.scale);
+    for (let i = 0; i < 8; i++) {
+      const off = (i - 3.5) * 6.2 * view.scale;
+      const len = (20 + i * 10) * a * view.scale;
+      ctx.strokeStyle = i % 2 ? "#ffe8a0" : `rgb(${ar},${ag},${ab})`;
+      ctx.globalAlpha = a * (0.1 + (1 - Math.abs(i - 3.5) / 4.5) * 0.45);
+      ctx.lineWidth = Math.max(1, (i === 3 || i === 4 ? 2.3 : 1.15) * view.scale);
       ctx.beginPath();
       ctx.moveTo(px - dir * 8 * view.scale, py + off);
-      ctx.lineTo(px - dir * (8 * view.scale + len), py + off * 0.3);
+      ctx.lineTo(px - dir * (8 * view.scale + len), py + off * 0.28);
       ctx.stroke();
     }
     ctx.restore();
@@ -6433,6 +9095,967 @@
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
   }
 
+  function sceneryKindsForRole(weather, role) {
+    // Role locks orientation; weather only swaps dressing. Kinds must match the mount.
+    if (role === "hang") {
+      if (weather === "ember" || weather === "sparks") return ["chain", "hook", "lamp", "chain"];
+      if (weather === "snow") return ["drip", "banner", "drip", "hook"];
+      if (weather === "spores") return ["vine", "bulb", "drip", "vine"];
+      if (weather === "rain") return ["chain", "drip", "hook", "lamp"];
+      if (weather === "static") return ["lamp", "chain", "hook", "lamp"];
+      return ["chain", "hook", "banner", "drip"];
+    }
+    if (role === "wall") {
+      if (weather === "ember" || weather === "sparks") return ["brace", "pipe", "panel", "brace"];
+      if (weather === "snow") return ["brace", "panel", "pipe", "brace"];
+      if (weather === "spores") return ["brace", "panel", "brace", "pipe"];
+      if (weather === "rain") return ["pipe", "brace", "panel", "pipe"];
+      if (weather === "static") return ["panel", "brace", "pipe", "panel"];
+      return ["brace", "panel", "pipe", "brace"];
+    }
+    if (role === "floor") {
+      // Planted on the walk lip — no hang/wall pieces.
+      if (weather === "ember" || weather === "sparks") return ["lamppost", "rib", "brace", "shard"];
+      if (weather === "snow") return ["lamppost", "rib", "shard"];
+      if (weather === "spores") return ["lamppost", "shard", "rib"];
+      if (weather === "static") return ["lamppost", "panel", "rib"];
+      return ["lamppost", "rib", "shard", "brace"];
+    }
+    // ledge: hang from the lip or plant on the edge
+    if (weather === "spores") return ["banner", "hook", "lamppost"];
+    if (weather === "ember" || weather === "sparks") return ["banner", "lamppost", "hook"];
+    if (weather === "snow") return ["banner", "drip", "lamppost"];
+    return ["banner", "lamppost", "hook", "shard"];
+  }
+
+  function pushScenery(bag, kind, x, y, face, s, phase, extra) {
+    const p = { kind, x, y, face: face || 0, s: s || 1, phase: phase || 0 };
+    if (extra) {
+      if (extra.float) p.float = true;
+      if (extra.hang) p.hang = extra.hang;
+      if (extra.pair) p.pair = true;
+      if (extra.role) p.role = extra.role;
+    }
+    bag.push(p);
+  }
+
+  const ENABLE_ROOM_SCENERY = false;
+
+  function buildRoomScenery() {
+    world.scenery = [];
+    world.fore = [];
+    // Props off for now — flip ENABLE_ROOM_SCENERY when bringing them back.
+    if (!ENABLE_ROOM_SCENERY || !world.cols || !world.rows) return;
+    const th = currentTheme();
+    const weather = th.weather || "shards";
+    const dim = dimIndex || 1;
+    const seed = ((dim * 9973) ^ ((levelIndex + 1) * 7919) ^ (world.cols * 13)) >>> 0;
+    const bag = world.scenery;
+    const minGap = Math.max(4, Math.min(7, (world.cols / 14) | 0)); // tile gap between mid props
+    const maxMid = Math.min(28, 10 + (world.cols / 5 | 0) + Math.min(6, dim >> 1));
+    const taken = [];
+    const doorTx = world.door ? Math.floor(world.door.x / TILE) : -99;
+    const spawnTx = world.spawn ? Math.floor(world.spawn.x / TILE) : -99;
+
+    const tooClose = (tx, ty) => {
+      for (let i = 0; i < taken.length; i++) {
+        if (Math.abs(taken[i].x - tx) < minGap && Math.abs(taken[i].y - ty) < 3) return true;
+      }
+      return false;
+    };
+    const nearGate = (tx) => Math.abs(tx - doorTx) < 3 || Math.abs(tx - spawnTx) < 3;
+    const openAir = (tx, ty) => {
+      if (ty < 1 || ty >= world.rows - 1 || tx < 1 || tx >= world.cols - 1) return false;
+      const t = world.tiles[ty][tx];
+      return t === "." || t === "*" || t === "o";
+    };
+    const pickKind = (role, i, salt) => {
+      const list = sceneryKindsForRole(weather, role);
+      return list[(i + ((salt * list.length) | 0)) % list.length];
+    };
+    const placeAt = (role, tx, ty, face, hang, i, salt) => {
+      if (bag.length >= maxMid) return false;
+      if (!openAir(tx, ty) || nearGate(tx) || tooClose(tx, ty)) return false;
+      const kind = pickKind(role, i, salt);
+      const u = frac(seed * 0.001 + tx * 0.13 + ty * 0.29 + i * 1.7);
+      // Pivot sits on the mount: ceiling underside, floor lip, or wall face.
+      let px = tx * TILE + 16;
+      let py = ty * TILE + 16;
+      let f = face || 0;
+      if (role === "hang") {
+        py = ty * TILE;
+      } else if (role === "floor" || role === "ledge") {
+        py = (ty + 1) * TILE;
+      } else if (role === "wall") {
+        // face > 0: solid on left → pivot on left face, draw into +x.
+        // face < 0: solid on right → pivot on right face, mirrored into room.
+        px = f > 0 ? tx * TILE + 1 : (tx + 1) * TILE - 1;
+        py = ty * TILE + 16;
+      }
+      pushScenery(
+        bag,
+        kind,
+        px,
+        py,
+        f,
+        0.88 + u * 0.22,
+        u * Math.PI * 2,
+        hang ? { hang, role } : { role }
+      );
+      taken.push({ x: tx, y: ty });
+      return true;
+    };
+
+    // --- Collect map anchors (structure first, not random tile soup) ---
+    const hangs = [];
+    const wallsL = [];
+    const wallsR = [];
+    const floors = [];
+    const ledges = [];
+    const shafts = [];
+
+    for (let x = 2; x < world.cols - 2; x++) {
+      let ceilRun = 0;
+      for (let y = 1; y < world.rows - 1; y++) {
+        if (!openAir(x, y)) {
+          ceilRun = 0;
+          continue;
+        }
+        const up = world.tiles[y - 1][x];
+        const down = world.tiles[y + 1][x];
+        const left = world.tiles[y][x - 1];
+        const right = world.tiles[y][x + 1];
+        if (isSolid(up) && !isSolid(down)) {
+          ceilRun += 1;
+          // Prefer mid-span of a ceiling bite (run ≥2), skip tiny 1-tile nicks.
+          if (ceilRun === 2 || (ceilRun > 2 && ceilRun % 3 === 1)) {
+            hangs.push({ x, y, run: ceilRun, hang: Math.min(3, 1 + ((ceilRun / 2) | 0)) });
+          }
+        } else {
+          ceilRun = 0;
+        }
+        // Wall dressing sits mid-corridor — never on a floor cell.
+        if (isSolid(left) && !isSolid(right) && !isSolid(up) && !isSolid(down)) {
+          wallsL.push({ x, y });
+        }
+        if (isSolid(right) && !isSolid(left) && !isSolid(up) && !isSolid(down)) {
+          wallsR.push({ x, y });
+        }
+        if (isSolid(down) && !isSolid(up) && !isSolid(left) && !isSolid(right)) {
+          // Standing platform top — only edges / ends read as dressed, not mid-run clutter.
+          const dl = isSolid(world.tiles[y + 1][x - 1]);
+          const dr = isSolid(world.tiles[y + 1][x + 1]);
+          if (!dl || !dr) floors.push({ x, y, edge: !dl ? -1 : 1 });
+          else if ((x + y + dim) % 5 === 0) floors.push({ x, y, edge: 0 });
+        }
+        // Ledge: solid under, open beyond one side — good for banners / hooks.
+        if (isSolid(down) && !isSolid(up)) {
+          if (!isSolid(world.tiles[y][x - 1]) && isSolid(world.tiles[y + 1][x + 1])) {
+            ledges.push({ x, y, face: -1 });
+          } else if (!isSolid(world.tiles[y][x + 1]) && isSolid(world.tiles[y + 1][x - 1])) {
+            ledges.push({ x, y, face: 1 });
+          }
+        }
+      }
+      // Tall open shaft: float accent only where the column is roomy.
+      let air = 0;
+      let airY = 2;
+      for (let y = 1; y < world.rows - 1; y++) {
+        if (openAir(x, y) && !isSolid(world.tiles[y - 1][x]) && !isSolid(world.tiles[y + 1][x])) {
+          if (air === 0) airY = y;
+          air += 1;
+        } else if (air >= 6) {
+          shafts.push({ x, y: airY + ((air / 2) | 0), h: air });
+          air = 0;
+        } else air = 0;
+      }
+      if (air >= 6) shafts.push({ x, y: airY + ((air / 2) | 0), h: air });
+    }
+
+    // Deterministic shuffle so we don't always dress left→right the same way.
+    const shuffle = (arr, salt) => {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = (frac(seed * 0.002 + salt + i * 3.1) * (i + 1)) | 0;
+        const tmp = arr[i];
+        arr[i] = arr[j];
+        arr[j] = tmp;
+      }
+      return arr;
+    };
+    shuffle(hangs, 1.1);
+    shuffle(wallsL, 2.3);
+    shuffle(wallsR, 3.7);
+    shuffle(floors, 4.9);
+    shuffle(ledges, 5.5);
+
+    // Budget by role so every room has mixed mounts, not one blob of chains.
+    const budgets = {
+      hang: Math.min(hangs.length, 3 + (world.cols / 12 | 0)),
+      wall: Math.min(wallsL.length + wallsR.length, 4 + (world.cols / 10 | 0)),
+      floor: Math.min(floors.length, 2 + (world.cols / 14 | 0)),
+      ledge: Math.min(ledges.length, 2 + (dim / 6 | 0)),
+    };
+
+    let hi = 0;
+    for (let i = 0; i < hangs.length && hi < budgets.hang; i++) {
+      const a = hangs[i];
+      if (placeAt("hang", a.x, a.y, 0, a.hang, hi, frac(a.x * 0.2 + a.y))) hi += 1;
+    }
+
+    let wi = 0;
+    const wallCap = budgets.wall;
+    for (let i = 0; i < wallsL.length && wi < wallCap; i++) {
+      const a = wallsL[i];
+      // Prefer mid-height wall faces (not floor skirting / ceiling lip).
+      if (a.y < 2 || a.y > world.rows - 3) continue;
+      if (placeAt("wall", a.x, a.y, 1, 0, wi, 0.31)) wi += 1;
+    }
+    for (let i = 0; i < wallsR.length && wi < wallCap; i++) {
+      const a = wallsR[i];
+      if (a.y < 2 || a.y > world.rows - 3) continue;
+      if (placeAt("wall", a.x, a.y, -1, 0, wi, 0.57)) wi += 1;
+    }
+
+    let fi = 0;
+    for (let i = 0; i < floors.length && fi < budgets.floor; i++) {
+      const a = floors[i];
+      if (placeAt("floor", a.x, a.y, a.edge || 0, 0, fi, 0.71)) fi += 1;
+    }
+
+    let li = 0;
+    for (let i = 0; i < ledges.length && li < budgets.ledge; i++) {
+      const a = ledges[i];
+      if (placeAt("ledge", a.x, a.y, a.face, 0, li, 0.83)) li += 1;
+    }
+
+    // Sparse shaft accents — only tall open columns (not jump-gap litter).
+    shuffle(shafts, 6.2);
+    const floatN = Math.min(2, shafts.length, dim >= 4 ? 1 + (dim / 10 | 0) : 0);
+    for (let i = 0; i < floatN; i++) {
+      const a = shafts[i];
+      if (a.h < 6 || nearGate(a.x) || tooClose(a.x, a.y)) continue;
+      const u = frac(seed * 0.01 + a.x * 0.19 + i);
+      // Only shaft accents float — drifting shards/lamps, never floor-planted kinds.
+      pushScenery(
+        bag,
+        weather === "spores" ? "bulb" : (weather === "ember" || weather === "sparks") ? "lamp" : "shard",
+        a.x * TILE + 16,
+        a.y * TILE + 16,
+        0,
+        0.7 + u * 0.25,
+        u * Math.PI * 2,
+        { float: true, role: "float" }
+      );
+      taken.push({ x: a.x, y: a.y });
+    }
+
+    // Foreground: spaced along the level width, alternating band/depth/kind.
+    const fore = world.fore;
+    const foreKinds = weather === "ember" || weather === "sparks"
+      ? ["teeth", "gantry", "chain", "blade", "tower"]
+      : weather === "snow"
+        ? ["teeth", "drip", "rib", "tower", "gantry"]
+        : weather === "spores"
+          ? ["vine", "bulb", "rib", "tower", "gantry"]
+          : ["teeth", "gantry", "chain", "rib", "blade", "tower", "arch"];
+    const foreN = Math.min(14, 7 + (world.cols / 8 | 0) + Math.min(4, dim >> 2));
+    for (let i = 0; i < foreN; i++) {
+      // Even base spacing + small jitter so pieces don't stack on the same x.
+      const base = (i + 0.5) / foreN;
+      const jitter = (frac(seed * 0.03 + i * 2.1) - 0.5) * (0.55 / foreN);
+      const u = Math.max(0.04, Math.min(0.96, base + jitter));
+      const bandCycle = i % 3;
+      const band = bandCycle === 0 ? "low" : bandCycle === 1 ? "high" : "side";
+      const depth = i % 2 === 0 ? "near" : "mid";
+      fore.push({
+        kind: foreKinds[i % foreKinds.length],
+        u,
+        band,
+        depth,
+        w: 40 + frac(u * 5.7 + i) * 70,
+        h: 80 + frac(u * 8.2 + i * 0.4) * 140,
+        lean: ((i % 5) - 2) * 0.12,
+        phase: u * Math.PI * 2,
+        teeth: 3 + ((i + dim) % 4),
+      });
+    }
+  }
+
+  // Midground props: brick/needle language, pivot on the mount (ceiling / floor / wall).
+  // ≥20 purposeful parts each. Role locks orientation — only float props bob.
+  function drawSceneryProp(p, accent, t, g) {
+    const c = g || ctx;
+    const ar = accent[0] | 0;
+    const ag = accent[1] | 0;
+    const ab = accent[2] | 0;
+    const role = p.role || (p.float ? "float" : "hang");
+    const bob = p.float ? Math.sin(t * 1.4 + p.phase) * 3.4 : 0;
+    c.save();
+    c.translate(p.x, p.y + bob);
+    if (p.face < 0) c.scale(-1, 1);
+    c.scale(p.s || 1, p.s || 1);
+
+    const fill = `rgba(${ar},${ag},${ab},0.68)`;
+    const deep = `rgba(${(ar * 0.24) | 0},${(ag * 0.22) | 0},${(ab * 0.26) | 0},0.94)`;
+    const hot = `rgba(${ar},${ag},${ab},0.9)`;
+    const lit = `rgba(255,245,220,0.55)`;
+    const ink = `rgba(6,5,8,0.62)`;
+    const lip = `rgba(${Math.min(255, ar + 36)},${Math.min(255, ag + 28)},${Math.min(255, ab + 22)},0.78)`;
+
+    const bolt = (x, y, r) => {
+      c.fillStyle = deep;
+      c.beginPath();
+      c.arc(x, y, r, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = hot;
+      c.fillRect(x - r * 0.35, y - r * 0.85, r * 0.7, r * 1.7);
+    };
+    // Mini brick slab — same lip language as platforms.
+    const brick = (x, y, w, h) => {
+      c.fillStyle = deep;
+      c.fillRect(x, y, w, h);
+      c.fillStyle = lip;
+      c.fillRect(x, y, w, Math.max(2, Math.min(5, h * 0.22)));
+      c.fillStyle = "rgba(255,255,255,0.12)";
+      c.fillRect(x + 1, y + 1, Math.max(1, w - 2), 1.5);
+      c.fillStyle = ink;
+      c.fillRect(x, y + h - 2, w, 2);
+      c.fillRect(x + w - 2, y, 2, h);
+      c.fillStyle = "rgba(255,255,255,0.06)";
+      c.fillRect(x, y, 1.5, h);
+    };
+    const needle = (x0, y0, x1, y1, w) => {
+      c.strokeStyle = deep;
+      c.lineWidth = w + 2;
+      c.beginPath();
+      c.moveTo(x0, y0);
+      c.lineTo(x1, y1);
+      c.stroke();
+      c.strokeStyle = hot;
+      c.lineWidth = w;
+      c.beginPath();
+      c.moveTo(x0, y0);
+      c.lineTo(x1, y1);
+      c.stroke();
+      c.fillStyle = lit;
+      c.beginPath();
+      c.arc(x1, y1, Math.max(1.2, w * 0.55), 0, Math.PI * 2);
+      c.fill();
+    };
+
+    if (p.kind === "chain") {
+      // Ceiling plate → angular links → needle tip. Hangs +y from mount.
+      brick(-9, 0, 18, 5);
+      bolt(-5, 2.5, 1.3);
+      bolt(5, 2.5, 1.3);
+      c.fillStyle = ink;
+      c.fillRect(-7, 1, 14, 1.2);
+      c.fillStyle = fill;
+      c.fillRect(-2.2, 5, 4.4, 4);
+      const links = 4 + (p.hang || 0);
+      for (let i = 0; i < links; i++) {
+        const yy = 9 + i * 9;
+        c.fillStyle = deep;
+        c.fillRect(-5, yy, 10, 7);
+        c.strokeStyle = fill;
+        c.lineWidth = 1.4;
+        c.strokeRect(-5, yy, 10, 7);
+        c.fillStyle = hot;
+        c.fillRect(-1.4, yy + 2, 2.8, 3);
+        c.fillStyle = ink;
+        c.fillRect(-4, yy + 1, 8, 1);
+      }
+      const tip = 9 + links * 9;
+      c.fillStyle = deep;
+      c.beginPath();
+      c.moveTo(-4, tip);
+      c.lineTo(4, tip);
+      c.lineTo(0, tip + 12);
+      c.closePath();
+      c.fill();
+      c.fillStyle = lit;
+      c.fillRect(-0.7, tip + 2, 1.4, 6);
+      c.fillStyle = ink;
+      c.fillRect(1.5, tip + 4, 1.2, 2);
+      c.fillStyle = fill;
+      c.fillRect(-3, tip - 1, 6, 2);
+      c.strokeStyle = hot;
+      c.beginPath();
+      c.moveTo(-2, tip + 3);
+      c.lineTo(2, tip + 3);
+      c.stroke();
+    } else if (p.kind === "hook") {
+      brick(-8, 0, 16, 5);
+      bolt(-4.5, 2.5, 1.2);
+      bolt(4.5, 2.5, 1.2);
+      c.fillStyle = deep;
+      c.fillRect(-2.5, 5, 5, 14);
+      c.fillStyle = lip;
+      c.fillRect(-2.5, 5, 5, 2);
+      c.fillStyle = ink;
+      c.fillRect(-1.5, 8, 3, 1);
+      c.fillRect(-1.5, 12, 3, 1);
+      c.strokeStyle = hot;
+      c.lineWidth = 2.8;
+      c.beginPath();
+      c.moveTo(0, 18);
+      c.lineTo(0, 24);
+      c.lineTo(10, 24);
+      c.lineTo(10, 16);
+      c.stroke();
+      c.strokeStyle = fill;
+      c.lineWidth = 1.3;
+      c.beginPath();
+      c.moveTo(10, 16);
+      c.lineTo(10, 24);
+      c.lineTo(0, 24);
+      c.stroke();
+      c.fillStyle = lit;
+      c.fillRect(8.5, 17, 1.5, 5);
+      c.fillStyle = deep;
+      c.fillRect(-4, 28, 4, 5);
+      c.fillStyle = hot;
+      c.fillRect(-3, 29, 2, 2);
+      bolt(0, 10, 1.1);
+      c.fillStyle = ink;
+      c.fillRect(2, 20, 2, 3);
+      c.fillStyle = fill;
+      c.fillRect(-1.5, 16, 3, 2);
+    } else if (p.kind === "drip") {
+      brick(-11, 0, 22, 5);
+      bolt(-7, 2.5, 1.15);
+      bolt(7, 2.5, 1.15);
+      c.fillStyle = ink;
+      c.fillRect(-9, 1.5, 18, 1.2);
+      const lens = [16, 12, 20, 11, 15];
+      for (let i = 0; i < 5; i++) {
+        const xx = -8 + i * 4;
+        const len = lens[i];
+        c.fillStyle = deep;
+        c.beginPath();
+        c.moveTo(xx - 2, 5);
+        c.lineTo(xx + 2, 5);
+        c.lineTo(xx + 0.6, 5 + len);
+        c.lineTo(xx - 0.6, 5 + len);
+        c.closePath();
+        c.fill();
+        c.fillStyle = i % 2 ? hot : fill;
+        c.fillRect(xx - 0.5, 6, 1, len * 0.55);
+        c.fillStyle = lit;
+        c.fillRect(xx - 0.35, 5 + len - 2, 0.7, 2);
+        c.fillStyle = ink;
+        c.fillRect(xx - 1.4, 5, 2.8, 1.5);
+      }
+      c.fillStyle = hot;
+      c.beginPath();
+      c.arc(0, 10, 1.3, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = fill;
+      c.fillRect(-10, 4, 3, 2);
+      c.fillRect(7, 4, 3, 2);
+      c.strokeStyle = lip;
+      c.beginPath();
+      c.moveTo(-9, 3);
+      c.lineTo(9, 3);
+      c.stroke();
+    } else if (p.kind === "vine") {
+      brick(-6, 0, 12, 4);
+      bolt(-3, 2, 1.05);
+      bolt(3, 2, 1.05);
+      c.strokeStyle = deep;
+      c.lineWidth = 3.2;
+      c.beginPath();
+      c.moveTo(0, 4);
+      for (let i = 1; i <= 7; i++) c.lineTo(Math.sin(t * 1.05 + p.phase + i) * 4.5, 4 + i * 7);
+      c.stroke();
+      c.strokeStyle = fill;
+      c.lineWidth = 1.5;
+      c.beginPath();
+      c.moveTo(0, 4);
+      for (let i = 1; i <= 7; i++) c.lineTo(Math.sin(t * 1.05 + p.phase + i) * 4.5, 4 + i * 7);
+      c.stroke();
+      for (let i = 1; i <= 5; i++) {
+        const lx = Math.sin(t * 0.8 + i) * 4.5;
+        const ly = 4 + i * 9;
+        c.fillStyle = deep;
+        c.beginPath();
+        c.moveTo(lx, ly);
+        c.lineTo(lx + 6, ly - 2);
+        c.lineTo(lx + 5, ly + 3);
+        c.closePath();
+        c.fill();
+        c.fillStyle = hot;
+        c.fillRect(lx + 1, ly, 2, 1.5);
+      }
+      c.fillStyle = deep;
+      c.fillRect(-3, 4, 6, 3);
+      c.fillStyle = lit;
+      c.beginPath();
+      c.arc(Math.sin(t + p.phase) * 2.5, 52, 2, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = ink;
+      c.fillRect(-2, 5, 4, 2);
+      c.fillStyle = hot;
+      c.fillRect(-4, 18, 2, 2);
+      c.fillRect(3, 30, 2, 2);
+      c.beginPath();
+      c.moveTo(-5, 8);
+      c.lineTo(-8, 10);
+      c.strokeStyle = deep;
+      c.stroke();
+    } else if (p.kind === "bulb" || p.kind === "lamp") {
+      // Geometric lantern — square cage, not a soft globe.
+      if (role === "float") {
+        c.fillStyle = deep;
+        c.fillRect(-8, -12, 16, 24);
+        c.fillStyle = lip;
+        c.fillRect(-8, -12, 16, 3);
+        c.fillStyle = ink;
+        c.fillRect(-8, 10, 16, 2);
+        c.strokeStyle = fill;
+        c.lineWidth = 1.3;
+        c.strokeRect(-8, -12, 16, 24);
+        c.strokeRect(-5, -8, 10, 14);
+        c.fillStyle = `rgba(${ar},${ag},${ab},0.22)`;
+        c.fillRect(-4, -6, 8, 10);
+        c.fillStyle = hot;
+        c.fillRect(-2.5, -4, 5, 6);
+        c.fillStyle = lit;
+        c.fillRect(-1.5, -3, 2, 2);
+        for (let i = 0; i < 4; i++) {
+          c.fillStyle = ink;
+          c.fillRect(-6, -8 + i * 5, 12, 1);
+          c.fillStyle = fill;
+          c.fillRect(-7, -9 + i * 5, 2, 2);
+          c.fillRect(5, -9 + i * 5, 2, 2);
+        }
+        bolt(0, -13.5, 1.2);
+        bolt(-5, 9, 1.05);
+        bolt(5, 9, 1.05);
+        c.fillStyle = deep;
+        c.fillRect(-3, 12, 6, 3);
+        c.fillStyle = hot;
+        c.fillRect(-1, 13, 2, 1.5);
+        c.beginPath();
+        c.arc(0, 0, 14, 0, Math.PI * 2);
+        c.strokeStyle = `rgba(${ar},${ag},${ab},0.28)`;
+        c.stroke();
+      } else {
+        brick(-8, 0, 16, 4);
+        bolt(-5, 2, 1.15);
+        bolt(5, 2, 1.15);
+        c.fillStyle = deep;
+        c.fillRect(-2.5, 4, 5, 8);
+        c.fillStyle = fill;
+        c.fillRect(-2.5, 4, 5, 2);
+        brick(-7, 12, 14, 16);
+        c.fillStyle = `rgba(${ar},${ag},${ab},0.2)`;
+        c.fillRect(-4, 15, 8, 8);
+        c.fillStyle = hot;
+        c.fillRect(-2.5, 16.5, 5, 5);
+        c.fillStyle = lit;
+        c.fillRect(-1.4, 17.5, 2, 2);
+        c.strokeStyle = fill;
+        c.lineWidth = 1.2;
+        c.strokeRect(-5, 14, 10, 10);
+        c.fillStyle = ink;
+        c.fillRect(-5, 14, 10, 1);
+        c.fillRect(-5, 23, 10, 1);
+        c.fillStyle = deep;
+        c.fillRect(-4, 28, 8, 3);
+        c.fillStyle = hot;
+        c.fillRect(-1, 29, 2, 1.5);
+      }
+    } else if (p.kind === "pipe") {
+      // Wall duct — flush from x=0 into the room.
+      brick(0, -8, 6, 16);
+      bolt(3, -5, 1.15);
+      bolt(3, 5, 1.15);
+      c.fillStyle = deep;
+      c.fillRect(5, -5, 28, 10);
+      c.fillStyle = lip;
+      c.fillRect(5, -5, 28, 2.5);
+      c.fillStyle = ink;
+      c.fillRect(5, 3, 28, 2);
+      c.fillStyle = fill;
+      c.fillRect(5, -3, 28, 1.2);
+      for (const fx of [10, 22]) {
+        c.fillStyle = deep;
+        c.fillRect(fx, -8, 5, 16);
+        bolt(fx + 2.5, -5, 1.05);
+        bolt(fx + 2.5, 5, 1.05);
+      }
+      c.strokeStyle = hot;
+      c.lineWidth = 1.5;
+      c.beginPath();
+      c.arc(18, -9, 4.5, 0, Math.PI * 2);
+      c.stroke();
+      c.beginPath();
+      c.moveTo(18, -13);
+      c.lineTo(18, -5);
+      c.moveTo(14, -9);
+      c.lineTo(22, -9);
+      c.stroke();
+      c.fillStyle = lit;
+      c.fillRect(8, -2, 2, 2);
+      c.fillStyle = hot;
+      c.beginPath();
+      c.arc(30, 6, 1.4, 0, Math.PI * 2);
+      c.fill();
+    } else if (p.kind === "brace") {
+      if (role === "floor" || role === "ledge") {
+        // Standing ruin post — feet on y=0, body into -y.
+        brick(-9, -4, 18, 4);
+        bolt(-5, -2, 1.15);
+        bolt(5, -2, 1.15);
+        c.fillStyle = deep;
+        c.fillRect(-4, -28, 8, 24);
+        c.fillStyle = lip;
+        c.fillRect(-4, -28, 8, 3);
+        c.fillStyle = ink;
+        c.fillRect(-4, -6, 8, 2);
+        c.fillRect(-2, -22, 4, 1.2);
+        c.fillRect(-2, -16, 4, 1.2);
+        c.fillStyle = fill;
+        c.fillRect(-5, -20, 2, 10);
+        c.fillRect(3, -20, 2, 10);
+        needle(0, -28, 0, -38, 1.6);
+        c.fillStyle = hot;
+        c.fillRect(-2, -12, 4, 3);
+        c.fillStyle = lit;
+        c.fillRect(-1, -11, 2, 1.2);
+        c.fillStyle = ink;
+        c.fillRect(-6, -3, 3, 2);
+        c.fillRect(3, -3, 3, 2);
+      } else {
+        // Wall L-bracket — plate on wall, arm into room (+x).
+        brick(0, -16, 5, 32);
+        bolt(2.5, -12, 1.2);
+        bolt(2.5, 12, 1.2);
+        bolt(2.5, 0, 1.15);
+        c.fillStyle = deep;
+        c.fillRect(4, -5, 20, 7);
+        c.fillStyle = lip;
+        c.fillRect(4, -5, 20, 2);
+        c.fillStyle = ink;
+        c.fillRect(4, 0, 20, 2);
+        c.beginPath();
+        c.moveTo(5, -5);
+        c.lineTo(16, -5);
+        c.lineTo(5, 8);
+        c.closePath();
+        c.fillStyle = deep;
+        c.fill();
+        c.strokeStyle = fill;
+        c.lineWidth = 1.2;
+        c.stroke();
+        bolt(12, -1.5, 1.15);
+        bolt(20, -1.5, 1.1);
+        c.fillStyle = hot;
+        c.fillRect(22, -3, 5, 3);
+        c.fillStyle = lit;
+        c.fillRect(23, -2.2, 2, 1.3);
+        c.fillStyle = fill;
+        c.fillRect(5, 2, 14, 2);
+        c.fillStyle = ink;
+        c.fillRect(8, -2, 5, 1);
+      }
+    } else if (p.kind === "panel") {
+      if (role === "floor" || role === "ledge") {
+        // Standing monolith on the walk lip.
+        brick(-8, -4, 16, 4);
+        c.fillStyle = deep;
+        c.fillRect(-7, -30, 14, 26);
+        c.fillStyle = lip;
+        c.fillRect(-7, -30, 14, 3);
+        c.strokeStyle = fill;
+        c.lineWidth = 1.3;
+        c.strokeRect(-7, -30, 14, 26);
+        c.fillStyle = ink;
+        c.fillRect(-5, -24, 10, 14);
+        c.fillStyle = hot;
+        c.fillRect(-3, -22, 3, 3);
+        c.fillRect(-3, -17, 6, 2);
+        c.fillRect(-3, -13, 4, 2);
+        c.fillStyle = lit;
+        if ((t * 3.2 + p.phase) % 2 < 1.1) c.fillRect(-3, -22, 3, 3);
+        for (let i = 0; i < 3; i++) {
+          c.fillStyle = fill;
+          c.fillRect(4, -22 + i * 5, 1.5, 2.5);
+        }
+        bolt(-4, -28, 1.05);
+        bolt(4, -28, 1.05);
+        c.fillStyle = deep;
+        c.fillRect(-3, -32, 6, 2);
+      } else {
+        // Wall plaque flush to x=0.
+        brick(0, -16, 4, 32);
+        c.fillStyle = deep;
+        c.fillRect(3, -14, 16, 28);
+        c.fillStyle = lip;
+        c.fillRect(3, -14, 16, 3);
+        c.strokeStyle = fill;
+        c.lineWidth = 1.3;
+        c.strokeRect(3, -14, 16, 28);
+        c.fillStyle = ink;
+        c.fillRect(5, -10, 12, 18);
+        bolt(5, -12, 1.05);
+        bolt(15, -12, 1.05);
+        bolt(5, 10, 1.05);
+        bolt(15, 10, 1.05);
+        c.fillStyle = hot;
+        c.fillRect(7, -8, 3, 3);
+        c.fillRect(11, -8, 5, 2);
+        c.fillRect(7, -3, 8, 2);
+        c.fillRect(7, 2, 5, 2);
+        c.fillStyle = lit;
+        if ((t * 3.5 + p.phase) % 2 < 1.1) c.fillRect(7, -8, 3, 3);
+        for (let i = 0; i < 3; i++) {
+          c.fillStyle = fill;
+          c.fillRect(16, -6 + i * 4, 1.6, 2.2);
+        }
+        c.fillStyle = fill;
+        c.fillRect(8, 10, 7, 2);
+      }
+    } else if (p.kind === "banner") {
+      // Rod on mount (ceiling or ledge lip), pennant hangs +y.
+      brick(-3, 0, 6, 10);
+      c.fillStyle = deep;
+      c.fillRect(-10, 8, 20, 4);
+      bolt(-6, 10, 1.1);
+      bolt(6, 10, 1.1);
+      c.fillStyle = hot;
+      c.beginPath();
+      c.arc(0, 2, 2.2, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = `rgba(${ar},${ag},${ab},0.42)`;
+      c.beginPath();
+      c.moveTo(-8, 12);
+      c.lineTo(8, 12);
+      c.lineTo(6, 28);
+      c.lineTo(1.5, 24);
+      c.lineTo(0, 34);
+      c.lineTo(-1.5, 24);
+      c.lineTo(-6, 28);
+      c.closePath();
+      c.fill();
+      c.strokeStyle = fill;
+      c.lineWidth = 1.15;
+      c.stroke();
+      c.strokeStyle = deep;
+      c.beginPath();
+      c.moveTo(-4, 14);
+      c.lineTo(-3, 22);
+      c.moveTo(0, 15);
+      c.lineTo(0, 24);
+      c.moveTo(4, 14);
+      c.lineTo(3, 22);
+      c.stroke();
+      c.fillStyle = hot;
+      c.fillRect(-6, 32, 3, 3);
+      c.fillRect(3, 32, 3, 3);
+      c.fillStyle = ink;
+      c.fillRect(-7, 12, 14, 1.2);
+      c.fillStyle = lit;
+      c.fillRect(-1, 18, 2, 4);
+      c.fillStyle = fill;
+      c.fillRect(-8, 10, 2, 2);
+      c.fillRect(6, 10, 2, 2);
+      c.fillRect(-1, 1, 2, 3);
+      c.strokeStyle = deep;
+      c.beginPath();
+      c.moveTo(-6, 16);
+      c.lineTo(-5, 26);
+      c.moveTo(6, 16);
+      c.lineTo(5, 26);
+      c.stroke();
+    } else if (p.kind === "rib") {
+      // Arch planted on the floor — feet at y=0.
+      brick(-16, -3, 10, 3);
+      brick(6, -3, 10, 3);
+      bolt(-11, -1.5, 1.15);
+      bolt(11, -1.5, 1.15);
+      c.strokeStyle = deep;
+      c.lineWidth = 5;
+      c.beginPath();
+      c.moveTo(-14, -2);
+      c.quadraticCurveTo(0, -26, 14, -2);
+      c.stroke();
+      c.strokeStyle = fill;
+      c.lineWidth = 2;
+      c.beginPath();
+      c.moveTo(-12, -3);
+      c.quadraticCurveTo(0, -22, 12, -3);
+      c.stroke();
+      c.strokeStyle = hot;
+      c.lineWidth = 1.2;
+      c.beginPath();
+      c.moveTo(-8, -5);
+      c.quadraticCurveTo(0, -16, 8, -5);
+      c.stroke();
+      c.fillStyle = deep;
+      c.fillRect(-3.5, -14, 7, 5);
+      c.fillStyle = hot;
+      c.fillRect(-2.5, -13, 5, 3);
+      bolt(0, -11.5, 1.05);
+      for (let i = -1; i <= 1; i++) {
+        c.strokeStyle = ink;
+        c.beginPath();
+        c.moveTo(i * 5, -8);
+        c.lineTo(i * 4, -3);
+        c.stroke();
+      }
+      c.fillStyle = lit;
+      c.fillRect(-1, -12.5, 2, 1.2);
+      c.fillStyle = fill;
+      c.beginPath();
+      c.moveTo(-2, -14);
+      c.lineTo(2, -14);
+      c.lineTo(0, -18);
+      c.closePath();
+      c.fill();
+      c.fillStyle = ink;
+      c.fillRect(-14, -1, 6, 1);
+      c.fillRect(8, -1, 6, 1);
+    } else if (p.kind === "lamppost") {
+      // Street post planted on the walk lip — base at y=0, head into -y.
+      brick(-8, -4, 16, 4);
+      bolt(-4.5, -2, 1.15);
+      bolt(4.5, -2, 1.15);
+      c.fillStyle = deep;
+      c.fillRect(-2.5, -36, 5, 32);
+      c.fillStyle = lip;
+      c.fillRect(-2.5, -36, 5, 2.5);
+      c.fillStyle = ink;
+      c.fillRect(-1.5, -28, 3, 1.2);
+      c.fillRect(-1.5, -18, 3, 1.2);
+      c.fillRect(-1.5, -10, 3, 1.2);
+      c.fillStyle = fill;
+      c.fillRect(-3.2, -22, 1.4, 8);
+      c.fillRect(1.8, -22, 1.4, 8);
+      // Arm + cage head
+      c.fillStyle = deep;
+      c.fillRect(-2, -40, 14, 4);
+      c.fillStyle = lip;
+      c.fillRect(-2, -40, 14, 1.5);
+      bolt(2, -38, 1.05);
+      brick(8, -48, 12, 10);
+      c.fillStyle = `rgba(${ar},${ag},${ab},0.22)`;
+      c.fillRect(10, -45, 8, 5);
+      c.fillStyle = hot;
+      c.fillRect(11.5, -44, 5, 3.5);
+      c.fillStyle = lit;
+      c.fillRect(12.5, -43.5, 2, 1.5);
+      c.strokeStyle = fill;
+      c.lineWidth = 1.2;
+      c.strokeRect(9, -47, 10, 8);
+      c.fillStyle = ink;
+      c.fillRect(9, -47, 10, 1);
+      c.fillRect(9, -40, 10, 1);
+      // Soft glow puddle under the head
+      c.fillStyle = `rgba(${ar},${ag},${ab},0.12)`;
+      c.beginPath();
+      c.ellipse(14, -36, 10, 4, 0, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = deep;
+      c.fillRect(11, -38, 6, 2);
+      c.fillStyle = hot;
+      c.beginPath();
+      c.arc(14, -42.5, 1.4, 0, Math.PI * 2);
+      c.fill();
+      needle(0, -36, 0, -44, 1.3);
+      c.fillStyle = ink;
+      c.fillRect(-6, -3, 3, 2);
+      c.fillRect(3, -3, 3, 2);
+    } else {
+      // shard — cradled crystal. Floor: base on y=0. Float: centered, no pedestal.
+      const floaty = role === "float" || !!p.float;
+      if (!floaty) {
+        brick(-8, -3, 16, 3);
+        bolt(-4, -1.5, 1.05);
+        bolt(4, -1.5, 1.05);
+        c.fillStyle = deep;
+        c.beginPath();
+        c.moveTo(-8, -3);
+        c.lineTo(-10, -8);
+        c.lineTo(-5, -4);
+        c.closePath();
+        c.fill();
+        c.beginPath();
+        c.moveTo(8, -3);
+        c.lineTo(10, -8);
+        c.lineTo(5, -4);
+        c.closePath();
+        c.fill();
+        c.fillStyle = fill;
+        c.fillRect(-1.5, 0, 3, 2);
+      }
+      const oy = floaty ? 4 : -4;
+      const facets = [
+        [0, -16 + oy, 5, -2 + oy, 1, 8 + oy, -4, 0 + oy],
+        [-6, -8 + oy, -1, -14 + oy, 2, -2 + oy, -5, 4 + oy],
+        [4, -10 + oy, 9, -4 + oy, 6, 6 + oy, 1, 0 + oy],
+      ];
+      for (let f = 0; f < facets.length; f++) {
+        const q = facets[f];
+        c.fillStyle = f === 0 ? hot : fill;
+        c.beginPath();
+        c.moveTo(q[0], q[1]);
+        c.lineTo(q[2], q[3]);
+        c.lineTo(q[4], q[5]);
+        c.lineTo(q[6], q[7]);
+        c.closePath();
+        c.fill();
+      }
+      c.fillStyle = lit;
+      c.beginPath();
+      c.moveTo(0, -14 + oy);
+      c.lineTo(2, -6 + oy);
+      c.lineTo(0, 0 + oy);
+      c.closePath();
+      c.fill();
+      for (let i = 0; i < 4; i++) {
+        c.fillStyle = i % 2 ? hot : deep;
+        c.fillRect(-7 + i * 4, 4 + oy, 2, 2);
+      }
+      c.strokeStyle = fill;
+      c.lineWidth = 1;
+      c.strokeRect(-6, 5.5 + oy, 12, 2.5);
+      c.fillStyle = lit;
+      c.beginPath();
+      c.arc(0, -2 + oy, 2, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = ink;
+      c.fillRect(-3, 6 + oy, 6, 1);
+      c.fillStyle = hot;
+      c.fillRect(-1, -8 + oy, 2, 3);
+      c.beginPath();
+      c.moveTo(-4, 2 + oy);
+      c.lineTo(4, 2 + oy);
+      c.strokeStyle = fill;
+      c.stroke();
+      if (floaty) {
+        c.strokeStyle = `rgba(${ar},${ag},${ab},0.35)`;
+        c.beginPath();
+        c.arc(0, 0, 11, 0, Math.PI * 2);
+        c.stroke();
+        c.beginPath();
+        c.arc(0, 0, 7, 0, Math.PI * 2);
+        c.stroke();
+      }
+    }
+    c.restore();
+  }
+
+  function drawRoomScenery() {
+    const bag = world.scenery;
+    if (!bag || !bag.length) return;
+    const th = currentTheme();
+    const accent = th.accent || [210, 225, 255];
+    const t = world.time || 0;
+    for (let i = 0; i < bag.length; i++) drawSceneryProp(bag[i], accent, t);
+  }
+
   function drawPit(view) {
     if (!view || !world.rows || mode !== "play") return;
     const bottom = view.oy + world.rows * TILE * view.scale;
@@ -6472,18 +10095,326 @@
     ctx.restore();
   }
 
+  function drawForePiece(p, x, accent, t, alphaMul) {
+    const ar = accent[0] | 0;
+    const ag = accent[1] | 0;
+    const ab = accent[2] | 0;
+    const a = alphaMul == null ? 1 : alphaMul;
+    // Accent-tinted mass + bright rim so the layer reads on dark void mountains.
+    const deep = `rgba(${(ar * 0.18) | 0},${(ag * 0.14) | 0},${(ab * 0.16) | 0},${(0.9 * a).toFixed(3)})`;
+    const edge = `rgba(${Math.min(255, ar + 40)},${Math.min(255, ag + 30)},${Math.min(255, ab + 30)},${(0.88 * a).toFixed(3)})`;
+    const rim = `rgba(${ar},${ag},${ab},${(0.4 * a).toFixed(3)})`;
+    const near = p.depth === "near";
+    const scaleN = near ? 1.12 : 0.88;
+    const yBase = p.band === "high"
+      ? (near ? -4 : 8) + p.u * 16
+      : p.band === "side"
+        ? VIEW_H * (near ? 0.1 : 0.22)
+        : VIEW_H + (near ? 14 : 6);
+    ctx.save();
+    ctx.translate(x, yBase);
+    ctx.scale(scaleN, scaleN);
+    if (p.kind === "teeth" || p.kind === "fang" || p.kind === "drip") {
+      // Rail + teeth + roots + edge highlights — one jaw assembly.
+      const count = Math.max(4, p.teeth || 4);
+      const dir = p.band === "high" ? 1 : -1;
+      const span = p.w;
+      ctx.fillStyle = deep;
+      ctx.fillRect(-span * 0.55, -dir * 4, span * 1.1, dir * 8);
+      ctx.strokeStyle = edge;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(-span * 0.55, Math.min(-dir * 4, dir * 4), span * 1.1, 8);
+      for (let i = 0; i < count; i++) {
+        const u = count === 1 ? 0.5 : i / (count - 1);
+        const xx = (u - 0.5) * span;
+        const h = p.h * (0.4 + (i % 3) * 0.12) * (p.band === "high" ? 0.55 : 0.92);
+        ctx.fillStyle = deep;
+        ctx.beginPath();
+        ctx.moveTo(xx - span * 0.1, 0);
+        ctx.lineTo(xx, dir * h);
+        ctx.lineTo(xx + span * 0.1, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = edge;
+        ctx.lineWidth = near ? 2 : 1.3;
+        ctx.beginPath();
+        ctx.moveTo(xx, dir * h);
+        ctx.lineTo(xx - span * 0.1, 0);
+        ctx.stroke();
+        ctx.fillStyle = rim;
+        ctx.fillRect(xx - 1.2, dir * 2, 2.4, dir * Math.min(10, h * 0.2));
+      }
+      for (let i = 0; i < 4; i++) {
+        ctx.fillStyle = edge;
+        ctx.beginPath();
+        ctx.arc(-span * 0.4 + i * span * 0.26, 0, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (p.kind === "gantry") {
+      const h = p.h * (p.band === "high" ? 0.72 : 0.88);
+      const dir = p.band === "high" ? 1 : -1;
+      const W = p.w;
+      ctx.fillStyle = deep;
+      ctx.fillRect(-W * 0.58, 0, W * 1.16, dir * 12);
+      ctx.fillRect(-W * 0.52, 0, 10, dir * h);
+      ctx.fillRect(W * 0.4, 0, 10, dir * h * 0.9);
+      ctx.fillRect(-W * 0.5, dir * h * 0.48, W, dir * 8);
+      ctx.fillRect(-W * 0.45, dir * h * 0.78, W * 0.9, dir * 5);
+      ctx.strokeStyle = edge;
+      ctx.lineWidth = 1.7;
+      ctx.strokeRect(-W * 0.58, Math.min(0, dir * 12), W * 1.16, Math.abs(dir * 12));
+      for (let i = 0; i < 4; i++) {
+        const xx = -W * 0.35 + i * W * 0.22;
+        ctx.fillStyle = rim;
+        ctx.fillRect(xx, dir * h * 0.12, 3.5, dir * h * 0.34);
+        ctx.strokeStyle = edge;
+        ctx.strokeRect(xx, Math.min(dir * h * 0.12, dir * h * 0.46), 3.5, Math.abs(dir * h * 0.34));
+      }
+      for (let i = 0; i < 5; i++) {
+        ctx.fillStyle = edge;
+        ctx.beginPath();
+        ctx.arc(-W * 0.45 + i * W * 0.22, dir * 6, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.strokeStyle = rim;
+      ctx.beginPath();
+      ctx.moveTo(-W * 0.48, dir * h * 0.2);
+      ctx.lineTo(W * 0.45, dir * h * 0.7);
+      ctx.moveTo(W * 0.45, dir * h * 0.2);
+      ctx.lineTo(-W * 0.48, dir * h * 0.7);
+      ctx.stroke();
+    } else if (p.kind === "tower") {
+      const h = p.h;
+      const dir = p.band === "high" ? 1 : -1;
+      ctx.fillStyle = deep;
+      ctx.beginPath();
+      ctx.moveTo(-p.w * 0.4, 0);
+      ctx.lineTo(-p.w * 0.2, dir * h);
+      ctx.lineTo(p.w * 0.18, dir * h * 0.95);
+      ctx.lineTo(p.w * 0.44, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = edge;
+      ctx.lineWidth = near ? 2.1 : 1.5;
+      ctx.stroke();
+      for (let i = 0; i < 5; i++) {
+        const yy = dir * h * (0.12 + i * 0.15);
+        ctx.strokeStyle = rim;
+        ctx.beginPath();
+        ctx.moveTo(-p.w * (0.32 - i * 0.02), yy);
+        ctx.lineTo(p.w * (0.34 - i * 0.02), yy);
+        ctx.stroke();
+      }
+      ctx.fillStyle = edge;
+      for (let i = 0; i < 4; i++) {
+        ctx.fillRect(-2, dir * h * (0.2 + i * 0.15), 4, dir * 6);
+      }
+      ctx.strokeStyle = rim;
+      ctx.beginPath();
+      ctx.moveTo(-p.w * 0.08, dir * h * 0.15);
+      ctx.lineTo(-p.w * 0.02, dir * h * 0.85);
+      ctx.stroke();
+      ctx.fillStyle = edge;
+      ctx.beginPath();
+      ctx.arc(0, dir * h * 0.5, 3, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (p.kind === "chain") {
+      const len = p.h * (near ? 1.05 : 0.85);
+      const sway = Math.sin(t * 1.55 + p.phase) * (near ? 9 : 5);
+      ctx.fillStyle = deep;
+      ctx.fillRect(-8, -4, 16, 6);
+      ctx.strokeStyle = edge;
+      ctx.strokeRect(-8, -4, 16, 6);
+      ctx.strokeStyle = edge;
+      ctx.lineWidth = near ? 2.4 : 1.7;
+      ctx.beginPath();
+      ctx.moveTo(0, 2);
+      ctx.quadraticCurveTo(sway, len * 0.45, sway * 0.35, len);
+      ctx.stroke();
+      for (let i = 0; i < 6; i++) {
+        const yy = (i + 0.6) * (len / 6.2);
+        const xx = sway * (yy / len);
+        ctx.fillStyle = deep;
+        ctx.fillRect(xx - 5.5, yy - 3.5, 11, 7);
+        ctx.strokeStyle = rim;
+        ctx.strokeRect(xx - 5.5, yy - 3.5, 11, 7);
+        ctx.fillStyle = edge;
+        ctx.fillRect(xx - 1.2, yy - 1, 2.4, 2.4);
+      }
+      ctx.fillStyle = edge;
+      ctx.beginPath();
+      ctx.moveTo(sway * 0.35 - 5, len);
+      ctx.lineTo(sway * 0.35 + 5, len);
+      ctx.lineTo(sway * 0.35, len + 12);
+      ctx.closePath();
+      ctx.fill();
+    } else if (p.kind === "blade") {
+      ctx.fillStyle = deep;
+      ctx.beginPath();
+      ctx.moveTo(-p.w * 0.1, 0);
+      ctx.lineTo(p.w * 0.82, -p.h * 0.4);
+      ctx.lineTo(p.w * 0.6, -p.h * 0.18);
+      ctx.lineTo(p.w * 0.14, p.h * 0.14);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = edge;
+      ctx.lineWidth = 1.7;
+      ctx.stroke();
+      ctx.strokeStyle = rim;
+      for (let i = 0; i < 4; i++) {
+        const u = 0.15 + i * 0.18;
+        ctx.beginPath();
+        ctx.moveTo(p.w * u * 0.5, -p.h * u * 0.15);
+        ctx.lineTo(p.w * (0.2 + u * 0.5), -p.h * (0.08 + u * 0.2));
+        ctx.stroke();
+      }
+      ctx.fillStyle = edge;
+      for (let i = 0; i < 3; i++) ctx.fillRect(-2 + i * 3, -2, 2, 4);
+      ctx.fillStyle = rim;
+      ctx.beginPath();
+      ctx.arc(p.w * 0.35, -p.h * 0.12, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (p.kind === "vine" || p.kind === "bulb") {
+      ctx.fillStyle = deep;
+      ctx.fillRect(-6, -3, 12, 5);
+      ctx.strokeStyle = edge;
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(0, 2);
+      for (let i = 1; i <= 8; i++) ctx.lineTo(Math.sin(t * 1.05 + p.phase + i * 0.7) * 12, i * (p.h / 9));
+      ctx.stroke();
+      for (let i = 1; i <= 5; i++) {
+        ctx.fillStyle = i % 2 ? rim : deep;
+        ctx.beginPath();
+        ctx.ellipse(Math.sin(t + i) * 8, i * (p.h / 7), 7, 3, 0.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = deep;
+      ctx.beginPath();
+      ctx.arc(Math.sin(t + p.phase) * 7, p.h * 0.55, 10, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = edge;
+      ctx.stroke();
+      ctx.fillStyle = rim;
+      ctx.beginPath();
+      ctx.arc(Math.sin(t + p.phase) * 7 - 2, p.h * 0.52, 3, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (p.kind === "rib" || p.kind === "arch") {
+      const h = p.h * 0.52;
+      const dir = p.band === "high" ? 1 : -1;
+      ctx.fillStyle = deep;
+      ctx.fillRect(-p.w - 4, -4, 10, 8);
+      ctx.fillRect(p.w - 6, -4, 10, 8);
+      ctx.strokeStyle = deep;
+      ctx.lineWidth = 8;
+      ctx.beginPath();
+      ctx.moveTo(-p.w, 0);
+      ctx.quadraticCurveTo(0, dir * h, p.w, 0);
+      ctx.stroke();
+      ctx.strokeStyle = edge;
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(-p.w * 0.92, 0);
+      ctx.quadraticCurveTo(0, dir * h * 0.85, p.w * 0.92, 0);
+      ctx.stroke();
+      ctx.strokeStyle = rim;
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.moveTo(-p.w * 0.7, 0);
+      ctx.quadraticCurveTo(0, dir * h * 0.55, p.w * 0.7, 0);
+      ctx.stroke();
+      ctx.fillStyle = edge;
+      ctx.fillRect(-5, dir * h * 0.35 - 3, 10, 6);
+      for (let i = 0; i < 4; i++) {
+        ctx.beginPath();
+        ctx.arc(-p.w * 0.55 + i * p.w * 0.35, dir * 2, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
   function drawAirFront(view) {
     if (mode !== "play") return;
     const th = currentTheme();
     const accent = th.accent || [210, 225, 255];
     const t = world.time || 0;
+    const camX = view && view.scale ? -view.ox / view.scale : 0;
+    const playX = player.x + player.w * 0.5;
+    const scrollSrc = camX * 0.4 + playX * 1.3;
+    const period = VIEW_W * 1.5;
+    const scrollMid = ((scrollSrc * 0.95) % period + period) % period;
+    const scrollNear = ((scrollSrc * 1.55) % period + period) % period;
+    const bag = world.fore;
     ctx.save();
-    for (let i = 0; i < 22; i++) {
+    // Edge haze — depth frame without choking the lane.
+    const ar = accent[0] | 0;
+    const ag = accent[1] | 0;
+    const ab = accent[2] | 0;
+    const hazeY = ctx.createLinearGradient(0, 0, 0, VIEW_H);
+    hazeY.addColorStop(0, `rgba(${ar},${ag},${ab},0.14)`);
+    hazeY.addColorStop(0.14, "rgba(0,0,0,0)");
+    hazeY.addColorStop(0.72, "rgba(0,0,0,0)");
+    hazeY.addColorStop(1, `rgba(${(ar * 0.2) | 0},${(ag * 0.16) | 0},${(ab * 0.18) | 0},0.55)`);
+    ctx.fillStyle = hazeY;
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    const hazeX = ctx.createLinearGradient(0, 0, VIEW_W, 0);
+    hazeX.addColorStop(0, `rgba(${(ar * 0.18) | 0},${(ag * 0.14) | 0},${(ab * 0.16) | 0},0.4)`);
+    hazeX.addColorStop(0.16, "rgba(0,0,0,0)");
+    hazeX.addColorStop(0.84, "rgba(0,0,0,0)");
+    hazeX.addColorStop(1, `rgba(${(ar * 0.18) | 0},${(ag * 0.14) | 0},${(ab * 0.16) | 0},0.4)`);
+    ctx.fillStyle = hazeX;
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    // Hard side blades — unmistakable fast layer, keeps the middle open.
+    for (let s = 0; s < 2; s++) {
+      const side = s === 0 ? 0 : VIEW_W;
+      const dir = s === 0 ? 1 : -1;
+      const wob = Math.sin(t * 1.2 + s) * 4;
+      for (let i = 0; i < 5; i++) {
+        const yy = VIEW_H * (0.08 + i * 0.18) + wob;
+        const hh = 36 + (i % 3) * 18;
+        const xx = side + dir * (8 + ((scrollNear * 0.15 + i * 37) % 28));
+        ctx.fillStyle = `rgba(${(ar * 0.22) | 0},${(ag * 0.18) | 0},${(ab * 0.2) | 0},0.82)`;
+        ctx.beginPath();
+        ctx.moveTo(side, yy);
+        ctx.lineTo(xx + dir * 26, yy + hh * 0.5);
+        ctx.lineTo(side, yy + hh);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = `rgba(${ar},${ag},${ab},0.7)`;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(side, yy);
+        ctx.lineTo(xx + dir * 26, yy + hh * 0.5);
+        ctx.stroke();
+      }
+    }
+
+    function paintDepth(depth, scroll, alpha) {
+      if (!bag || !bag.length) return;
+      for (let i = 0; i < bag.length; i++) {
+        const p = bag[i];
+        if ((p.depth || "mid") !== depth) continue;
+        const base = p.u * period;
+        for (let k = -1; k <= 1; k++) {
+          const x = base - scroll + k * period;
+          if (x < -160 || x > VIEW_W + 160) continue;
+          // Soften pieces that cross the run corridor.
+          const centerDist = Math.abs(x - VIEW_W * 0.5) / (VIEW_W * 0.5);
+          const lane = p.band === "side" ? 1 : (0.45 + centerDist * 0.55);
+          drawForePiece(p, x, accent, t, alpha * lane);
+        }
+      }
+    }
+    paintDepth("mid", scrollMid, 0.72);
+    paintDepth("near", scrollNear, 1);
+
+    for (let i = 0; i < 18; i++) {
       const n = frac(i * 5.1 + 0.4);
-      const x = (frac(i * 2.7) * (VIEW_W + 40) + t * (16 + n * 28)) % (VIEW_W + 40) - 20;
-      const y = (frac(i * 8.3) * VIEW_H + Math.sin(t * 0.7 + i) * 18 + VIEW_H) % VIEW_H;
-      const s = n > 0.86 ? 11 : n > 0.55 ? 5 : 2.5;
-      ctx.fillStyle = `rgba(${accent[0]},${accent[1]},${accent[2]},${0.16 + n * 0.28})`;
+      const x = (frac(i * 2.7) * (VIEW_W + 70) - scrollNear * 0.55 + t * (12 + n * 20) + VIEW_W + 70) % (VIEW_W + 70) - 35;
+      const y = (frac(i * 8.3) * VIEW_H + Math.sin(t * 0.7 + i) * 14 + VIEW_H) % VIEW_H;
+      const s = n > 0.86 ? 10 : n > 0.55 ? 4.5 : 2.2;
+      ctx.fillStyle = `rgba(${accent[0]},${accent[1]},${accent[2]},${0.16 + n * 0.26})`;
       ctx.fillRect(x, y, s, s);
     }
     if (view && world.door && !world.doorHidden) {
@@ -6576,6 +10507,55 @@
     }
   }
 
+  function drawNullStage() {
+    const b = world.boss;
+    if (!b || b.dim !== 1 || !world.door || mode !== "play") return;
+    const floorY = world.door.y + TILE;
+    const W = world.cols * TILE;
+    const t = world.time || 0;
+    ctx.save();
+    const lip = ctx.createLinearGradient(0, floorY - 22, 0, floorY + 14);
+    lip.addColorStop(0, "rgba(254, 31, 111, 0)");
+    lip.addColorStop(0.62, "rgba(254, 31, 111, 0.16)");
+    lip.addColorStop(1, "rgba(28, 4, 14, 0.55)");
+    ctx.fillStyle = lip;
+    ctx.fillRect(0, floorY - 22, W, 36);
+    ctx.strokeStyle = "rgba(254, 146, 184, 0.45)";
+    ctx.lineWidth = 1.25;
+    ctx.lineCap = "round";
+    for (let i = 2; i < world.cols - 2; i += 3) {
+      const n = ((i * 17) % 7) - 3;
+      const x = i * TILE + 10;
+      ctx.globalAlpha = 0.35 + ((i * 3) % 5) * 0.08;
+      ctx.beginPath();
+      ctx.moveTo(x, floorY + 1);
+      ctx.lineTo(x + 6 + n, floorY + 11);
+      ctx.lineTo(x - 4, floorY + 20);
+      ctx.moveTo(x + 14, floorY + 2);
+      ctx.lineTo(x + 18, floorY + 9);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = "#fff0f6";
+    ctx.fillRect(0, floorY, W, 2);
+    ctx.fillStyle = "#fe92b8";
+    for (let i = 0; i < 16; i++) {
+      const x = (i * 113 + t * (16 + (i % 5) * 7)) % W;
+      const y = floorY - 8 - ((i * 29 + t * 26) % 78);
+      ctx.globalAlpha = 0.22 + (i % 4) * 0.12;
+      ctx.beginPath();
+      ctx.ellipse(x, y, 1.6 + (i % 3) * 0.6, 2.4 + (i % 2), 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const glow = ctx.createRadialGradient(b.x, floorY, 8, b.x, floorY, 160);
+    glow.addColorStop(0, "rgba(254, 31, 111, 0.28)");
+    glow.addColorStop(1, "rgba(254, 31, 111, 0)");
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = glow;
+    ctx.fillRect(b.x - 160, floorY - 28, 320, 40);
+    ctx.restore();
+  }
+
   function render() {
     clearBloom = Math.max(0, clearBloom - 0.016);
     if (mode === "title" || mode === "levels") {
@@ -6604,12 +10584,17 @@
       if (!row) continue;
       for (let x = x0; x < x1; x++) drawTile(row[x], x, y);
     }
+    drawNullStage();
+    drawRoomScenery();
     drawRoomAir();
     drawBlood();
     for (const p of world.platforms) {
       drawBrickFace(p.x, p.y, "#6a4030", "#e0b090", false);
     }
-    for (const d of world.drops) drawBrickFace(d.x, d.y, "#5a3830", "#c0a080", false);
+    for (const d of world.drops) {
+      if (d.boss && world.boss && world.boss.dim !== 1) drawBossDrop(d);
+      else drawBrickFace(d.x, d.y, "#5a3830", "#c0a080", false);
+    }
     drawDoor(world.door);
     drawDoor(world.fakeDoor);
     for (const coin of world.coins) {
@@ -6651,7 +10636,10 @@
       ctx.restore();
     }
     drawLasers();
-    for (const saw of world.saws) drawSaw(saw);
+    for (const saw of world.saws) {
+      if (saw.boss && world.boss && world.boss.dim !== 1) drawBossSaw(saw);
+      else drawSaw(saw);
+    }
     drawEntities();
     drawDevil();
     drawDashReady();
@@ -6679,6 +10667,9 @@
   }
 
   function step() {
+    if (window.SURGE_TRAILER && window.SURGE_TRAILER.on) {
+      if (window.SURGE_TRAILER.tick(FIXED)) return;
+    }
     if (mode !== "play" && !testMode) return;
     if (hitstop > 0) { hitstop -= FIXED; return; }
     const steps = slowmo < 1 ? (Math.random() < slowmo ? 1 : 0) : 1;
@@ -6686,13 +10677,20 @@
       world.time += FIXED * slowmo;
       return;
     }
-    world.time += FIXED;
-    world.shake = Math.max(0, world.shake - 0.75);
+    if (world.shake > 16) world.shake = 16;
+    world.shake = world.shake > 0.4 ? world.shake * 0.86 : 0;
     world.flash = Math.max(0, world.flash - FIXED);
+    // Hard white cut: bright, then gone in a few frames.
+    if ((world.whiteFlash || 0) > 0) {
+      world.whiteFlash = world.whiteFlash > 0.2 ? world.whiteFlash * 0.62 : Math.max(0, world.whiteFlash - FIXED * 6);
+    }
     world.hudGlitch = Math.max(0, world.hudGlitch - FIXED);
+    if (world.chromatic > 0.55) world.chromatic = 0.55;
     world.chromatic = Math.max(0, world.chromatic - FIXED * 1.6);
+    fadeStains();
     introT = Math.max(0, introT - FIXED);
     dimIntro = Math.max(0, dimIntro - FIXED);
+    if (roomFade > 0) roomFade = Math.max(0, roomFade - FIXED * 2.6);
     if (dimIntro <= 0 && dimCard && !dimCard.classList.contains("hidden")) dimCard.classList.add("hidden");
     nearCool = Math.max(0, nearCool - FIXED);
     nearFlare = Math.max(0, nearFlare - FIXED);
@@ -6719,6 +10717,7 @@
       }
       return;
     }
+    world.time += FIXED;
     tickPlayer();
     audio.beginSpace();
     tickSaws();
@@ -6769,6 +10768,8 @@
     clearScreen.classList.add("hidden");
     if (pauseScreen) pauseScreen.classList.add("hidden");
     if (levelsScreen) levelsScreen.classList.add("hidden");
+    const settingsScreen = document.getElementById("settings-screen");
+    if (settingsScreen) settingsScreen.classList.add("hidden");
     if (dimCard && dimIntro <= 0) dimCard.classList.add("hidden");
     hud.classList.remove("hidden");
     if (window.matchMedia("(pointer: coarse)").matches) mobile.classList.remove("hidden");
@@ -6777,6 +10778,8 @@
     comboTimer = 0;
     runTraps = 0;
     levelIndex = startAt;
+    clockOut = 0;
+    clockOutAt = 0;
     startedAt = performance.now();
     mode = "play";
     loadLevel(levelIndex);
@@ -6784,11 +10787,19 @@
 
   function pauseGame() {
     if (mode !== "play" || deathShow) return;
+    releaseInput();
+    player.vx = 0;
+    parkClock();
     mode = "pause";
     if (pauseScreen) pauseScreen.classList.remove("hidden");
     if (dimCard) dimCard.classList.add("hidden");
     const pauseName = document.getElementById("pause-name");
     if (pauseName) pauseName.textContent = world.name;
+    const pauseTaunt = document.getElementById("pause-taunt");
+    if (pauseTaunt) pauseTaunt.textContent = world.taunt || "";
+    const pauseDeaths = document.getElementById("pause-deaths");
+    if (pauseDeaths) pauseDeaths.textContent = "☠ " + deaths;
+    if (pauseBtn) pauseBtn.setAttribute("aria-pressed", "true");
     audio.play("pause");
   }
 
@@ -6796,12 +10807,19 @@
     if (mode !== "pause") return;
     if (pauseScreen) pauseScreen.classList.add("hidden");
     if (dimCard && dimIntro > 0) dimCard.classList.remove("hidden");
+    releaseClock();
+    if (!bindHeld("left") && !bindHeld("right") && !hold.left && !hold.right) {
+      player.vx = 0;
+    }
+    if (pauseBtn) pauseBtn.setAttribute("aria-pressed", "false");
     mode = "play";
   }
 
   function leavePlayUi() {
     if (pauseScreen) pauseScreen.classList.add("hidden");
     if (levelsScreen) levelsScreen.classList.add("hidden");
+    const settingsScreen = document.getElementById("settings-screen");
+    if (settingsScreen) settingsScreen.classList.add("hidden");
     if (dimCard) dimCard.classList.add("hidden");
     winScreen.classList.add("hidden");
     clearScreen.classList.add("hidden");
@@ -6848,7 +10866,6 @@
     audio.setTheme(dimIndex);
     audio.restartMusic();
     shardsGot = 0;
-    deathGhost = null;
     dimIntro = 0;
     if (dimCard) dimCard.classList.add("hidden");
     if (dashBtn) dashBtn.classList.toggle("hidden", dimIndex < 3);
@@ -6890,12 +10907,14 @@
     if (!grid || !window.SURGE_WORLDS) return;
     levelsView = "worlds";
     setLevelsChrome("WORLDS", "Clear a dimension to wake the next. Pick a world, then a room.");
-    const unlocked = loadSave().unlockedDim || 1;
-    const rec = loadSave().dimRecords || {};
-    const progress = loadSave().rooms || {};
+    const s = loadSave();
+    const unlocked = s.unlockedDim || 1;
+    const rec = s.dimRecords || {};
+    const progress = s.rooms || {};
     grid.innerHTML = "";
     grid.classList.remove("room-grid");
     grid.classList.add("world-grid");
+    const frag = document.createDocumentFragment();
     window.SURGE_WORLDS.DIMS.forEach((dim, i) => {
       const d = i + 1;
       const b = document.createElement("button");
@@ -6923,8 +10942,9 @@
       b.appendChild(nm);
       b.appendChild(meta);
       b.onclick = () => showRoomSelect(d);
-      grid.appendChild(b);
+      frag.appendChild(b);
     });
+    grid.appendChild(frag);
   }
 
   function showRoomSelect(d) {
@@ -7011,6 +11031,22 @@
   if (nextDimBtn) nextDimBtn.onclick = () => enterDimension(Math.min(20, dimIndex + 1), 0);
   const levelsBtn = document.getElementById("levels-btn");
   if (levelsBtn) levelsBtn.onclick = showLevels;
+  const settingsBtn = document.getElementById("settings-btn");
+  if (settingsBtn) settingsBtn.onclick = () => showSettings("title");
+  const pauseSettingsBtn = document.getElementById("pause-settings-btn");
+  if (pauseSettingsBtn) pauseSettingsBtn.onclick = () => showSettings("pause");
+  const settingsBack = document.getElementById("settings-back");
+  if (settingsBack) settingsBack.onclick = closeSettings;
+  const bindReset = document.getElementById("bind-reset");
+  if (bindReset) bindReset.onclick = () => {
+    binds = cloneBinds(BIND_DEFAULTS);
+    bindCapture = null;
+    saveBinds();
+    paintBinds();
+    paintControlHint();
+  };
+  loadBinds();
+  paintControlHint();
   const levelsBack = document.getElementById("levels-back");
   if (levelsBack) levelsBack.onclick = levelsGoBack;
   const resumeBtn = document.getElementById("resume-btn");
@@ -7020,20 +11056,53 @@
   const quitBtn = document.getElementById("quit-btn");
   if (quitBtn) quitBtn.onclick = quitToTitle;
     if (pauseBtn) pauseBtn.onclick = () => {
+      if (window.SURGE_TRAILER && window.SURGE_TRAILER.on) return;
       if (deathShow) return;
       if (mode === "play") pauseGame();
       else if (mode === "pause") resumeGame();
     };
-  muteBtn.onclick = () => {
-    audio.unlock();
+    muteBtn.onclick = () => {
+      audio.unlock();
+      toggleMute();
+    };
+  try {
+    if (localStorage.getItem("level-surge-mute") === "1") audio.setMuted(true);
+  } catch (_) { /* private mode */ }
+  syncMuteButton();
+
+  function toggleMute() {
     audio.setMuted(!audio.muted);
+    try { localStorage.setItem("level-surge-mute", audio.muted ? "1" : "0"); } catch (_) { /* quota */ }
+    syncMuteButton();
+  }
+
+  function syncMuteButton() {
+    if (!muteBtn) return;
     muteBtn.textContent = audio.muted ? "🔇" : "🔊";
-  };
+    muteBtn.setAttribute("aria-pressed", audio.muted ? "true" : "false");
+    muteBtn.setAttribute("aria-label", audio.muted ? "Unmute" : "Mute");
+  }
 
   function setMode(m) { mode = m; }
 
+  function roastSkippable() {
+    return !!(deathShow && deathShow.t >= 0.55 && mode === "play" && !testMode);
+  }
+
+  function retryLevel() {
+    if (pauseScreen) pauseScreen.classList.add("hidden");
+    deathShow = null;
+    deathTimer = 0;
+    mode = "play";
+    loadLevel(levelIndex);
+  }
+
   window.addEventListener("pointerdown", (e) => {
     audio.unlock();
+    if (roastSkippable() && !(e.target && e.target.closest && e.target.closest("button, a"))) {
+      retryLevel();
+      return;
+    }
     if (mode !== "play" || !world.qte || player.dead) return;
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
@@ -7044,6 +11113,167 @@
     if (world.qte.phase !== "go") return;
     pressQte(world.qte.keys[world.qte.index]);
   });
+  function cloneBinds(src) {
+    const out = {};
+    const names = Object.keys(BIND_DEFAULTS);
+    for (let i = 0; i < names.length; i++) {
+      const k = names[i];
+      const list = (src && src[k]) || BIND_DEFAULTS[k];
+      out[k] = list.slice();
+    }
+    return out;
+  }
+
+  function loadBinds() {
+    binds = cloneBinds(BIND_DEFAULTS);
+    try {
+      const raw = JSON.parse(localStorage.getItem("level-surge-binds") || "null");
+      if (!raw || typeof raw !== "object") return;
+      const names = Object.keys(BIND_DEFAULTS);
+      for (let i = 0; i < names.length; i++) {
+        const k = names[i];
+        const list = raw[k];
+        if (!Array.isArray(list) || !list.length) continue;
+        const clean = [];
+        for (let j = 0; j < list.length && clean.length < 3; j++) {
+          if (typeof list[j] === "string" && list[j] && list[j].length < 32) clean.push(list[j]);
+        }
+        if (clean.length) binds[k] = clean;
+      }
+    } catch (_) { /* private mode */ }
+  }
+
+  function saveBinds() {
+    try { localStorage.setItem("level-surge-binds", JSON.stringify(binds)); } catch (_) { /* quota */ }
+  }
+
+  function codeLabel(code) {
+    if (!code) return "—";
+    if (code === "Space") return "SPACE";
+    if (code === "Escape") return "ESC";
+    if (code === "ArrowLeft") return "LEFT";
+    if (code === "ArrowRight") return "RIGHT";
+    if (code === "ArrowUp") return "UP";
+    if (code === "ArrowDown") return "DOWN";
+    if (code === "ShiftLeft" || code === "ShiftRight") return "SHIFT";
+    if (code.indexOf("Key") === 0) return code.slice(3);
+    if (code.indexOf("Digit") === 0) return code.slice(5);
+    return code;
+  }
+
+  function bindCodes(action) {
+    if (!binds) loadBinds();
+    return binds[action] || BIND_DEFAULTS[action] || [];
+  }
+
+  function bindHeld(action) {
+    const list = bindCodes(action);
+    for (let i = 0; i < list.length; i++) if (keys.has(list[i])) return true;
+    return false;
+  }
+
+  function bindHit(e, action) {
+    const code = e.code || "";
+    return !!code && bindCodes(action).indexOf(code) >= 0;
+  }
+
+  function movementCode(code) {
+    return bindCodes("left").indexOf(code) >= 0 || bindCodes("right").indexOf(code) >= 0
+      || bindCodes("jump").indexOf(code) >= 0 || bindCodes("dash").indexOf(code) >= 0;
+  }
+
+  function expandBind(code) {
+    if (code === "ShiftLeft" || code === "ShiftRight") return ["ShiftLeft", "ShiftRight"];
+    return [code];
+  }
+
+  function assignBind(action, code) {
+    if (!code || !BIND_DEFAULTS[action]) return;
+    const next = expandBind(code);
+    const names = Object.keys(binds);
+    for (let i = 0; i < names.length; i++) {
+      if (names[i] === action) continue;
+      binds[names[i]] = binds[names[i]].filter((c) => next.indexOf(c) < 0);
+      if (!binds[names[i]].length) {
+        binds[names[i]] = BIND_DEFAULTS[names[i]].filter((c) => next.indexOf(c) < 0);
+      }
+    }
+    binds[action] = next;
+    bindCapture = null;
+    saveBinds();
+    paintBinds();
+    paintControlHint();
+  }
+
+  function paintControlHint() {
+    const el = document.getElementById("title-hint");
+    if (!el || !binds) return;
+    el.textContent = codeLabel(binds.left[0]) + " / " + codeLabel(binds.right[0])
+      + " MOVE · " + codeLabel(binds.jump[0]) + " JUMP · " + codeLabel(binds.dash[0])
+      + " DASH · " + codeLabel(binds.retry[0]) + " RETRY · " + codeLabel(binds.pause[0]) + " PAUSE";
+  }
+
+  function paintBinds() {
+    const list = document.getElementById("bind-list");
+    if (!list || !binds) return;
+    list.innerHTML = "";
+    const names = Object.keys(BIND_LABELS);
+    for (let i = 0; i < names.length; i++) {
+      const action = names[i];
+      const row = document.createElement("div");
+      row.className = "bind-row";
+      const name = document.createElement("span");
+      name.textContent = BIND_LABELS[action];
+      const btn = document.createElement("button");
+      btn.type = "button";
+      const labels = [];
+      const seen = {};
+      for (let j = 0; j < binds[action].length; j++) {
+        const lab = codeLabel(binds[action][j]);
+        if (seen[lab]) continue;
+        seen[lab] = true;
+        labels.push(lab);
+      }
+      const armed = bindCapture === action;
+      btn.textContent = armed ? "PRESS A KEY" : (labels.join(" / ") || "—");
+      if (armed) btn.className = "arm";
+      btn.onclick = () => {
+        bindCapture = action;
+        paintBinds();
+      };
+      row.appendChild(name);
+      row.appendChild(btn);
+      list.appendChild(row);
+    }
+  }
+
+  function showSettings(from) {
+    settingsReturn = from || "title";
+    bindCapture = null;
+    if (!binds) loadBinds();
+    titleScreen.classList.add("hidden");
+    if (pauseScreen) pauseScreen.classList.add("hidden");
+    if (levelsScreen) levelsScreen.classList.add("hidden");
+    const screen = document.getElementById("settings-screen");
+    if (screen) screen.classList.remove("hidden");
+    mode = "settings";
+    paintBinds();
+  }
+
+  function closeSettings() {
+    bindCapture = null;
+    const screen = document.getElementById("settings-screen");
+    if (screen) screen.classList.add("hidden");
+    if (settingsReturn === "pause") {
+      mode = "pause";
+      if (pauseScreen) pauseScreen.classList.remove("hidden");
+      return;
+    }
+    mode = "title";
+    titleScreen.classList.remove("hidden");
+    paintControlHint();
+  }
+
   function trackKey(e, down) {
     /* Physical codes only — e.key casing breaks under Shift (A vs a) and sticks movement. */
     const code = e.code || "";
@@ -7063,14 +11293,40 @@
 
   window.addEventListener("keydown", (e) => {
     audio.unlock();
+    if (window.SURGE_TRAILER && window.SURGE_TRAILER.on) {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "Shift"].includes(e.key) ||
+          e.code === "Space" || e.code.startsWith("Shift")) e.preventDefault();
+      if (e.repeat) return;
+      if (e.key === "Escape") window.SURGE_TRAILER.stop();
+      else if (e.key === "Enter" || e.key === " " || e.key === "ArrowRight") window.SURGE_TRAILER.cut();
+      return;
+    }
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "Shift"].includes(e.key) ||
         e.code === "Space" || e.code.startsWith("Shift")) e.preventDefault();
+    if (mode === "settings") {
+      e.preventDefault();
+      if (e.repeat) return;
+      if (bindCapture) {
+        assignBind(bindCapture, e.code);
+        return;
+      }
+      if (e.key === "Escape") closeSettings();
+      return;
+    }
+    if (!e.repeat && bindHit(e, "mute")) {
+      const q = world.qte;
+      const letter = (e.key || "").toLowerCase();
+      const qteOwns = q && mode === "play" && !player.dead && q.phase === "go" &&
+        q.keys && q.keys[q.index] && String(q.keys[q.index]).toLowerCase() === letter;
+      if (!qteOwns) toggleMute();
+    }
     if (mode === "pause") {
-      if (e.key === "Escape") resumeGame();
+      if (bindHit(e, "pause")) resumeGame();
+      else if (!e.repeat && bindHit(e, "retry")) retryLevel();
       return;
     }
     trackKey(e, true);
-    if (mode === "play" && world.qte && !player.dead && !e.repeat && e.key.length === 1 && /[a-z]/i.test(e.key) && !"wasd".includes(e.key.toLowerCase())) {
+    if (mode === "play" && world.qte && !player.dead && !e.repeat && e.key.length === 1 && /[a-z]/i.test(e.key) && !movementCode(e.code || "")) {
       pressQte(e.key);
       return;
     }
@@ -7081,29 +11337,29 @@
       const s = loadSave();
       enterDimension(s.lastDim || 1, s.lastRoom != null ? s.lastRoom : 0);
     }
-    else if (mode === "levels" && e.key === "Escape") levelsGoBack();
+    else if (mode === "levels" && (e.key === "Escape" || bindHit(e, "pause"))) levelsGoBack();
     else if (mode === "clear") nextLevel();
     else if (mode === "win" && e.key === "Enter") enterDimension(dimIndex >= 20 ? 1 : dimIndex + 1, 0);
     else if (mode === "play" && deathShow) {
-      /* roast plays through; R and pause cannot cut it */
+      if (!e.repeat && roastSkippable() && (bindHit(e, "retry") || e.key === " " || e.key === "Enter")) {
+        retryLevel();
+      }
     }
-    else if (mode === "play" && e.key === "Escape") pauseGame();
-    else if (mode === "play" && (e.key === "r" || e.key === "R")) {
+    else if (mode === "play" && bindHit(e, "pause")) pauseGame();
+    else if (mode === "play" && !e.repeat && bindHit(e, "retry")) {
       deathTimer = 0;
       loadLevel(levelIndex);
     }
   });
   window.addEventListener("keyup", (e) => trackKey(e, false));
   window.addEventListener("blur", () => {
-    keys.clear();
-    hold.left = hold.right = hold.jump = hold.dash = false;
-    dashHeld = false;
+    releaseInput();
+    player.vx = 0;
   });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
-      keys.clear();
-      hold.left = hold.right = hold.jump = hold.dash = false;
-      dashHeld = false;
+      releaseInput();
+      player.vx = 0;
     }
   });
   clearScreen.addEventListener("click", () => { if (mode === "clear") nextLevel(); });
@@ -7113,8 +11369,12 @@
     if (!el) return;
     const on = (e) => {
       e.preventDefault();
-      hold[prop] = true;
       audio.unlock();
+      if (prop === "jump" && roastSkippable()) {
+        retryLevel();
+        return;
+      }
+      hold[prop] = true;
       try { el.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
     };
     const off = (e) => { e.preventDefault(); hold[prop] = false; };
@@ -7122,6 +11382,7 @@
     el.addEventListener("pointerup", off);
     el.addEventListener("pointercancel", off);
     el.addEventListener("lostpointercapture", off);
+    el.addEventListener("contextmenu", (e) => e.preventDefault());
   }
   bindHold("btn-left", "left");
   bindHold("btn-right", "right");
@@ -7147,6 +11408,29 @@
     if (!cond) bag.push(msg);
   }
 
+  function sceneryPartAudit() {
+    // Count fill/stroke primitives the same way boss forms do — min 20 per kind.
+    const kinds = ["chain", "hook", "drip", "vine", "lamp", "bulb", "pipe", "brace", "panel", "banner", "rib", "lamppost", "shard"];
+    const counts = {};
+    const mock = {
+      n: 0,
+      fillStyle: "", strokeStyle: "", lineWidth: 1, globalAlpha: 1,
+      save() {}, restore() {}, translate() {}, scale() {}, rotate() {},
+      beginPath() { this.n += 1; },
+      closePath() {}, moveTo() {}, lineTo() {}, quadraticCurveTo() {},
+      arc() {}, ellipse() {},
+      fill() {}, stroke() {},
+      fillRect() { this.n += 1; },
+      strokeRect() { this.n += 1; },
+    };
+    for (let i = 0; i < kinds.length; i++) {
+      mock.n = 0;
+      drawSceneryProp({ kind: kinds[i], x: 0, y: 0, face: 0, s: 1, phase: 0.4, hang: 1, role: "hang" }, [220, 120, 80], 1.25, mock);
+      counts[kinds[i]] = mock.n;
+    }
+    return counts;
+  }
+
   function unitTests() {
     const fails = [];
     assert(padRow("ab", 4) === "ab..", "padRow pads", fails);
@@ -7157,6 +11441,12 @@
     assert(world.cols >= 30, "level width", fails);
     assert(!!world.door, "level 0 has door", fails);
     assert(Number.isFinite(player.x) && Number.isFinite(player.y), "spawn finite", fails);
+    assert(world.scenery && world.scenery.length === 0, "scenery props off", fails);
+    if (window.SURGE_WORLDS && window.SURGE_WORLDS.auditDiscovery) {
+      const early = window.SURGE_WORLDS.auditDiscovery();
+      assert(!early.length, "trap discovery " + early.slice(0, 3).join("; "), fails);
+    }
+    assert(world.fore && world.fore.length === 0, "fore props off", fails);
     assert(isSolid("#") && isSolid("=") && isSolid("i") && isSolid("B"), "solids", fails);
     assert(!isSolid("*") && !isSolid(".") && !isSolid("^"), "non-solids", fails);
     assert(tileAt(-10, 0) === "#", "oob is solid", fails);
@@ -7353,7 +11643,7 @@
     }
 
     enterDimension(1, 16);
-    assert(!!world.boss && world.boss.goal === 32, "D1 boss goal " + (world.boss && world.boss.goal), fails);
+    assert(!!world.boss && world.boss.goal === 7, "D1 boss goal " + (world.boss && world.boss.goal), fails);
     const flat = world.rules.surface || [];
     assert(flat.length > 8 && flat.every((y) => y === flat[0] && y > 0), "boss floor flat", fails);
     let doorMove = false;
@@ -7387,12 +11677,24 @@
       world.entities = [];
       world.queued = [];
       world.bossShots = [];
+      world.bossZones = [];
+      world.wind = 0;
+      world.reverse = false;
+      world.magnet = null;
+      if (world.baseGravity) world.gravity = world.baseGravity;
       player.dead = false;
       player.win = false;
       player.vx = 0;
       player.vy = 0;
       if (world.boss) {
         world.boss.atkCd = 40;
+        world.boss.arrive = 0;
+        world.boss.rush = null;
+        world.boss.wave = null;
+        world.boss.echo = null;
+        world.boss.gravUntil = 0;
+        world.boss.flipUntil = 0;
+        world.boss.windUntil = 0;
         world.boss.tell = null;
         world.boss.say = null;
         world.boss.snatch = null;
@@ -7402,6 +11704,10 @@
         world.boss.plan = null;
         world.boss.gap = 0;
         world.boss.rest = 8;
+        world.boss.dropping = false;
+        world.boss.drop = null;
+        world.boss.saidBored = false;
+        world.boss.fightAt = null;
       }
       world.nullBeams = [];
       world.bossFog = 0;
@@ -7445,13 +11751,23 @@
     world.boss.atkCd = 40;
     world.boss.rest = 8;
     world.boss.shoveCd = 0;
+    const nullDoor = world.door.x;
     step();
+    assert(world.boss.saidBored, "null failsafe arms at 30", fails);
     assert(!world.boss.dropping, "far after 30s the door stays", fails);
+    assert(world.door.x === nullDoor, "null door waits on failsafe", fails);
+    assert(bossHoldsDoor(), "door locked while boss stands", fails);
     player.x = world.door.x - 80;
+    player.y = world.door.y + TILE - player.h;
     player.vx = 0;
-    world.boss.shoveCd = 0;
+    player.vy = 0;
+    player.dead = false;
+    player.win = false;
+    world.boss.doorCd = 0;
     step();
-    assert(Math.abs(player.vx) > 3, "close after 30s gets thrown " + player.vx, fails);
+    assert(Math.abs(player.vx) < 2, "no door knockback " + player.vx, fails);
+    assert(!player.win, "door dead until boss falls", fails);
+    assert(!!world.boss.snatch, "near door still snatches", fails);
 
     enterDimension(1, 16);
     hushBoss();
@@ -7521,6 +11837,15 @@
       step();
     }
     assert(world.boss.phase === "gone", "collapse " + (world.boss && world.boss.phase), fails);
+    assert(!bossHoldsDoor(), "door opens after boss falls", fails);
+    player.dead = false;
+    player.win = false;
+    player.x = world.door.x + 4;
+    player.y = world.door.y + TILE - player.h;
+    player.vx = 0;
+    player.vy = 0;
+    step();
+    assert(player.win, "door works after boss falls", fails);
 
     enterDimension(1, 16);
     assert(world.boss.phase === "intro", "null starts asleep", fails);
@@ -7528,9 +11853,79 @@
     for (let f = 0; f < 170; f++) step();
     assert(world.boss.phase === "intro" && world.boss.face === "sleep", "asleep at 3s " + world.boss.face, fails);
     assert(world.door.x === introDoor, "door waits while he sleeps", fails);
-    for (let f = 0; f < 60 * 18; f++) step();
+    let nullQuiet = false;
+    for (let f = 0; f < 60 * 30; f++) {
+      const wasIntro = world.boss.phase === "intro";
+      step();
+      if (wasIntro && world.boss.phase === "fight") {
+        nullQuiet = !world.boss.say;
+        break;
+      }
+    }
     assert(world.boss.phase === "fight", "intro ends " + world.boss.phase, fails);
+    assert(nullQuiet, "null stays quiet after intro", fails);
     assert(world.boss.moves >= 1, "intro throw " + world.boss.moves, fails);
+
+    enterDimension(1, 16);
+    const lockedX = player.x;
+    hold.right = true;
+    hold.jump = true;
+    for (let f = 0; f < 12; f++) step();
+    assert(world.boss.phase === "intro" && Math.abs(player.x - lockedX) < 1, "cutscene locks feet " + player.x, fails);
+    hold.right = false;
+    hold.jump = false;
+    Object.keys(NULL_DEAD).forEach((k) => {
+      const bag = NULL_DEAD[k];
+      const list = typeof bag === "string" ? [bag] : bag;
+      list.forEach((line) => {
+        assert(line && line.length <= 22, "null dead " + k + " [" + line + "]", fails);
+      });
+    });
+
+    enterDimension(1, 16);
+    for (let f = 0; f < 60 * 10; f++) step();
+    assert(world.boss.phase === "intro" && world.boss.y < 120, "high hover " + world.boss.y, fails);
+    assert(world.boss.attack > 0.4, "flames up " + world.boss.attack, fails);
+
+    enterDimension(1, 16);
+    hushBoss();
+    world.boss.phase = "fight";
+    world.boss.moves = 4;
+    world.boss.hot = false;
+    world.boss.raged = false;
+    world.boss.doorCd = 40;
+    world.boss.atkCd = 40;
+    world.boss.rest = 8;
+    player.x = 40;
+    player.dead = false;
+    world.particles = [];
+    world.whiteFlash = 0;
+    world.shake = 0;
+    if (audio.theme) audio.theme.rage = false;
+    step();
+    assert(world.boss.hot, "enrage hot", fails);
+    assert(world.boss.raged, "enrage burst", fails);
+    assert(world.boss.say && world.boss.say.text === "OH MY GOD JUST DIE ALREADY", "enrage line " + (world.boss.say && world.boss.say.text), fails);
+    assert(!!world.boss.say.rage, "enrage big text", fails);
+    assert((world.shake || 0) > 0, "enrage shake", fails);
+    assert((world.whiteFlash || 0) > 0, "enrage white flash", fails);
+    assert(world.particles.length > 0, "enrage particles", fails);
+    assert(!audio.theme || (audio.theme.rage && audio.theme.bpm === 208), "enrage music " + (audio.theme && audio.theme.bpm), fails);
+
+    enterDimension(1, 16);
+    hushBoss();
+    world.boss.phase = "fight";
+    world.boss.doorCd = 40;
+    world.boss.atkCd = 40;
+    world.boss.rest = 8;
+    player.x = 40;
+    player.dead = false;
+    let trailed = false;
+    for (let f = 0; f < 50 && !trailed; f++) {
+      step();
+      if (world.boss.ghosts && world.boss.ghosts.length) trailed = true;
+    }
+    assert(trailed, "boss trails", fails);
 
     ["spin", "shot", "pound", "half", "needles", "magnet", "drive", "pop", "storm", "shove"].forEach((id) => {
       enterDimension(1, 16);
@@ -7584,10 +11979,10 @@
     const squares = sampleNull(0, 16);
     assert(squares.spin || squares.shot || squares.pop, "squares open", fails);
     assert(!squares.pound && !squares.half && !squares.needles && !squares.storm, "no slam yet", fails);
-    const slammed = sampleNull(4, 24);
-    assert(slammed.pound, "slam after 4 grabs", fails);
-    assert(!slammed.half && !slammed.needles && !slammed.magnet && !slammed.drive && !slammed.storm && !slammed.shove, "later locked at 4", fails);
-    const opened = sampleNull(28, 30);
+    const slammed = sampleNull(2, 24);
+    assert(slammed.pound, "slam after 2 grabs", fails);
+    assert(!slammed.half && !slammed.needles && !slammed.magnet && !slammed.drive && !slammed.storm && !slammed.shove, "later locked at 2", fails);
+    const opened = sampleNull(8, 30);
     assert(opened.storm && opened.shove, "late attacks open", fails);
 
     enterDimension(1, 16);
@@ -7596,7 +11991,7 @@
     world.time = 10;
     world.boss.atkCd = 40;
     world.boss.rest = 8;
-    const coolWait = { shot: 3, pound: 45, magnet: 25, drive: 75, half: 150, needles: 15, storm: 60 };
+    const coolWait = { shot: 4.5, pound: 60, magnet: 34, drive: 95, half: 180, needles: 22, storm: 80 };
     Object.keys(coolWait).forEach((id) => {
       world.boss.tell = {
         id, until: 0, tx: 8, ty: 6, tw: 1, th: 1, side: 1,
@@ -7611,6 +12006,43 @@
       world.boss.wave = null;
       world.boss.half = null;
     });
+
+    enterDimension(1, 16);
+    hushBoss();
+    world.boss.phase = "fight";
+    world.time = 4;
+    world.boss.atkCd = 40;
+    world.boss.rest = 8;
+    player.x = 40;
+    player.dead = false;
+    world.boss.tell = {
+      id: "shot", until: 0, tx: 8, ty: 6, tw: 1, th: 1, side: 1,
+      px: player.x + 80, py: player.y + 10, feet: player.y + 20, face: 1,
+    };
+    step();
+    const burstShots = (world.bossShots || []).filter((s) => s.kind === "shot");
+    assert(burstShots.length === 11, "burst squares " + burstShots.length, fails);
+    const cone = 70 * Math.PI / 180;
+    burstShots.forEach((s) => {
+      const off = Math.abs(Math.atan2(s.vy, s.vx) - Math.PI / 2);
+      assert(s.vy > 0 && off <= cone + 0.001, "shot aims down " + off, fails);
+    });
+    world.bossShots = [];
+    world.boss.tell = {
+      id: "spin", until: 0, tx: 8, ty: 6, tw: 1, th: 1, side: 1,
+      px: player.x + 200, py: player.y + 10, feet: player.y + 20, face: 1,
+    };
+    step();
+    var wobLo = 0;
+    var wobHi = 0;
+    for (var wi = 0; wi < 50; wi++) {
+      step();
+      var sq = (world.bossShots || [])[0];
+      if (!sq) break;
+      if (sq.wob < wobLo) wobLo = sq.wob;
+      if (sq.wob > wobHi) wobHi = sq.wob;
+    }
+    assert(wobHi > 20 && wobLo < -20, "spin weaves " + wobLo + " " + wobHi, fails);
 
     enterDimension(1, 16);
     hushBoss();
@@ -7672,6 +12104,478 @@
     for (let f = 0; f < 90 && !player.win && !player.dead; f++) step();
     hold.left = false;
     assert(player.win, "LAST LAUGH door walk-in " + (player.dead ? world.deathReason : "stuck"), fails);
+
+    const kits = window.SURGE_BOSS_KITS;
+    assert(!!kits, "boss kits loaded", fails);
+    const kitAudit = kits.audit();
+    assert(!kitAudit.length, "kit audit " + kitAudit.join(" | "), fails);
+    const forms = window.SURGE_BOSS_FORMS;
+    assert(!!forms && typeof forms.audit === "function", "boss forms loaded", fails);
+    const formCounts = forms.audit();
+    for (let d = 2; d <= 20; d++) {
+      const n = formCounts[d] || 0;
+      assert(n <= 150 && n >= 16, "boss " + d + " parts " + n, fails);
+    }
+
+    function movesForBand(bandName, goal, dim) {
+      if (bandName === "open") return 0;
+      if (bandName === "strain") return Math.max(1, Math.ceil(goal * 0.42));
+      const late = dim >= 18 ? 0.58 : dim >= 8 ? 0.64 : 0.72;
+      return Math.max(1, Math.ceil(goal * Math.min(0.96, late + 0.03)));
+    }
+    function kitClear() {
+      world.bossShots = [];
+      world.bossZones = [];
+      world.drops = [];
+      world.saws = [];
+      world.wind = 0;
+      world.reverse = false;
+      world.magnet = null;
+      if (world.baseGravity) world.gravity = world.baseGravity;
+      player.dead = false;
+      player.win = false;
+      player.vx = 0;
+      player.vy = 0;
+      hold.left = false;
+      hold.right = false;
+      hold.jump = false;
+      if (!world.boss) return;
+      world.boss.tell = null;
+      world.boss.rush = null;
+      world.boss.wave = null;
+      world.boss.echo = null;
+      world.boss.gravUntil = 0;
+      world.boss.flipUntil = 0;
+      world.boss.windUntil = 0;
+      world.boss.dropping = false;
+      world.boss.drop = null;
+      world.boss.cool = {};
+      world.boss.doorCd = 40;
+    }
+
+    for (let d = 2; d <= 20; d++) {
+      const k = kits.kit(d);
+      const openPlan = kits.build(k, { band: "open", role: "run", rand: function () { return 0.2; }, last: "", cool: {}, now: 0 });
+      openPlan.forEach((id) => {
+        const a = kits.act(k, id);
+        assert(!!a && a.phase === 0, "D" + d + " open leaked " + id, fails);
+      });
+      for (let n = 0; n < openPlan.length - 1; n++) {
+        if (openPlan[n] === openPlan[n + 1]) fails.push("D" + d + " open repeat");
+        const left = kits.act(k, openPlan[n]);
+        const right = kits.act(k, openPlan[n + 1]);
+        if (left && right && left.heavy && right.heavy) fails.push("D" + d + " open heavies");
+      }
+      const latePlan = kits.build(k, { band: "desperate", role: "any", rand: function () { return 0.15; }, last: "", cool: {}, now: 0 });
+      assert(latePlan.indexOf(k.sig) >= 0, "D" + d + " sig missing " + latePlan.join(","), fails);
+    }
+
+    for (let d = 2; d <= 20; d++) {
+      enterDimension(d, window.SURGE_WORLDS.roomCount(d) - 1);
+      assert(world.boss && world.boss.phase === "intro", "D" + d + " cutscene", fails);
+      assert((world.boss.bars || 0) > 0.5, "D" + d + " bars", fails);
+    }
+    enterDimension(2, window.SURGE_WORLDS.roomCount(2) - 1);
+    const ashX = player.x;
+    hold.right = true;
+    hold.jump = true;
+    for (let f = 0; f < 18; f++) step();
+    assert(world.boss.phase === "intro" && Math.abs(player.x - ashX) < 1, "ash cutscene locks", fails);
+    hold.right = false;
+    hold.jump = false;
+    let ashSpoke = false;
+    let ashQuiet = false;
+    for (let f = 0; f < 60 * 14; f++) {
+      const wasIntro = world.boss.phase === "intro";
+      step();
+      if (wasIntro && world.boss.say && world.boss.say.text) ashSpoke = true;
+      if (wasIntro && world.boss.phase === "fight") {
+        ashQuiet = !world.boss.say;
+        break;
+      }
+    }
+    assert(ashSpoke, "ash talks in cutscene", fails);
+    assert(world.boss.phase === "fight", "ash intro ends " + world.boss.phase, fails);
+    assert(ashQuiet, "ash stays quiet after intro", fails);
+    assert((world.boss.moves || 0) === 0, "ash intro keeps the door", fails);
+
+    enterDimension(2, window.SURGE_WORLDS.roomCount(2) - 1);
+    hushBoss();
+    world.boss.phase = "fight";
+    world.boss.arrive = 0;
+    world.boss.rest = 8;
+    world.boss.gap = 8;
+    world.boss.plan = [];
+    world.boss.doorCd = 0;
+    world.boss.moves = 0;
+    world.time = 30;
+    player.x = 40;
+    player.y = world.door.y + TILE - player.h;
+    player.vx = 0;
+    const ashDoor = world.door.x;
+    step();
+    assert(world.boss.saidBored, "ash failsafe arms", fails);
+    assert(world.boss.say && world.boss.say.text, "ash failsafe talks", fails);
+    assert(!world.boss.dropping, "ash failsafe waits before drop", fails);
+    assert(world.door.x === ashDoor, "ash door waits on warn", fails);
+    assert((world.boss.doorCd || 0) > 0.5, "ash failsafe fuse " + world.boss.doorCd, fails);
+    for (let f = 0; f < 100 && !world.boss.dropping; f++) step();
+    assert(!!world.boss.dropping, "ash failsafe drops", fails);
+    assert(Math.abs(world.door.x - ashDoor) > 10, "ash failsafe moves door", fails);
+
+    enterDimension(20, window.SURGE_WORLDS.roomCount(20) - 1);
+    for (let f = 0; f < 120; f++) step();
+    assert(world.boss.phase === "intro", "last still in cutscene", fails);
+    assert(Math.abs(world.boss.x - player.x) < 520, "last stays in frame " + Math.round(world.boss.x), fails);
+    assert(world.boss.say && world.boss.say.text, "last talks " + (world.boss.say && world.boss.say.text), fails);
+
+    for (let d = 2; d <= 20; d++) {
+      enterDimension(d, window.SURGE_WORLDS.roomCount(d) - 1);
+      assert(!!world.boss && world.boss.dim === d, "D" + d + " boss", fails);
+      if (!world.boss) continue;
+      assert(world.boss.goal === window.SURGE_WORLDS.bossDoorMoves(d), "D" + d + " door goal", fails);
+      hushBoss();
+      const k = kits.kit(d);
+      const floor = world.door.y + TILE;
+      k.acts.forEach((act) => {
+        kitClear();
+        const bandName = act.phase === 0 ? "open" : act.phase === 1 ? "strain" : "desperate";
+        world.boss.phase = "fight";
+        world.boss.moves = movesForBand(bandName, world.boss.goal, d);
+        world.boss.band = kits.band(world.boss.moves, world.boss.goal, d);
+        assert(world.boss.band === bandName, "D" + d + " band " + act.id + " " + world.boss.band, fails);
+        world.boss.plan = [act.id];
+        world.boss.planI = 0;
+        world.boss.rest = 0;
+        world.boss.gap = 0;
+        world.boss.arrive = 0;
+        world.time = 4;
+        player.x = 80;
+        player.y = floor - player.h;
+        player.onGround = true;
+        player.dead = false;
+        let guard = 0;
+        while (world.boss && !world.boss.tell && guard++ < 8) step();
+        assert(world.boss && world.boss.tell && world.boss.tell.id === act.id, "D" + d + " arm " + act.id, fails);
+        if (!world.boss || !world.boss.tell) return;
+        const wind = world.boss.tell.until - world.time;
+        assert(wind + 0.001 >= kits.wind(act, bandName) - 0.02, "D" + d + " wind " + act.id + " " + wind, fails);
+        const prev = world.boss.tell.preview || {};
+        (prev.shots || []).forEach((s) => {
+          if (rectsOverlap(player, s)) fails.push("D" + d + " shot on player " + act.id);
+        });
+        const aimed = !!(act.home || act.cover === "move");
+        if (!aimed) {
+          (prev.zones || []).forEach((z) => {
+            if (rectsOverlap(player, z)) fails.push("D" + d + " zone on player " + act.id);
+          });
+        }
+        if (act.cover === "move" && prev.lane) {
+          const px = player.x + player.w / 2;
+          const mid = prev.lane.x + prev.lane.w / 2;
+          if (Math.abs(px - mid) > TILE * 5) fails.push("D" + d + " lane far " + act.id);
+          if (px >= prev.lane.x && px <= prev.lane.x + prev.lane.w) fails.push("D" + d + " lane covers " + act.id);
+        }
+        if (prev.rush) {
+          const r = prev.rush;
+          if (r.h > 26) fails.push("D" + d + " rush tall " + act.id);
+          if (rectsOverlap(player, { x: r.x - r.w / 2, y: r.y, w: r.w, h: r.h })) fails.push("D" + d + " rush on player " + act.id);
+        }
+        if (act.low) {
+          (prev.zones || []).forEach((z) => {
+            if (z.h > 26) fails.push("D" + d + " low tall " + act.id);
+          });
+        }
+        if (act.type !== "guard") {
+          const dead = kits.line(d, act.id, true);
+          assert(!!dead && dead.length <= 22, "D" + d + " dead " + act.id + " [" + dead + "]", fails);
+        }
+        if (act.type === "guard") {
+          player.x = world.door.x - 36;
+          player.y = floor - player.h;
+          world.boss.guarded = false;
+        }
+        world.boss.tell.until = world.time;
+        step();
+        const happened = (world.bossShots && world.bossShots.length)
+          || (world.bossZones && world.bossZones.length)
+          || world.boss.rush || world.boss.wave
+          || (world.drops && world.drops.length)
+          || (world.saws && world.saws.length)
+          || world.wind || world.reverse || world.magnet
+          || world.boss.gravUntil || world.boss.guarded
+          || Math.abs(player.vx) > 3;
+        assert(!!happened, "D" + d + " cast " + act.id, fails);
+        if ((world.bossShots || []).length > 24) fails.push("D" + d + " shot cap");
+        if ((world.bossZones || []).length > 18) fails.push("D" + d + " zone cap");
+      });
+
+      hushBoss();
+      world.boss.arrive = 0;
+      world.boss.phase = "fight";
+      world.boss.rest = 8;
+      world.boss.gap = 8;
+      world.boss.plan = [];
+      world.boss.doorCd = 0;
+      world.boss.moves = 0;
+      world.time = 4;
+      player.dead = false;
+      player.win = false;
+      player.x = world.door.x - 80;
+      player.y = floor - player.h;
+      player.vx = 0;
+      const doorBefore = world.door.x;
+      for (let f = 0; f < 160 && world.boss.moves < 1; f++) step();
+      assert(Math.abs(world.door.x - doorBefore) > 10, "D" + d + " yoink", fails);
+      assert(!player.dead, "D" + d + " yoink killed " + world.deathReason, fails);
+
+      hushBoss();
+      world.boss.arrive = 0;
+      world.boss.phase = "fight";
+      world.boss.rest = 0;
+      world.boss.gap = 0;
+      world.boss.doorCd = 40;
+      world.boss.moves = 0;
+      world.boss.plan = null;
+      world.boss.cool = {};
+      player.x = 48;
+      player.y = floor - player.h;
+      player.dead = false;
+      player.win = false;
+      for (let f = 0; f < 150; f++) {
+        if (player.dead || player.win || player.x > 220) {
+          player.dead = false;
+          player.win = false;
+          player.x = 48;
+          player.y = floor - player.h;
+          player.vx = 0;
+          player.vy = 0;
+        }
+        step();
+        if ((world.bossShots || []).length > 24) fails.push("D" + d + " sim shots");
+        if ((world.bossZones || []).length > 18) fails.push("D" + d + " sim zones");
+      }
+      assert(Number.isFinite(world.boss.x) && Number.isFinite(world.boss.y), "D" + d + " sim nan", fails);
+      assert(world.boss.phase === "fight" || world.boss.phase === "rage", "D" + d + " sim phase " + world.boss.phase, fails);
+    }
+
+    enterDimension(6, window.SURGE_WORLDS.roomCount(6) - 1);
+    hushBoss();
+    world.boss.arrive = 0;
+    world.boss.phase = "fight";
+    world.boss.band = "open";
+    world.boss.moves = 0;
+    world.boss.plan = ["pool"];
+    world.boss.planI = 0;
+    world.boss.rest = 0;
+    world.boss.gap = 0;
+    world.boss.doorCd = 40;
+    world.time = 4;
+    const poolFloor = world.door.y + TILE;
+    player.x = 80;
+    player.y = poolFloor - player.h;
+    player.dead = false;
+    player.vx = 0;
+    for (let f = 0; f < 8 && !world.boss.tell; f++) step();
+    assert(world.boss.tell && world.boss.tell.id === "pool", "pool armed", fails);
+    world.boss.tell.until = world.time;
+    step();
+    player.x = 80;
+    player.y = poolFloor - player.h;
+    player.vy = 0;
+    player.dead = false;
+    for (let f = 0; f < 12 && !player.dead; f++) step();
+    assert(player.dead && world.deathReason === "too low.", "pool kills grounded " + world.deathReason, fails);
+    player.dead = false;
+    world.gravity = 0;
+    player.x = 80;
+    player.y = poolFloor - 120;
+    player.vy = 0;
+    for (let f = 0; f < 8; f++) step();
+    assert(!player.dead, "pool jump lives", fails);
+    world.gravity = world.baseGravity || 0.55;
+
+    enterDimension(2, window.SURGE_WORLDS.roomCount(2) - 1);
+    hushBoss();
+    world.boss.arrive = 0;
+    world.boss.phase = "fight";
+    world.boss.band = "strain";
+    world.boss.moves = movesForBand("strain", world.boss.goal, 2);
+    world.boss.plan = ["coal"];
+    world.boss.planI = 0;
+    world.boss.rest = 0;
+    world.boss.gap = 0;
+    world.boss.doorCd = 40;
+    world.time = 4;
+    const coalFloor = world.door.y + TILE;
+    player.x = 200;
+    player.y = coalFloor - player.h;
+    player.dead = false;
+    player.vx = 0;
+    for (let f = 0; f < 8 && !world.boss.tell; f++) step();
+    assert(world.boss.tell && world.boss.tell.id === "coal", "coal armed", fails);
+    world.boss.tell.until = world.time;
+    step();
+    assert(!!world.boss.rush, "coal rush", fails);
+    const coalDir = world.boss.rush.dir || 1;
+    player.x = world.boss.rush.x + coalDir * 90 - player.w / 2;
+    player.y = coalFloor - player.h;
+    player.vx = 0;
+    player.vy = 0;
+    player.dead = false;
+    for (let f = 0; f < 80 && !player.dead && world.boss.rush; f++) step();
+    assert(player.dead, "coal dash grounded", fails);
+    enterDimension(2, window.SURGE_WORLDS.roomCount(2) - 1);
+    hushBoss();
+    world.boss.arrive = 0;
+    world.boss.phase = "fight";
+    world.boss.band = "strain";
+    world.boss.moves = movesForBand("strain", world.boss.goal, 2);
+    world.boss.plan = ["coal"];
+    world.boss.planI = 0;
+    world.boss.rest = 0;
+    world.boss.gap = 0;
+    world.boss.doorCd = 40;
+    world.time = 4;
+    player.x = 200;
+    player.y = coalFloor - player.h;
+    player.dead = false;
+    for (let f = 0; f < 8 && world.boss && !world.boss.tell; f++) step();
+    world.boss.tell.until = world.time;
+    step();
+    world.gravity = 0;
+    player.x = world.boss.rush.x + (world.boss.rush.dir || 1) * 90 - player.w / 2;
+    player.y = coalFloor - 110;
+    player.vy = 0;
+    player.dead = false;
+    for (let f = 0; f < 80 && world.boss.rush; f++) step();
+    assert(!player.dead, "coal dash jumped", fails);
+    world.gravity = world.baseGravity || 0.55;
+
+    enterDimension(4, window.SURGE_WORLDS.roomCount(4) - 1);
+    hushBoss();
+    world.boss.arrive = 0;
+    world.boss.phase = "fight";
+    world.boss.band = "open";
+    world.boss.moves = 0;
+    world.boss.plan = ["petal"];
+    world.boss.planI = 0;
+    world.boss.rest = 0;
+    world.boss.gap = 0;
+    world.boss.doorCd = 40;
+    world.time = 4;
+    const sawFloor = world.door.y + TILE;
+    player.x = 80;
+    player.y = sawFloor - player.h;
+    player.dead = false;
+    player.vx = 0;
+    for (let f = 0; f < 8 && world.boss && !world.boss.tell; f++) step();
+    assert(world.boss.tell && world.boss.tell.id === "petal", "petal armed", fails);
+    world.boss.tell.until = world.time;
+    step();
+    const petal = (world.saws || []).filter((s) => s.boss)[0];
+    assert(!!petal, "petal saw", fails);
+    if (petal) {
+      player.x = petal.x - player.w / 2;
+      player.y = sawFloor - player.h;
+      player.vx = 0;
+      player.vy = 0;
+      player.dead = false;
+      for (let f = 0; f < 6 && !player.dead; f++) step();
+      assert(player.dead, "petal saw grounded", fails);
+    }
+    enterDimension(4, window.SURGE_WORLDS.roomCount(4) - 1);
+    hushBoss();
+    world.boss.arrive = 0;
+    world.boss.phase = "fight";
+    world.boss.band = "open";
+    world.boss.moves = 0;
+    world.boss.plan = ["petal"];
+    world.boss.planI = 0;
+    world.boss.rest = 0;
+    world.boss.gap = 0;
+    world.boss.doorCd = 40;
+    world.time = 4;
+    player.x = 80;
+    player.y = sawFloor - player.h;
+    player.dead = false;
+    for (let f = 0; f < 8 && world.boss && !world.boss.tell; f++) step();
+    world.boss.tell.until = world.time;
+    step();
+    const petalHigh = (world.saws || []).filter((s) => s.boss)[0];
+    world.gravity = 0;
+    if (petalHigh) {
+      player.x = petalHigh.x - player.w / 2;
+      player.y = sawFloor - 90;
+      player.vy = 0;
+      player.dead = false;
+      for (let f = 0; f < 6 && world.saws.length; f++) step();
+      assert(!player.dead, "petal saw jumped", fails);
+    }
+    world.gravity = world.baseGravity || 0.55;
+
+    enterDimension(13, window.SURGE_WORLDS.roomCount(13) - 1);
+    hushBoss();
+    world.boss.arrive = 0;
+    world.boss.phase = "fight";
+    world.boss.band = "strain";
+    world.boss.moves = movesForBand("strain", world.boss.goal, 13);
+    world.boss.plan = ["live"];
+    world.boss.planI = 0;
+    world.boss.rest = 0;
+    world.boss.gap = 0;
+    world.boss.doorCd = 40;
+    world.time = 4;
+    const wireFloor = world.door.y + TILE;
+    player.x = 80;
+    player.y = wireFloor - player.h;
+    player.dead = false;
+    player.vx = 0;
+    player.vy = 0;
+    hold.jump = false;
+    for (let f = 0; f < 8 && world.boss && !world.boss.tell; f++) step();
+    assert(world.boss.tell && world.boss.tell.id === "live", "live armed", fails);
+    world.boss.tell.until = world.time;
+    step();
+    player.x = 80;
+    player.y = wireFloor - player.h;
+    player.vy = 0;
+    player.dead = false;
+    for (let f = 0; f < 40 && !player.dead; f++) step();
+    assert(!player.dead, "live wire grounded", fails);
+    enterDimension(13, window.SURGE_WORLDS.roomCount(13) - 1);
+    hushBoss();
+    world.boss.arrive = 0;
+    world.boss.phase = "fight";
+    world.boss.band = "strain";
+    world.boss.moves = movesForBand("strain", world.boss.goal, 13);
+    world.boss.plan = ["live"];
+    world.boss.planI = 0;
+    world.boss.rest = 0;
+    world.boss.gap = 0;
+    world.boss.doorCd = 40;
+    world.time = 4;
+    player.x = 80;
+    player.y = wireFloor - player.h;
+    player.dead = false;
+    player.vx = 0;
+    for (let f = 0; f < 8 && world.boss && !world.boss.tell; f++) step();
+    world.boss.tell.until = world.time;
+    step();
+    player.x = 80;
+    player.y = wireFloor - player.h;
+    player.vy = 0;
+    player.dead = false;
+    hold.jump = true;
+    for (let f = 0; f < 28 && !player.dead; f++) step();
+    hold.jump = false;
+    assert(player.dead, "live wire jump " + world.deathReason, fails);
+    enterDimension(1, 16);
+
+    const sceneryCounts = sceneryPartAudit();
+    Object.keys(sceneryCounts).forEach((k) => {
+      assert(sceneryCounts[k] >= 20, "scenery " + k + " parts " + sceneryCounts[k], fails);
+    });
 
     testMode = saved.testMode;
     deaths = saved.deaths;
@@ -7739,10 +12643,8 @@
           if (d > 1 && lvls[0].events.length !== t) {
             report.push({ i: "D" + d, name: lvls[0].name, ok: false, errors: ["traps " + lvls[0].events.length + " != " + t] });
           }
-          const bossN = window.SURGE_WORLDS.bossTrapCount ? window.SURGE_WORLDS.bossTrapCount(d) : t * 2;
-          const bossWant = d === 1 ? 0 : bossN;
-          if (last.events.length !== bossWant) {
-            report.push({ i: "D" + d, name: last.name, ok: false, errors: ["boss traps " + last.events.length + " != " + bossWant] });
+          if (last.events.length !== 0) {
+            report.push({ i: "D" + d, name: last.name, ok: false, errors: ["boss traps " + last.events.length + " != 0"] });
           }
           if (!last.boss) {
             report.push({ i: "D" + d, name: last.name, ok: false, errors: ["last room is not a boss"] });
@@ -8085,16 +12987,165 @@
     }
     writeSave({ unlockedDim: 20, unlocked: 40, rooms, lastDim: 1, lastRoom: 0 });
     refreshRecords();
-    if (typeof fillLevelGrid === "function") fillLevelGrid();
+    // Only rebuild the worlds list if it's on screen. Reloading #unlock used to
+    // thrash the DOM and leave extra game tabs spinning at 60fps.
+    if (mode === "levels" && levelsScreen && !levelsScreen.classList.contains("hidden")) {
+      fillLevelGrid();
+    }
+    if (typeof history !== "undefined" && history.replaceState && /#unlock\b/.test(String(location.hash || ""))) {
+      try {
+        history.replaceState(null, "", location.pathname + location.search);
+      } catch (_) { /* ignore */ }
+    }
   }
+
+  function unlockFirstBossLocal() {
+    const n = window.SURGE_WORLDS && window.SURGE_WORLDS.roomCount
+      ? window.SURGE_WORLDS.roomCount(1)
+      : 17;
+    const boss = Math.max(0, n - 1);
+    writeSave({
+      unlockedDim: 1,
+      unlocked: boss,
+      rooms: { 1: boss },
+      lastDim: 1,
+      lastRoom: boss,
+    });
+    refreshRecords();
+    if (mode === "levels" && levelsScreen && !levelsScreen.classList.contains("hidden")) {
+      fillLevelGrid();
+    }
+  }
+
+  window.SURGE_PLAY = {
+    unlockAll() { unlockAllLocal(); return true; },
+    unlockFirstBoss() { unlockFirstBossLocal(); return true; },
+    audioOn() { audio.unlock(); },
+    audioLive() { return !!(audio.ctx && audio.ctx.state === "running"); },
+    hush(quiet) {
+      if (!audio.ctx) return;
+      const t = audio.ctx.currentTime;
+      const ducked = !!(quiet || audio.muted);
+      const music = ducked ? 0.0001 : 0.32;
+      if (audio.musicGain) {
+        audio.musicGain.gain.cancelScheduledValues(t);
+        audio.musicGain.gain.setTargetAtTime(music, t, quiet ? 0.03 : 0.14);
+      }
+      if (audio.drone) {
+        try {
+          audio.drone.g.gain.setTargetAtTime(ducked ? 0.0001 : 0.014, t, quiet ? 0.03 : 0.14);
+          if (audio.drone.g2) audio.drone.g2.gain.setTargetAtTime(ducked ? 0.0001 : 0.008, t, quiet ? 0.03 : 0.14);
+        } catch (_) { /* ignore */ }
+      }
+    },
+    resetClock() {
+      deaths = 0;
+      clockOut = 0;
+      clockOutAt = 0;
+      startedAt = performance.now();
+    },
+    enter(dim, room, opts) {
+      opts = opts || {};
+      const keepDeaths = deaths;
+      const keepStart = startedAt;
+      testMode = true;
+      useBot = !opts.lock;
+      enterDimension(dim, room);
+      if (opts.intro != null && world.boss) world.boss.introT = opts.intro;
+      deaths = keepDeaths;
+      startedAt = keepStart;
+      introT = 0;
+      dimIntro = 0;
+      deathShow = null;
+      deathTimer = 0;
+      if (dimCard) dimCard.classList.add("hidden");
+      if (mobile) mobile.classList.add("hidden");
+      if (deathsEl) deathsEl.textContent = "☠ " + deaths;
+      if (opts.lock) {
+        useBot = false;
+        botIx = 0;
+        botJump = false;
+        hold.dash = false;
+        keys.clear();
+      }
+    },
+    load(i, opts) {
+      opts = opts || {};
+      testMode = true;
+      useBot = !opts.lock;
+      deathShow = null;
+      deathTimer = 0;
+      loadLevel(i);
+      introT = 0;
+      if (opts.intro != null && world.boss) world.boss.introT = opts.intro;
+      if (mobile) mobile.classList.add("hidden");
+      if (opts.lock) {
+        useBot = false;
+        botIx = 0;
+        botJump = false;
+        hold.dash = false;
+        keys.clear();
+      }
+    },
+    poke(ix, jump, dash) {
+      useBot = true;
+      botIx = ix || 0;
+      botJump = !!jump;
+      hold.dash = !!dash;
+    },
+    still() {
+      useBot = false;
+      botIx = 0;
+      botJump = false;
+      hold.dash = false;
+      keys.clear();
+    },
+    state() {
+      const pack = window.SURGE_WORLDS;
+      const th = pack ? pack.theme(dimIndex) : null;
+      return {
+        dead: !!player.dead,
+        win: !!player.win,
+        traps: world.trapsFired || 0,
+        insult: world.deathReason || "",
+        taunt: world.taunt || "",
+        name: world.name || "",
+        dim: dimIndex,
+        lore: th && th.lore ? th.lore : "",
+        fake: world.doorOpened === "fake",
+        rev: !!world.reverse,
+        flip: world.gravity < 0,
+        saws: world.saws ? world.saws.length : 0,
+      };
+    },
+    finishToTitle() {
+      testMode = false;
+      useBot = false;
+      botIx = 0;
+      botJump = false;
+      hold.dash = false;
+      keys.clear();
+      deathShow = null;
+      deathTimer = 0;
+      dimIndex = 1;
+      audio.setTheme(1);
+      audio.restartMusic();
+      quitToTitle();
+    },
+  };
 
   refreshRecords();
   if (typeof location !== "undefined") {
-    const wantUnlock = /(?:\?|&|#)(?:unlock|all)=?1?\b/.test(String(location.search || "") + String(location.hash || ""))
-      || /#unlock\b/.test(String(location.hash || ""));
-    if (wantUnlock) unlockAllLocal();
-    if (/#d1boss/.test(String(location.hash || ""))) {
+    const qh = String(location.search || "") + String(location.hash || "");
+    const wantUnlock = /(?:\?|&|#)(?:unlock|all)=?1?\b/.test(qh) || /#unlock\b/.test(String(location.hash || ""));
+    const wantBoss1 = /(?:\?|&|#)(?:boss1|d1bossunlock)\b/.test(qh);
+    if (wantBoss1) unlockFirstBossLocal();
+    else if (wantUnlock) unlockAllLocal();
+    if (/#d1boss\b/.test(String(location.hash || "")) && !wantBoss1) {
       setTimeout(() => enterDimension(1, 16), 40);
+    }
+    if ((wantBoss1 || wantUnlock) && typeof history !== "undefined" && history.replaceState) {
+      try { history.replaceState(null, "", location.pathname + location.search.replace(/[?&](?:unlock|all|boss1|d1bossunlock)=?1?\b/g, "").replace(/^&/, "?").replace(/\?$/, "")); } catch (_) { /* ignore */ }
     }
   }
   requestAnimationFrame(loop);

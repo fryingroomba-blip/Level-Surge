@@ -8,7 +8,7 @@
   <title>LEVEL SURGE</title>
   <link rel="icon" type="image/svg+xml" href="img/logo-g.svg" />
   <link rel="stylesheet" href="css/fonts.css?v=sec2" />
-  <link rel="stylesheet" href="css/style.css?v=gate1" />
+  <link rel="stylesheet" href="css/style.css?v=keys3" />
 </head>
 <body>
   <div id="app">
@@ -30,7 +30,7 @@
         <span id="timer">0.0</span>
         <span id="deaths">☠ 0</span>
         <span id="combo-hud" class="hidden">SURGE x1</span>
-        <button id="pause-btn" type="button" aria-label="Pause">Ⅱ</button>
+        <button id="pause-btn" type="button" aria-label="Pause" aria-pressed="false">Ⅱ</button>
         <button id="mute-btn" type="button" aria-label="Mute">🔊</button>
       </div>
     </div>
@@ -59,11 +59,13 @@
         <p id="records" class="records"></p>
         <div class="title-actions">
           <button id="play-btn" type="button" class="big-btn">PLAY</button>
+          <button id="trailer-btn" type="button" class="ghost-btn">TRAILER</button>
           <button id="levels-btn" type="button" class="ghost-btn">WORLDS</button>
           <button id="creator-btn" type="button" class="ghost-btn">CREATOR</button>
+          <button id="settings-btn" type="button" class="ghost-btn">KEYS</button>
           <a class="ghost-btn" href="about.html">ABOUT</a>
         </div>
-        <p class="hint">ARROWS / WASD to move · SPACE to jump · SHIFT to dash (D3+) · R to retry · ESC to pause</p>
+        <p id="title-hint" class="hint">ARROWS / WASD to move · SPACE to jump · SHIFT to dash · R to retry · ESC to pause</p>
       </div>
     </div>
 
@@ -72,6 +74,16 @@
       <p class="hint" id="levels-hint">Clear a dimension to wake the next. Pick a world, then a room.</p>
       <div id="level-grid"></div>
       <button id="levels-back" type="button" class="ghost-btn">BACK</button>
+    </div>
+
+    <div id="settings-screen" class="screen hidden">
+      <div class="stamp small">KEYS</div>
+      <p class="hint">Click a binding, then press the new key. That key leaves every other action.</p>
+      <div id="bind-list" class="bind-list"></div>
+      <div class="title-actions">
+        <button id="bind-reset" type="button" class="ghost-btn">RESET</button>
+        <button id="settings-back" type="button" class="ghost-btn">BACK</button>
+      </div>
     </div>
 
     <div id="creator-screen" class="screen creator-screen hidden">
@@ -113,9 +125,12 @@
     <div id="pause-screen" class="screen hidden">
       <div class="stamp">PAUSED</div>
       <p id="pause-name" class="hint"></p>
+      <p id="pause-taunt" class="hint"></p>
+      <p id="pause-deaths" class="hint"></p>
       <div class="title-actions">
         <button id="resume-btn" type="button" class="big-btn">RESUME</button>
         <button id="retry-btn" type="button" class="ghost-btn">RETRY</button>
+        <button id="pause-settings-btn" type="button" class="ghost-btn">KEYS</button>
         <button id="quit-btn" type="button" class="ghost-btn">QUIT</button>
       </div>
     </div>
@@ -147,6 +162,24 @@
       <p id="dim-card-lore">I learned your name. Sorry.</p>
     </div>
 
+    <div id="trailer-bars" aria-hidden="true"></div>
+    <div id="trailer-flash" class="hidden" aria-hidden="true"></div>
+    <div id="trailer-card" class="hidden">
+      <div class="trailer-slate">
+        <div class="title-mark trailer-beat">NOT A TROLL GAME.</div>
+        <h1 class="logo trailer-beat" aria-label="Level Surge">
+          <span class="logo-level">LEVEL</span>
+          <span class="logo-surge">
+            <span>SUR</span><span class="logo-g" aria-hidden="true"><img src="img/logo-g.svg" alt="" /></span><span>E</span>
+          </span>
+        </h1>
+        <p class="tagline trailer-beat">I made the floor lie. I made the door lie.</p>
+        <p class="cut-mark trailer-beat">OUT NOW</p>
+      </div>
+    </div>
+    <p id="trailer-line" class="hidden"></p>
+    <p id="trailer-skip" class="hidden">click cuts</p>
+
     <div id="mobile" class="hidden">
       <button id="btn-left" type="button">◀</button>
       <button id="btn-jump" type="button">JUMP</button>
@@ -158,13 +191,15 @@
   <script src="js/guard.js?v=save1"></script>
   <script src="js/levels.js?v=door16"></script>
   <script src="js/tracks.js?v=music3"></script>
-  <script src="js/worlds.js?v=rush1"></script>
-  <script src="js/void-sky.js?v=music3"></script>
+  <script src="js/worlds.js?v=mix1"></script>
+  <script src="js/void-sky.js?v=perf4"></script>
   <script src="js/roast.js?v=boss4"></script>
-  <script src="js/boss-voice.js?v=null1"></script>
-  <script src="js/boss-forms.js?v=circle1"></script>
+  <script src="js/boss-voice.js?v=talk1"></script>
+  <script src="js/boss-kits.js?v=kit1"></script>
+  <script src="js/boss-forms.js?v=ghost5"></script>
   <script src="js/finish.js?v=finish1"></script>
-  <script src="js/game.js?v=fog1"></script>
+  <script src="js/game.js?v=rage1"></script>
+  <script src="js/trailer.js?v=reel9"></script>
   <script src="js/creator.js?v=save1"></script>
 </body>
 </html>

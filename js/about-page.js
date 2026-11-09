@@ -120,7 +120,6 @@
       const d = i + 1;
       const roomsN = pack.roomCount(d);
       const traps = pack.trapCount(d);
-      const boss = pack.bossTrapCount ? pack.bossTrapCount(d) : traps * (d >= 18 ? 4 : d >= 8 ? 3 : 2);
       const color = rgb(dim.accent);
       const card = document.createElement("article");
       card.className = "world";
@@ -142,7 +141,7 @@
       meta.className = "meta";
       meta.textContent = d === 1
         ? roomsN + " rooms · handmade · the boss throws the door"
-        : roomsN + " rooms · " + traps + " traps · boss " + boss;
+        : roomsN + " rooms · " + traps + " traps · boss fight";
       card.append(pip, idx, who, meta);
       bins[Math.floor(i / 5)].appendChild(card);
     });
@@ -162,7 +161,7 @@
           String(roomsN),
           String(width),
           String(traps),
-          String(pack.bossTrapCount ? pack.bossTrapCount(d) : traps * (d >= 18 ? 4 : d >= 8 ? 3 : 2)),
+          "0",
           String(act),
           String(rareCap(d)),
           String(entityCap(d)),

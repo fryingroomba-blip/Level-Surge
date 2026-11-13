@@ -1,7 +1,4 @@
 (() => {
-  if (typeof location !== "undefined" && /#(preview|d1boss)/.test(String(location.hash || ""))) {
-    window.__SURGE_TEST__ = true;
-  }
   const TILE = 32;
   let VIEW_W = 960;
   let VIEW_H = 540;
@@ -207,20 +204,85 @@
       }
       if (on) this.silenceSpace();
     },
+    // Stacked colors. Each kind is one instrument, not a new rhythm.
+    inst(freq, t, dur, kind, vol) {
+      const v = vol || 0.05;
+      let f = Math.max(28, freq);
+      let home = 0;
+      const held = kind === "pad" || kind === "choir" || kind === "organ";
+      if (held && this._suspend && dur >= 0.45) {
+        home = f;
+        f = f * Math.pow(2, 2 / 12);
+      }
+      const land = (partial) => (home ? partial * home / (f) : 0);
+      if (kind === "bell") {
+        this.tone(f, t, dur * 0.8, "sine", v, 0, 0.01);
+        this.tone(f * 2.01, t, dur * 0.45, "sine", v * 0.28, 0, 0.008);
+        this.tone(f * 2.97, t, dur * 0.25, "triangle", v * 0.1, 0, 0.006);
+      } else if (kind === "organ") {
+        this.tone(f, t, dur, "sine", v, land(f), 0.06);
+        this.tone(f * 2, t, dur, "sine", v * 0.34, land(f * 2), 0.07);
+        this.tone(f * 3, t, dur, "sine", v * 0.12, land(f * 3), 0.08);
+      } else if (kind === "bass") {
+        this.tone(f, t, Math.max(dur, 0.28), "sine", v, 0, 0.015);
+        this.tone(f * 2, t, Math.max(dur, 0.28) * 0.6, "triangle", v * 0.18, 0, 0.02);
+      } else if (kind === "pluck") {
+        this.voice(f, t, dur * 0.35, "triangle", v);
+        this.voice(f * 2, t, dur * 0.16, "sine", v * 0.16);
+      } else if (kind === "brass") {
+        this.tone(f * 1.04, t, dur, "sawtooth", v * 0.48, f, 0.05);
+        this.tone(f * 1.5, t, dur * 0.8, "triangle", v * 0.2, 0, 0.06);
+      } else if (kind === "choir") {
+        this.tone(f, t, dur, "sine", v * 0.6, land(f), 0.14);
+        this.tone(f * 1.006, t, dur, "sine", v * 0.36, land(f * 1.006), 0.16);
+        this.tone(f * 1.498, t, dur, "triangle", v * 0.14, land(f * 1.498), 0.18);
+      } else if (kind === "chip") {
+        this.voice(f, t, dur, "square", v * 0.85);
+        this.tone(f * 2, t, dur * 0.4, "triangle", v * 0.12, 0, 0.01);
+      } else if (kind === "glass") {
+        this.tone(f, t, dur, "sine", v, 0, 0.02);
+        this.tone(f * 2.003, t, dur * 0.55, "sine", v * 0.22, 0, 0.015);
+      } else {
+        this.tone(f, t, dur, "sine", v, land(f), 0.18);
+        this.tone(f * 1.004, t, dur, "triangle", v * 0.36, land(f * 1.004), 0.2);
+      }
+    },
+    tone(freq, t, dur, type, vol, slide, attack) {
+      if (!this.ctx || !this.musicGain) return;
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      const peak = Math.max(0.0002, vol || 0.05);
+      const span = Math.max(0.02, dur || 0);
+      const atk = Math.min(span * 0.45, Math.max(0.004, attack || 0.02));
+      const holdAt = t + atk + (span - atk) * 0.55;
+      const end = t + span;
+      o.type = type || "sine";
+      o.frequency.setValueAtTime(Math.max(20, freq), t);
+      if (slide && end > t) o.frequency.exponentialRampToValueAtTime(Math.max(20, slide), end);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(peak, t + atk);
+      if (holdAt > t + atk && holdAt < end) g.gain.setValueAtTime(peak * 0.82, holdAt);
+      g.gain.exponentialRampToValueAtTime(0.0001, end);
+      o.connect(g);
+      g.connect(this.musicGain);
+      o.start(t);
+      o.stop(end + 0.04);
+    },
     voice(freq, t, dur, type, vol, slide) {
       if (!this.ctx || !this.musicGain) return;
       const o = this.ctx.createOscillator();
       const g = this.ctx.createGain();
       o.type = type || "sine";
+      const end = t + Math.max(0.02, dur || 0);
       o.frequency.setValueAtTime(Math.max(20, freq), t);
-      if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(20, slide), t + dur);
+      if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(20, slide), end);
       g.gain.setValueAtTime(0.0001, t);
       g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol), t + 0.012);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      g.gain.exponentialRampToValueAtTime(0.0001, end);
       o.connect(g);
       g.connect(this.musicGain);
       o.start(t);
-      o.stop(t + dur + 0.03);
+      o.stop(end + 0.03);
     },
     noiseHit(t, dur, vol, freq) {
       if (!this.ctx || !this.musicGain) return;
@@ -251,6 +313,7 @@
         dim: d || 1,
         track: track || null,
       };
+      this._prevCh = null;
       if (this.drone && this.ctx && th) {
         const base = Math.max(28, (th.root || 92.5) * 0.35);
         try {
@@ -263,10 +326,86 @@
       if (this.musicId) clearTimeout(this.musicId);
       this._musicOn = false;
       this._step = 0;
+      this._prevCh = null;
       if (this.unlocked && this.ctx) this.music();
     },
     hzFrom(rootHz, semitone) {
       return rootHz * Math.pow(2, semitone / 12);
+    },
+    // Keep each chord tone near where that voice already was.
+    leadVoices(ch) {
+      const prev = this._prevCh;
+      const next = ch.map((f, i) => {
+        let cand = f;
+        if (prev && prev[i]) {
+          let best = f;
+          let bestD = Infinity;
+          for (let k = -2; k <= 2; k++) {
+            const q = f * Math.pow(2, k);
+            if (q < 48 || q > 1600) continue;
+            const d = Math.abs(Math.log(q / prev[i]));
+            if (d < bestD) { bestD = d; best = q; }
+          }
+          cand = best;
+        }
+        if (i === 0) {
+          while (cand > 150) cand *= 0.5;
+          while (cand < 42) cand *= 2;
+        }
+        return cand;
+      });
+      this._prevCh = next;
+      return next;
+    },
+    // Drone stays put while the chords move: a pedal, fifth then octave.
+    pedal(rootHz, t, bar) {
+      if (!this.drone || !this.ctx) return;
+      const root = Math.max(28, Math.min(86, rootHz * (rootHz > 190 ? 0.25 : 0.5)));
+      const upper = (bar % 8 < 4) ? root * 1.498 : root * 2;
+      try {
+        this.drone.o.frequency.setTargetAtTime(root, t, 0.28);
+        this.drone.o2.frequency.setTargetAtTime(Math.min(220, upper), t, 0.4);
+      } catch (_) { /* ignore */ }
+    },
+    // Contrary step, snapped into the mode so the answer belongs to the tune.
+    contrary(motif, bar, scale) {
+      const n = motif.length || 1;
+      const i = ((bar % n) + n) % n;
+      const cur = +motif[i] || 0;
+      const prev = +motif[(i - 1 + n) % n] || 0;
+      const raw = prev - (cur - prev);
+      const pcs = (scale && scale.length) ? scale : motif.map((x) => ((+x % 12) + 12) % 12);
+      const pc = ((raw % 12) + 12) % 12;
+      let best = pcs[0];
+      let bestD = 99;
+      for (let k = 0; k < pcs.length; k++) {
+        const p = ((pcs[k] % 12) + 12) % 12;
+        const d = Math.min(Math.abs(p - pc), 12 - Math.abs(p - pc));
+        if (d < bestD) { bestD = d; best = p; }
+      }
+      let semi = Math.round((cur - 3) / 12) * 12 + best;
+      while (semi > cur - 1) semi -= 12;
+      while (semi < cur - 14) semi += 12;
+      return semi;
+    },
+    // One answer under the lead, then its echo. No extra drums.
+    weave(c, rootHz, motif, scale) {
+      const s = c.s;
+      const bar = c.bar;
+      const line = motif || c.motif;
+      if (!line || !line.length) return;
+      const semi = this.contrary(line, bar, scale);
+      const phrase = bar % 8;
+      if (s === 5) {
+        const f = this.hzFrom(rootHz, semi + 12);
+        if (phrase === 7) this.tone(f * Math.pow(2, 1 / 12), c.t, 0.28, "sine", 0.018, f, 0.04);
+        else this.inst(f, c.t, 0.26, "bell", 0.018);
+      } else if (s === 13 && bar % 2 === 1) {
+        this.inst(this.hzFrom(rootHz, semi), c.t, 0.4, "glass", 0.012);
+      } else if (s === 15 && phrase === 7 && scale && c.track && c.track.prog) {
+        const next = c.track.prog[(bar + 1) % c.track.prog.length];
+        this.inst(this.hzFrom(rootHz, (next[0] || 0) - 12), c.t, 0.2, "bass", 0.035);
+      }
     },
     playStep(step, t) {
       const rootHz = (this.theme && this.theme.root) || 92.5;
@@ -279,17 +418,50 @@
       const s = step % 16;
       const heat = Math.min(1, (world.trapsFired || 0) / 8);
       let ch;
-      if (window.SURGE_TRACKS) ch = window.SURGE_TRACKS.chordsFor(rootHz, dim)[bar % track.prog.length];
+      if (window.SURGE_TRACKS) ch = window.SURGE_TRACKS.chordsFor(rootHz, dim)[bar % track.prog.length].slice();
       else ch = [rootHz, rootHz * 1.189, rootHz * 1.498, rootHz * 2];
-      const ctx = { step, t, bar, s, rootHz, ch, track, heat, scale: track.scale || [0, 2, 3, 5, 7], motif: track.motif || [0, 2, 4, 5] };
+      const turn = bar % 4;
+      if (turn === 1 && ch.length > 2) ch = [ch[1], ch[2], ch[0] * 2];
+      else if (turn === 2 && ch.length > 1) ch = [ch[0], ch[2] || ch[1] * 1.5, (ch[1] || ch[0]) * 2];
+      else if (turn === 3) ch = [ch[0], (ch[2] || ch[1] || ch[0] * 1.5), (ch[1] || ch[0] * 1.25) * 2];
+      ch = this.leadVoices(ch);
+      this._suspend = bar % 8 === 7;
+      const rawMotif = track.motif || [0, 2, 4, 5];
+      const motif = new Proxy(rawMotif, {
+        get(obj, prop) {
+          if (prop === "length") return obj.length;
+          const i = +prop;
+          if (obj.length && i === i) {
+            const ph = ((bar % 8) + 8) % 8;
+            const shift = ph < 2 ? 0 : ph < 4 ? 1 : ph < 6 ? 3 : 5;
+            const base = obj[(i + shift) % obj.length];
+            let seq = 0;
+            if (base <= 18) {
+              if (ph >= 4 && ph < 6) seq = 5;
+              else if (ph === 6) seq = 3;
+            }
+            return base + seq;
+          }
+          return obj[prop];
+        },
+      });
+      const ctx = { step, t, bar, s, rootHz, ch, track, heat, scale: track.scale || [0, 2, 3, 5, 7], motif };
       if (this.theme && this.theme.boss && !this.theme.final) {
+        ctx.boss = this.theme.bossTrack
+          || (window.SURGE_TRACKS && window.SURGE_TRACKS.bossMusic(dim))
+          || null;
+        const bossRoot = (ctx.boss && ctx.boss.root) || rootHz;
+        if (s === 0) this.pedal(bossRoot, t, bar);
         if (this.theme.rage) this._trk.bossRage.call(this, ctx);
         else this._trk.bossRush.call(this, ctx);
+        this.weave(ctx, bossRoot, (ctx.boss && ctx.boss.lead) || motif, null);
         return;
       }
+      if (s === 0) this.pedal(rootHz, t, bar);
       if (this.theme && this.theme.boss) this.playBossBed(ctx);
       const fn = this._trk[style] || this._trk.voidAmbient;
       fn.call(this, ctx);
+      if (!(track.style === "needle" && s === 15)) this.weave(ctx, rootHz, motif, ctx.scale);
     },
     playBossBed(c) {
       const t = c.t;
@@ -317,120 +489,127 @@
         const t = c.t;
         const s = c.s;
         const bar = c.bar;
-        const root = 196;
-        const kick = s % 4 === 0;
-        if (kick) {
-          this.voice(168, t, 0.09, "sine", 0.46, 42);
-          this.noiseHit(t, 0.04, 0.1, 180);
+        const b = c.boss || {};
+        const root = b.root || 196;
+        const kicks = b.kick || [0, 4, 8, 12];
+        const wave = b.wave || "square";
+        if (kicks.indexOf(s) >= 0) {
+          this.voice(Math.max(40, root * 0.45), t, 0.09, "sine", 0.46, 42);
+          this.noiseHit(t, 0.04, 0.1, 140 + (root % 90));
         }
-        if (s === 4 || s === 12) {
-          this.noiseHit(t, 0.09, 0.22, 2200);
-          this.voice(240, t, 0.05, "triangle", 0.08, 80);
+        const hat = b.hat || 0;
+        if (hat > 2 && s % hat === hat - 1) this.noiseHit(t, 0.02, 0.04, 7000);
+        const bass = b.bass || [0, 0, 3, 7];
+        const bassStep = b.bassStep || 2;
+        const color = wave === "sine" ? "bell" : wave === "triangle" ? "pluck" : wave === "sawtooth" ? "brass" : "chip";
+        if (s === 0) {
+          this.inst(root * 0.5, t, 1.4, "pad", 0.035);
+          this.inst(root * 0.75, t, 1.4, "pad", 0.02);
         }
-        if (s % 2 === 1) this.noiseHit(t, 0.02, 0.045, 9000);
-        if (s === 6 || s === 14) this.noiseHit(t, 0.06, 0.08, 6000);
-        const bass = [0, 0, 3, 0, 7, 0, 10, 7];
-        if (s % 2 === 0) {
-          const f = this.hzFrom(root, bass[(s / 2) % bass.length] - 12);
-          this.voice(f, t, 0.12, "sawtooth", 0.13);
-          this.voice(f * 2, t, 0.08, "square", 0.04);
+        if (s % bassStep === 0) {
+          const f = this.hzFrom(root, bass[(s / bassStep + bar) % bass.length] - 12);
+          this.inst(f, t, 0.12 + bassStep * 0.02, "bass", 0.11);
         }
-        const lead = [0, 3, 7, 10, 12, 10, 7, 3];
-        if (s % 2 === 0) {
-          const f = this.hzFrom(root, lead[((s / 2) + bar) % lead.length] + 12);
-          this.voice(f, t, 0.07, "square", bar % 2 ? 0.055 : 0.04);
+        const lead = b.lead || [0, 3, 7, 10];
+        if (s % 4 === 0) {
+          const f = this.hzFrom(root, lead[((s / 4) + bar) % lead.length] + 12);
+          this.inst(f, t, 0.28, color, 0.045);
+        } else if (s % 4 === 2) {
+          const idx = ((s / 4) + bar) % lead.length;
+          const axis = lead[0];
+          const inv = axis - (lead[idx] - axis);
+          const f = this.hzFrom(root, inv + 12);
+          this.inst(f, t, 0.16, color === "bell" ? "glass" : "pluck", 0.022);
+        } else if (bar % 8 === 7 && s === 1) {
+          const idx = bar % lead.length;
+          const f = this.hzFrom(root, lead[idx] + 12);
+          this.inst(f, t, 0.12, "glass", 0.016);
         }
-        if (bar % 4 === 3 && s >= 12) this.noiseHit(t, 0.16, 0.1, 400 + (s - 12) * 900);
       },
-      // Enrage. Same boss, meaner: double kicks, a snarled bass, no air in the hats.
+      // Same boss theme, pushed: denser kicks, lead up an octave.
       bossRage(c) {
         const t = c.t;
         const s = c.s;
         const bar = c.bar;
-        const root = 220;
+        const b = c.boss || {};
+        const root = (b.root || 196) * 1.122;
+        const kicks = b.kick || [0, 4, 8, 12];
+        const wave = b.wave || "square";
+        if (kicks.indexOf(s) >= 0) {
+          this.voice(Math.max(36, root * 0.4), t, 0.07, "sine", 0.5, 55);
+          this.noiseHit(t, 0.03, 0.1, 120);
+        }
+        const color = wave === "sine" ? "bell" : wave === "triangle" ? "pluck" : "brass";
+        if (s === 0) this.inst(root * 0.5, t, 0.9, "choir", 0.04);
+        const bass = b.bass || [0, 1, 0, 6];
         if (s % 2 === 0) {
-          this.voice(s % 4 === 0 ? 150 : 96, t, 0.07, "sine", 0.5, 55);
-          this.noiseHit(t, 0.03, 0.12, 140);
+          const f = this.hzFrom(root, bass[(s / 2 + bar) % bass.length] - 12);
+          this.inst(f, t, 0.1, "bass", 0.13);
         }
-        if (s === 4 || s === 10 || s === 12) {
-          this.noiseHit(t, 0.07, 0.28, 2400);
-          this.voice(310, t, 0.04, "square", 0.07, 40);
+        if (s % 4 === 0) {
+          const lead = b.lead || [12, 15, 19];
+          const lf = this.hzFrom(root, lead[((s / 4) + bar) % lead.length] + 12);
+          this.inst(lf, t, 0.18, color, 0.06);
+        } else if (s % 4 === 2) {
+          const lead = b.lead || [12, 15, 19];
+          const idx = ((s / 4) + bar) % lead.length;
+          const inv = lead[0] - (lead[idx] - lead[0]);
+          this.inst(this.hzFrom(root, inv + 12), t, 0.12, "pluck", 0.02);
         }
-        this.noiseHit(t, 0.015, 0.05, 9800);
-        if (s % 4 === 2) this.noiseHit(t, 0.04, 0.07, 5200);
-        const bass = [0, 1, 0, 3, 0, 6, 7, 0];
-        const f = this.hzFrom(root, bass[s % bass.length] - 12);
-        this.voice(f, t, 0.09, "sawtooth", 0.16);
-        this.voice(f * 0.99, t, 0.08, "square", 0.05);
-        if (s % 2 === 0) {
-          const lead = [12, 15, 19, 15, 22, 19, 15, 12];
-          const lf = this.hzFrom(root, lead[((s / 2) + bar * 2) % lead.length]);
-          this.voice(lf, t, 0.06, "square", 0.07);
-        }
-        if (bar % 2 === 1 && s >= 12) this.noiseHit(t, 0.12, 0.14, 500 + (s - 12) * 1400);
       },
       voidAmbient(c) {
         const { t, s, bar, ch, rootHz, motif } = c;
         if (s === 0) {
-          this.voice(ch[0] / 2, t, 3.6, "sine", 0.11);
-          this.voice(ch[1] || ch[0] * 1.5, t, 3.4, "sine", 0.05);
-          this.voice((ch[2] || ch[0] * 2) * 2, t, 2.8, "triangle", 0.02);
+          this.inst(ch[0] / 2, t, 3.6, "choir", 0.07);
+          this.inst(ch[1] || ch[0] * 1.5, t, 3.4, "pad", 0.04);
         }
-        if (s === 8 && bar % 2 === 1) this.voice(ch[0] * 0.5, t, 1.6, "sine", 0.06);
-        if ((s === 4 || s === 12) && bar % 3 === 0) {
-          const f = this.hzFrom(rootHz, motif[(bar + s) % motif.length] + 24);
-          this.voice(f, t, 1.2, "sine", 0.028);
-          this.voice(f * 2.005, t, 0.9, "triangle", 0.012);
-        }
+        if (s === 0) this.inst(this.hzFrom(rootHz, motif[bar % motif.length] + 24), t, 1.4, "bell", 0.03);
+        if (s === 8) this.inst((ch[2] || ch[1] || ch[0] * 1.5), t, 1.3, "glass", 0.026);
+        if (s === 12 && bar % 2 === 0) this.inst(ch[0], t, 1.1, "organ", 0.02);
       },
       industrial(c) {
-        const { t, s, bar, ch, heat } = c;
+        const { t, s, bar, ch } = c;
         const stomps = [0, 6, 8, 11];
         if (stomps.indexOf(s) >= 0) {
           this.voice(70, t, 0.18, "sine", 0.55, 28);
           this.noiseHit(t, 0.08, 0.2, 400);
         }
-        if (s === 4 || s === 12 || (heat > 0.4 && s === 10)) {
-          this.noiseHit(t, 0.12, 0.28, 1800);
-          this.voice(180, t, 0.06, "square", 0.08, 60);
+        if (s === 4 || s === 12) this.noiseHit(t, 0.08, 0.14, 1600);
+        if (s === 0) {
+          this.inst(ch[0] / 2, t, 0.7, "bass", 0.12);
+          this.inst(ch[0], t, 0.5, "brass", 0.04);
         }
-        if (s % 2 === 1) this.noiseHit(t, 0.02, 0.04, 3200);
-        if (s === 0) this.voice(ch[0] / 2, t, 0.35, "sawtooth", 0.14);
-        if (s === 8) this.voice((ch[1] || ch[0] * 1.2) / 2, t, 0.28, "sawtooth", 0.12, ch[0] / 2);
-        if (bar % 4 === 3 && s === 14) this.noiseHit(t, 0.25, 0.18, 900);
+        if (s === 8) this.inst((ch[1] || ch[0] * 1.25) / 2, t, 0.45, "brass", 0.035);
+        if (stomps.indexOf(s) >= 0 && s !== 0) {
+          this.inst(this.hzFrom(c.rootHz, c.motif[(bar + s) % c.motif.length] + 12), t, 0.2, "pluck", 0.03);
+        }
       },
       waltz(c) {
         // 3/4 feel inside 16: accents on 0, 6, 10 (and wrap)
         const { t, s, bar, ch, rootHz, motif } = c;
         const beat = s % 12;
         if (beat === 0) {
-          this.voice(90, t, 0.2, "sine", 0.35, 40);
-          this.voice(ch[0], t, 1.1, "sine", 0.05);
-          this.voice(ch[1] || ch[0] * 1.2, t, 1.1, "sine", 0.035);
+          this.voice(90, t, 0.2, "sine", 0.32, 40);
+          this.inst(ch[0], t, 1.2, "organ", 0.04);
+          this.inst(ch[1] || ch[0] * 1.25, t, 1.2, "choir", 0.025);
         }
-        if (beat === 4 || beat === 8) this.noiseHit(t, 0.05, 0.08, 5000);
         if (beat === 0 || beat === 4 || beat === 8) {
           const f = this.hzFrom(rootHz, motif[(Math.floor(s / 4) + bar) % motif.length] + 24);
-          this.voice(f, t, 0.7, "sine", 0.045);
-          this.voice(f * 2.01, t, 0.4, "triangle", 0.02);
+          this.inst(f, t, 0.65, beat === 0 ? "bell" : "glass", 0.036);
         }
-        if (s === 0) this.voice(ch[0] / 2, t, 1.4, "sine", 0.1);
+        if (s === 0) this.inst(ch[0] / 2, t, 1.5, "bass", 0.08);
       },
       psychedelic(c) {
         const { t, s, bar, ch, rootHz, motif } = c;
         if (s === 0) {
-          this.voice(ch[0], t, 2.2, "triangle", 0.055);
-          this.voice(ch[0] * 1.008, t, 2.2, "sine", 0.04);
-          this.voice((ch[2] || ch[0] * 1.5), t, 2.0, "triangle", 0.035);
-          this.voice((ch[3] || ch[0] * 2) * 0.99, t, 1.8, "sine", 0.025);
+          this.inst(ch[0], t, 2.4, "choir", 0.045);
+          this.inst(ch[2] || ch[0] * 1.5, t, 2.2, "pad", 0.028);
         }
-        // No kick — spore blips
         if (s === 3 || s === 7 || s === 11 || s === 14) {
           const f = this.hzFrom(rootHz, motif[(s + bar) % motif.length] + 19);
-          this.voice(f, t, 0.18, "sine", 0.04, f * 1.06);
+          this.inst(f, t, 0.28, "bell", 0.032);
         }
-        if (s % 5 === 2) this.noiseHit(t, 0.04, 0.02, 7000);
-        if (bar % 2 === 0 && s === 8) this.voice(ch[0] / 3, t, 1.5, "triangle", 0.08);
+        if (s === 8) this.inst((ch[1] || ch[0] * 1.25), t, 1.1, "glass", 0.024);
       },
       techno(c) {
         const { t, s, bar, ch, rootHz, motif, heat } = c;
@@ -439,14 +618,14 @@
           this.voice(180, t, 0.2, "sine", 0.5, 30);
           this.voice(60, t, 0.12, "sine", 0.25);
         }
-        if (s === 4 || s === 12) this.noiseHit(t, 0.1, 0.18, 2200);
-        // Clock tick every 16th
-        this.voice(2400 + (s % 4) * 200, t, 0.012, "square", s % 4 === 0 ? 0.04 : 0.018);
-        if (s % 2 === 0) this.noiseHit(t, 0.015, 0.03, 11000);
-        if (s % 4 === 0) this.voice(ch[0] / 2, t, 0.16, "square", 0.14);
-        if (s % 2 === 0 && bar % 2 === 1) {
-          const f = this.hzFrom(rootHz, motif[(s / 2) % motif.length] + 12);
-          this.voice(f, t, 0.1, "square", 0.04 + heat * 0.02);
+        if (s === 4 || s === 12) this.noiseHit(t, 0.06, 0.1, 2200);
+        if (s % 4 === 0) {
+          this.inst(ch[0] / 2, t, 0.2, "bass", 0.1);
+          this.voice(1800, t, 0.015, "square", 0.025);
+        }
+        if (s % 4 === 2) {
+          const f = this.hzFrom(rootHz, motif[(s / 2 + bar) % motif.length] + 12);
+          this.inst(f, t, 0.14, "chip", 0.04);
         }
       },
       dub(c) {
@@ -458,33 +637,25 @@
         }
         // Offbeat skank chords
         if (s === 2 || s === 6 || s === 10 || s === 14) {
-          this.voice(ch[0] * 2, t, 0.12, "triangle", 0.06);
-          this.voice((ch[1] || ch[0] * 1.2) * 2, t, 0.12, "triangle", 0.04);
+          this.inst(ch[0] * 2, t, 0.16, "pluck", 0.04);
+          this.inst((ch[1] || ch[0] * 1.2) * 2, t, 0.16, "organ", 0.025);
         }
-        if (s === 0) this.voice(ch[0] / 2, t, 0.9, "sine", 0.16);
-        if (s === 8 && bar % 2 === 0) {
+        if (s === 0) this.inst(ch[0] / 2, t, 0.9, "bass", 0.12);
+        if (s === 8) {
           const f = this.hzFrom(rootHz, motif[bar % motif.length] + 12);
-          this.voice(f, t, 0.5, "sine", 0.05);
-          this.voice(f * 0.5, t + 0.12, 0.4, "sine", 0.03); // echo
+          this.inst(f, t, 0.55, "bell", 0.035);
+          this.inst(f * 0.5, t, 0.7, "choir", 0.02);
         }
-        if (s % 4 === 0) this.noiseHit(t, 0.03, 0.02, 2800);
       },
       liquid(c) {
         const { t, s, bar, ch, rootHz, motif } = c;
         if (s === 0) {
-          this.voice(ch[0], t, 2.4, "sine", 0.05);
-          this.voice(ch[0] * 1.498, t, 2.2, "sine", 0.03);
-          this.voice((ch[2] || ch[0] * 2), t, 2.0, "triangle", 0.025);
+          this.inst(ch[0], t, 2.6, "pad", 0.04);
+          this.inst(ch[0] * 1.498, t, 2.4, "choir", 0.022);
         }
-        // Soft delayed hats (odd 16ths)
-        if (s === 3 || s === 7 || s === 11 || s === 15) this.noiseHit(t, 0.06, 0.04, 9000);
-        if (s === 2 || s === 10) this.voice(ch[0] / 2, t, 0.8, "sine", 0.09);
-        if (s === 0 || s === 8) {
-          const f = this.hzFrom(rootHz, motif[(bar + (s ? 1 : 0)) % motif.length] + 24);
-          this.voice(f, t, 0.9, "sine", 0.035);
-          this.voice(f * 0.997, t, 0.85, "triangle", 0.02);
-        }
-        if (bar % 4 === 2 && s === 12) this.voice(ch[0] * 4, t, 1.4, "sine", 0.02);
+        if (s === 2 || s === 10) this.inst(ch[0] / 2, t, 0.9, "bass", 0.07);
+        if (s === 0) this.inst(this.hzFrom(rootHz, motif[bar % motif.length] + 24), t, 1.1, "glass", 0.03);
+        if (s === 8) this.inst(this.hzFrom(rootHz, motif[(bar + 1) % motif.length] + 19), t, 0.9, "bell", 0.026);
       },
       train(c) {
         const { t, s, bar, ch, rootHz, motif } = c;
@@ -494,100 +665,85 @@
           this.noiseHit(t, 0.03, 0.08, 1200);
         }
         if (s === 4 || s === 12) this.noiseHit(t, 0.08, 0.16, 2000);
-        if (s % 4 === 0 || s % 4 === 3) this.voice(ch[0] / 2, t, 0.1, "sawtooth", 0.12);
-        // Whistle every other bar
-        if (bar % 2 === 0 && s === 0) {
+        if (s % 4 === 0) this.inst(ch[0] / 2, t, 0.22, "bass", 0.09);
+        if (s === 0) {
           const f = this.hzFrom(rootHz, motif[bar % motif.length] + 24);
-          this.voice(f, t, 0.6, "sine", 0.06, f * 1.03);
-          this.voice(f * 1.5, t, 0.45, "triangle", 0.03);
+          this.inst(f, t, 0.7, "brass", 0.04);
         }
-        if (s === 8) this.noiseHit(t, 0.1, 0.05, 800); // steam
+        if (s === 8) this.inst(this.hzFrom(rootHz, motif[(bar + 2) % motif.length] + 12), t, 0.4, "bell", 0.028);
       },
       glitch(c) {
-        const { t, s, bar, ch, rootHz, motif, step } = c;
-        // Pseudo-random from step — broken timing
-        const r = ((step * 1103515245 + 12345) >>> 0) % 100;
-        if (r < 18) {
-          this.voice(40 + (r * 3), t, 0.08, "square", 0.35, 20);
-          this.noiseHit(t, 0.05, 0.2, 500 + r * 40);
+        const { t, s, bar, ch, rootHz, motif } = c;
+        const hits = [0, 3, 7, 11, 14];
+        if (s === 0) this.inst(ch[0] / 2, t, 0.45, "bass", 0.1);
+        if (hits.indexOf(s) >= 0) {
+          const f = this.hzFrom(rootHz, motif[(s + bar) % motif.length] + 12);
+          this.inst(f, t, 0.1, "chip", 0.05);
+          if (s === 0 || s === 7) this.noiseHit(t, 0.04, 0.08, 1800);
         }
-        if (r > 70 && r < 85) this.noiseHit(t, 0.03, 0.15, 8000 + r * 50);
-        if (r > 40 && r < 55) {
-          const f = this.hzFrom(rootHz, motif[r % motif.length]);
-          this.voice(f, t, 0.06, "square", 0.08);
-          this.voice(f * 1.5, t, 0.04, "square", 0.05);
-        }
-        if (s === 0 && bar % 2 === 0) this.voice(ch[0] / 2, t, 0.2, "square", 0.12);
-        if (s === 7 || s === 13) this.noiseHit(t, 0.15, 0.12, 1500);
+        if (s === 8) this.inst(ch[1] || ch[0] * 1.5, t, 0.35, "glass", 0.025);
       },
       ritual(c) {
         const { t, s, bar, ch, rootHz, motif } = c;
         if (s === 0) {
           this.voice(48, t, 0.5, "sine", 0.5, 22);
           this.noiseHit(t, 0.2, 0.15, 300);
-          this.voice(ch[0] / 2, t, 3.2, "triangle", 0.12);
-          this.voice(ch[0], t, 3.0, "sine", 0.05);
-          this.voice((ch[1] || ch[0] * 1.5), t, 2.8, "sine", 0.04);
+          this.inst(ch[0] / 2, t, 3.2, "choir", 0.06);
+          this.inst(ch[1] || ch[0] * 1.5, t, 2.8, "organ", 0.03);
         }
-        if (s === 8 && bar % 2 === 1) this.voice(40, t, 0.35, "sine", 0.3, 20);
-        if (s === 0 || s === 8) {
-          const f = this.hzFrom(rootHz, motif[(bar + (s ? 4 : 0)) % motif.length] + 12);
-          this.voice(f, t, 1.4, "triangle", 0.04);
-        }
+        if (s === 8 && bar % 2 === 1) this.voice(40, t, 0.35, "sine", 0.28, 20);
+        if (s === 0) this.inst(this.hzFrom(rootHz, motif[bar % motif.length] + 12), t, 1.5, "bell", 0.032);
+        if (s === 8) this.inst(this.hzFrom(rootHz, motif[(bar + 3) % motif.length] + 12), t, 1.2, "glass", 0.024);
       },
       crystal(c) {
         const { t, s, bar, rootHz, motif, ch } = c;
         // No kick, no bass — only glass
-        if (s % 3 === 0) {
+        if (s === 0 || s === 6 || s === 12) {
           const f = this.hzFrom(rootHz, motif[(s + bar) % motif.length] + 24);
-          this.voice(f, t, 0.55, "sine", 0.04);
-          this.voice(f * 2.005, t, 0.35, "sine", 0.018);
-          this.voice(f * 3.01, t, 0.2, "triangle", 0.01);
+          this.inst(f, t, 0.7, "glass", 0.036);
         }
         if (s === 0) {
-          this.voice(ch[0] * 2, t, 1.8, "sine", 0.03);
-          this.voice((ch[1] || ch[0] * 1.25) * 2, t, 1.6, "sine", 0.022);
+          this.inst(ch[0] * 2, t, 1.8, "organ", 0.025);
+          this.inst((ch[1] || ch[0] * 1.25), t, 1.6, "choir", 0.02);
         }
-        if (s === 8) this.voice((ch[2] || ch[0] * 1.5) * 4, t, 1.2, "triangle", 0.018);
+        if (s === 8) this.inst((ch[2] || ch[0] * 1.5) * 2, t, 1.2, "bell", 0.022);
       },
       lullaby(c) {
         const { t, s, bar, rootHz, motif, ch } = c;
-        if (s === 0) this.voice(ch[0] / 2, t, 2.8, "sine", 0.08);
-        // Music box on even steps, sparse
-        if (s % 2 === 0) {
-          const deg = motif[(Math.floor(s / 2) + bar * 2) % motif.length];
-          const f = this.hzFrom(rootHz, deg + 24);
-          this.voice(f, t, 0.35, "square", 0.035);
-          this.voice(f * 2, t, 0.2, "sine", 0.012);
+        if (s === 0) this.inst(ch[0] / 2, t, 2.8, "choir", 0.05);
+        if (s % 4 === 0) {
+          const deg = motif[(Math.floor(s / 2) + bar) % motif.length];
+          this.inst(this.hzFrom(rootHz, deg + 24), t, 0.45, "bell", 0.034);
         }
-        // Occasional wrong note dissonance
-        if (bar % 4 === 3 && s === 10) this.voice(this.hzFrom(rootHz, 1 + 24), t, 0.6, "triangle", 0.03);
+        if (s === 8) this.inst(ch[1] || ch[0] * 1.2, t, 0.8, "glass", 0.02);
+        if (bar % 4 === 3 && s === 10) this.inst(this.hzFrom(rootHz, 1 + 24), t, 0.6, "pluck", 0.025);
       },
       acid(c) {
         const { t, s, ch, rootHz, motif, heat } = c;
         if (s % 4 === 0) this.voice(165, t, 0.18, "sine", 0.48, 32);
-        if (s === 4 || s === 12) this.noiseHit(t, 0.09, 0.16, 2500);
-        if (s % 2 === 0) this.noiseHit(t, 0.012, 0.035, 9000);
-        // 303 every 16th
-        const deg = motif[s % motif.length];
-        const next = motif[(s + 1) % motif.length];
-        const f = this.hzFrom(rootHz, deg);
-        const n = this.hzFrom(rootHz, next);
-        this.voice(f, t, 0.13, "sawtooth", 0.07 + heat * 0.03, n);
-        if (s === 0) this.voice(ch[0] / 2, t, 0.25, "sawtooth", 0.1);
+        if (s === 4 || s === 12) this.noiseHit(t, 0.05, 0.08, 2200);
+        if (s === 0) {
+          this.inst(ch[0] / 2, t, 0.7, "bass", 0.1);
+          this.inst(ch[0], t, 1.2, "pad", 0.025);
+        }
+        if (s % 2 === 0) {
+          const deg = motif[(s / 2 + (c.bar || 0)) % motif.length];
+          const next = motif[(s / 2 + 1) % motif.length];
+          const f = this.hzFrom(rootHz, deg);
+          this.voice(f, t, 0.16, "sawtooth", 0.06, this.hzFrom(rootHz, next));
+        }
+        if (s === 8) this.inst(this.hzFrom(rootHz, motif[(c.bar || 0) % motif.length] + 12), t, 0.3, "pluck", 0.03);
       },
       organ(c) {
-        const { t, s, ch } = c;
-        if (s !== 0) return;
-        const vol = 0.07;
-        this.voice(ch[0], t, 3.5, "sine", vol);
-        this.voice(ch[0] * 2, t, 3.5, "sine", vol * 0.55);
-        this.voice((ch[1] || ch[0] * 1.5), t, 3.5, "sine", vol * 0.5);
-        this.voice((ch[2] || ch[0] * 2), t, 3.5, "triangle", vol * 0.4);
-        if (ch[3]) this.voice(ch[3], t, 3.5, "sine", vol * 0.3);
-        this.voice(ch[0] / 2, t, 3.5, "sine", 0.1);
-        // Soft pedal thump only
-        this.voice(55, t, 0.4, "sine", 0.2, 30);
+        const { t, s, ch, rootHz, motif, bar } = c;
+        if (s === 0) {
+          this.inst(ch[0], t, 3.4, "organ", 0.055);
+          this.inst(ch[1] || ch[0] * 1.5, t, 3.4, "organ", 0.032);
+          if (ch[2]) this.inst(ch[2], t, 3.2, "choir", 0.022);
+          this.inst(ch[0] / 2, t, 3.4, "bass", 0.07);
+          this.voice(55, t, 0.35, "sine", 0.16, 30);
+        }
+        if (s === 8) this.inst(this.hzFrom(rootHz, motif[bar % motif.length] + 24), t, 1.2, "bell", 0.024);
       },
       jungle(c) {
         const { t, s, bar, ch, rootHz, motif, heat } = c;
@@ -601,37 +757,32 @@
           this.noiseHit(t, 0.1, 0.22 + heat * 0.05, 2800);
           this.voice(220, t, 0.05, "triangle", 0.1, 90);
         }
-        if (s % 2 === 1) this.noiseHit(t, 0.012, 0.04, 10000);
-        if (s === 0 || s === 8) this.voice(ch[0] / 2, t, 0.2, "sawtooth", 0.14);
-        if (bar % 2 === 1 && s % 2 === 0) {
-          const f = this.hzFrom(rootHz, motif[(s / 2) % motif.length] + 12);
-          this.voice(f, t, 0.1, "sawtooth", 0.045);
+        if (s === 0 || s === 8) this.inst(ch[0] / 2, t, 0.28, "bass", 0.1);
+        if (snares.indexOf(s) >= 0) {
+          const f = this.hzFrom(rootHz, motif[(s + bar) % motif.length] + 12);
+          this.inst(f, t, 0.14, "brass", 0.035);
         }
       },
       chip(c) {
         const { t, s, bar, rootHz, motif, ch } = c;
         // Arp bass + square lead — no pads, no noise hats
-        if (s % 2 === 0) {
-          const deg = motif[(s + bar * 2) % motif.length];
-          this.voice(this.hzFrom(rootHz, deg + 12), t, 0.11, "square", 0.055);
+        if (s % 4 === 0) {
+          const deg = motif[(s + bar) % motif.length];
+          const f = this.hzFrom(rootHz, deg + 12);
+          this.inst(f, t, 0.18, "chip", 0.05);
+          this.inst(f * 1.26, t, 0.16, "pluck", 0.02);
         }
-        if (s % 4 === 0) this.voice(ch[0] / 2, t, 0.14, "square", 0.1);
-        if (s === 0 || s === 8) this.voice(90, t, 0.08, "square", 0.12);
-        // Triangle "counter" every other bar
-        if (bar % 2 === 0 && (s === 4 || s === 12)) {
-          this.voice(this.hzFrom(rootHz, motif[(s / 4) % motif.length] + 19), t, 0.2, "triangle", 0.04);
-        }
+        if (s % 4 === 2) this.inst(ch[0] / 2, t, 0.14, "bass", 0.07);
+        if (s === 8) this.inst(this.hzFrom(rootHz, motif[(bar + 3) % motif.length] + 19), t, 0.22, "bell", 0.025);
       },
       needle(c) {
         const { t, s, bar, rootHz, motif, ch } = c;
-        if (s === 0 && bar % 4 === 0) this.voice(ch[0] / 3, t, 3.8, "sine", 0.07);
-        // Rare needle pings
-        if (s === 3 || s === 11 || (bar % 3 === 0 && s === 7)) {
-          const f = this.hzFrom(rootHz, motif[(bar + s) % motif.length]);
-          this.voice(f, t, 0.08, "triangle", 0.05);
-          this.voice(f * 2.5, t, 0.05, "sine", 0.025);
+        if (s === 0 && bar % 2 === 0) this.inst(ch[0] / 2, t, 3.2, "choir", 0.04);
+        if (s === 4 || (bar % 2 === 1 && s === 12)) {
+          const f = this.hzFrom(rootHz, motif[(bar + s) % motif.length] + 24);
+          this.inst(f, t, 0.35, "glass", 0.04);
         }
-        if (bar % 8 === 7 && s === 14) this.noiseHit(t, 0.4, 0.06, 200);
+        if (s === 12) this.inst((ch[1] || ch[0] * 1.5), t, 0.8, "bell", 0.02);
       },
       doom(c) {
         const { t, s, bar, ch, rootHz, motif } = c;
@@ -639,15 +790,10 @@
           this.voice(70, t, 0.35, "sine", 0.5, 25);
           this.noiseHit(t, 0.12, 0.18, 600);
           // Power chord
-          this.voice(ch[0], t, 0.9, "sawtooth", 0.1);
-          this.voice(ch[0] * 1.498, t, 0.9, "sawtooth", 0.07);
-          this.voice(ch[0] * 2, t, 0.9, "triangle", 0.05);
+          this.inst(ch[0], t, 1.1, "brass", 0.05);
+          this.inst(ch[0] * 1.5, t, 1.1, "organ", 0.03);
         }
-        if (s === 4 || s === 12) this.noiseHit(t, 0.1, 0.14, 1800);
-        if (bar % 2 === 1 && s === 0) {
-          const f = this.hzFrom(rootHz, motif[bar % motif.length] + 12);
-          this.voice(f, t, 0.7, "triangle", 0.05);
-        }
+        if (s === 8) this.inst(this.hzFrom(rootHz, motif[bar % motif.length] + 12), t, 0.6, "bell", 0.028);
       },
       fold(c) {
         // 7/8 cycle: 14 sixteenths then 2 rest
@@ -656,18 +802,13 @@
         if (cell === 0 || cell === 4 || cell === 8) {
           this.voice(120, t, 0.12, "sine", 0.4, 35);
         }
-        if (cell === 2 || cell === 6 || cell === 10 || cell === 12) {
-          this.noiseHit(t, 0.05, 0.1, 4000);
-        }
-        if (cell < 14 && cell % 2 === 0) {
+        if (cell === 0 || cell === 6) {
           const f = this.hzFrom(rootHz, motif[cell % motif.length] + 12);
-          this.voice(f, t, 0.12, "sine", 0.045);
+          this.inst(f, t, 0.28, "pluck", 0.04);
         }
-        if (cell === 0) this.voice(ch[0] / 2, t, 0.5, "triangle", 0.12);
-        // Mirror phrase backwards every other cycle
-        if (bar % 2 === 1 && cell === 0) {
-          this.voice(ch[0] * 2, t, 0.8, "triangle", 0.03);
-        }
+        if (cell === 10) this.inst(this.hzFrom(rootHz, motif[(cell + 3) % motif.length] + 12), t, 0.24, "bell", 0.028);
+        if (cell === 0) this.inst(ch[0] / 2, t, 0.6, "bass", 0.09);
+        if (bar % 2 === 1 && cell === 0) this.inst(ch[0] * 2, t, 0.8, "choir", 0.025);
       },
       fanfare(c) {
         const { t, s, bar, ch, rootHz, motif } = c;
@@ -677,18 +818,17 @@
           this.noiseHit(t, 0.1, 0.2, 2400);
           this.voice(300, t, 0.06, "triangle", 0.08);
         }
-        if (s % 2 === 0) this.noiseHit(t, 0.02, 0.03, 8000);
-        if (s % 2 === 0) {
-          const deg = motif[(s / 2 + bar) % motif.length];
+        if (s % 4 === 0) {
+          const deg = motif[(s / 4 + bar) % motif.length];
           const f = this.hzFrom(rootHz, deg + 12);
-          this.voice(f, t, 0.2, "sawtooth", 0.055);
-          this.voice(f * 1.498, t, 0.2, "triangle", 0.03);
+          this.inst(f, t, 0.32, "brass", 0.045);
+          this.inst(f * 1.5, t, 0.28, "organ", 0.022);
         }
         if (s === 0) {
-          this.voice(ch[0], t, 0.9, "sawtooth", 0.06);
-          this.voice(ch[0] * 1.25, t, 0.9, "sawtooth", 0.04);
-          this.voice(ch[0] * 1.5, t, 0.9, "triangle", 0.035);
+          this.inst(ch[0], t, 1.1, "choir", 0.035);
+          this.inst(ch[0] / 2, t, 0.8, "bass", 0.07);
         }
+        if (s === 8) this.inst((ch[1] || ch[0] * 1.25), t, 0.6, "bell", 0.024);
       },
     },
     music() {
@@ -705,7 +845,7 @@
           root._nextNote = root.ctx.currentTime + 0.08;
           return;
         }
-        if (mode !== "play" && mode !== "title" && mode !== "pause" && mode !== "levels" && mode !== "clear" && mode !== "win") return;
+        if (mode !== "play" && mode !== "title" && mode !== "pause" && mode !== "levels" && mode !== "clear" && mode !== "win" && mode !== "sideshow") return;
         const now = root.ctx.currentTime;
         const bpm = (root.theme && root.theme.bpm) || 128;
         const sixteenth = 60 / bpm / 4;
@@ -1068,9 +1208,6 @@
   let slowmo = 1;
   let stickyNext = 0;
   let testMode = false;
-  if (typeof location !== "undefined" && /#(preview|d1boss)/.test(String(location.hash || ""))) {
-    testMode = true;
-  }
   let creatorReturn = null;
   let creatorPlay = false;
   let botIx = 0;
@@ -1111,8 +1248,10 @@
   }
   function writeSave(patch) {
     const G = window.SURGE_GUARD;
-    if (!G || !G.packProgress) return {};
-    const next = G.sanitizeSave(Object.assign({}, loadSave(), G.sanitizeSave(patch)));
+    if (!G || !G.packProgress || !G.capProgress) return {};
+    const prev = loadSave();
+    const merged = G.sanitizeSave(Object.assign({}, prev, G.sanitizeSave(patch || {})));
+    const next = G.capProgress(prev, merged);
     const encoded = G.packProgress(next);
     try { if (encoded) localStorage.setItem(SAVE_KEY, encoded); } catch (_) { /* quota */ }
     return next;
@@ -1153,10 +1292,121 @@
     });
   }
 
+  const MIND_KEY = "level-surge-mind";
+  let mindSnap = null;
+  let roomHabit = null;
+
+  function blankMindLocal() {
+    const pack = window.SURGE_WORLDS;
+    return pack && pack.blankMind ? pack.blankMind() : { dash: 0, jump: 0, rush: 0, camp: 0, ground: 0, deaths: {} };
+  }
+
+  function loadMind() {
+    const blank = blankMindLocal();
+    const G = window.SURGE_GUARD;
+    if (!G || !G.openBlob) return blank;
+    let text = null;
+    try { text = localStorage.getItem(MIND_KEY); } catch (_) { return blank; }
+    const data = G.openBlob("mind", text);
+    if (!data) return blank;
+    const out = blankMindLocal();
+    ["dash", "jump", "rush", "camp", "ground"].forEach((k) => {
+      if (typeof data[k] === "number") out[k] = data[k];
+    });
+    out.deaths = Object.assign({}, data.deaths || {});
+    return out;
+  }
+
+  function saveMind(mind) {
+    const G = window.SURGE_GUARD;
+    if (!G || !G.packBlob) return;
+    const encoded = G.packBlob("mind", mind);
+    try { if (encoded) localStorage.setItem(MIND_KEY, encoded); } catch (_) { /* quota */ }
+  }
+
+  function resetRoomHabit() {
+    roomHabit = {
+      dashes: 0,
+      air: 0,
+      ground: 0,
+      stillPeak: 0,
+      started: 0,
+    };
+  }
+
+  function tickRoomHabit() {
+    if (!roomHabit || player.dead || player.win || testMode) return;
+    if (player.onGround) {
+      roomHabit.ground += FIXED;
+      if (Math.abs(player.vx) < 0.35) roomHabit.stillPeak = Math.max(roomHabit.stillPeak, world.still || 0);
+    } else {
+      roomHabit.air += FIXED;
+    }
+  }
+
+  function deathHabitTag(msg) {
+    const s = String(msg || world.deathReason || "").toLowerCase();
+    if (/saw|orbit|bone|petal|lure|chase|rail/.test(s)) return "saw";
+    if (/spike|gate|teeth|bite|pin|burn/.test(s)) return "spike";
+    if (/laser|beam|zap|spark|wire|sun|stretch|mirage|signal|clear/.test(s)) return "laser";
+    if (/hole|pit|fall|void|crack|sink|worship|abyss/.test(s)) return "hole";
+    if (/qte/.test(s)) return "qte";
+    if (/boss|null|ash|door/.test(s)) return "boss";
+    if (/lock|ice|static|phase/.test(s)) return "lock";
+    return "other";
+  }
+
+  function blendMind(mind, sample, weight) {
+    const w = Math.max(0.08, Math.min(0.55, weight || 0.22));
+    const keys = ["dash", "jump", "rush", "camp", "ground"];
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      const next = (+sample[k] || 0);
+      mind[k] = Math.min(8, mind[k] * (1 - w) + next * w);
+    }
+    return mind;
+  }
+
+  function sampleRoomHabit(cleared) {
+    const t = Math.max(0.35, world.time || 0.35);
+    const jumps = world.jumps || 0;
+    const dashes = roomHabit ? roomHabit.dashes : 0;
+    const air = roomHabit ? roomHabit.air : 0;
+    const ground = roomHabit ? roomHabit.ground : 0;
+    const still = roomHabit ? roomHabit.stillPeak : 0;
+    const span = Math.max(1, world.cols * TILE * 0.55);
+    const speed = (world.maxX || 0) / Math.max(0.4, t);
+    return {
+      dash: Math.min(3, dashes / Math.max(1, t * 0.55) + (dashes > 2 ? 0.35 : 0)),
+      jump: Math.min(3, jumps / Math.max(1, t * 0.7) + air / Math.max(1, t) * 1.1),
+      rush: Math.min(3, (speed / 90) + (cleared && t < 14 ? 0.8 : 0) + ((world.maxX || 0) > span ? 0.25 : 0)),
+      camp: Math.min(3, still * 1.6 + (ground > t * 0.72 && Math.abs(player.vx) < 0.2 ? 0.4 : 0)),
+      ground: Math.min(3, (ground / Math.max(1, t)) * 1.4 + (jumps <= 1 ? 0.45 : 0)),
+    };
+  }
+
+  function recordMindSample(kind, msg) {
+    if (testMode || creatorPlay) return;
+    if (!roomHabit) return;
+    const mind = loadMind();
+    const cleared = kind === "clear";
+    blendMind(mind, sampleRoomHabit(cleared), cleared ? 0.28 : 0.16);
+    if (kind === "death") {
+      const tag = deathHabitTag(msg);
+      mind.deaths[tag] = Math.min(40, (mind.deaths[tag] || 0) + 1);
+      if (tag === "saw" || tag === "spike") mind.rush = Math.min(8, mind.rush + 0.08);
+      if (tag === "hole") mind.ground = Math.min(8, mind.ground + 0.1);
+      if (tag === "lock") mind.dash = Math.min(8, mind.dash + 0.12);
+    }
+    saveMind(mind);
+    mindSnap = mind;
+  }
+
   function enterDimension(d, from) {
     dimIndex = Math.max(1, Math.min(20, d | 0));
     const pack = window.SURGE_WORLDS;
-    if (pack) window.LEVELS = pack.generate(dimIndex);
+    mindSnap = loadMind();
+    if (pack) window.LEVELS = pack.generate(dimIndex, mindSnap);
     audio.setTheme(dimIndex);
     audio.restartMusic();
     shardsGot = 0;
@@ -1248,6 +1498,8 @@
     world.bossShots = [];
     world.nullBeams = [];
     world.bossFog = 0;
+    world.bossPad = null;
+    world.bossFloor = null;
     world.bossSpikes = {};
     world.bossZones = [];
     world.bossCast = false;
@@ -1268,7 +1520,7 @@
     world.cols = cols;
     world.tiles = rows.map((r) => padRow(r.replace(/ /g, "."), cols).split(""));
     world.rows = world.tiles.length;
-    world.events = (def.events || []).map((e) => ({ ...e, fired: false }));
+    world.events = def.boss ? [] : (def.events || []).map((e) => ({ ...e, fired: false }));
     world.rules = def;
     world.time = 0;
     camSmoothX = null;
@@ -1291,7 +1543,15 @@
 
     for (let y = 0; y < world.rows; y++) {
       for (let x = 0; x < world.cols; x++) {
-        const t = world.tiles[y][x];
+        let t = world.tiles[y][x];
+        if (def.boss && "^v<>oF".includes(t)) {
+          world.tiles[y][x] = ".";
+          continue;
+        }
+        if (def.boss && t === "!") {
+          world.tiles[y][x] = "#";
+          continue;
+        }
         if (t === "S") {
           world.spawn = { x: x * TILE + 6, y: y * TILE + TILE - player.h };
           world.tiles[y][x] = ".";
@@ -1309,10 +1569,22 @@
       }
     }
     spawnPlayer();
+    if (!testMode && !def.boss && def.mindHabit && levelIndex === 0 && dimIndex >= 15) {
+      world.events = world.events || [];
+      world.events.unshift({
+        if: { time: 0.55 }, once: true, quiet: true, fired: false,
+        do: [["lie", def.taunt || "I LEARNED YOU"]],
+      });
+    }
     world.boss = null;
+    world.bossPad = null;
+    world.bossFloor = null;
     if (def.boss && world.door) {
       const dim = def.dim || dimIndex || 1;
       world.bossShots = [];
+      // Pin room ambience (fires / glow) to the opening pad — never follow door or boss.
+      world.bossPad = { x: world.door.x, y: world.door.y };
+      world.bossFloor = world.door.y + TILE;
       world.boss = {
         dim,
         x: dim === 1 ? world.cols * TILE * 0.5 : Math.max(120, Math.min(Math.max(120, world.cols * TILE - 120), world.door.x + 16)),
@@ -1490,6 +1762,7 @@
     player.lean = 0;
     player.bob = 0;
     player.visSq = 0;
+    resetRoomHabit();
     player.anim = 0;
     player.airTime = 0;
     world.still = 0;
@@ -3183,13 +3456,15 @@
     if (!audio.theme) audio.setTheme(dimIndex);
     const was = !!audio.theme.boss;
     if (want) {
-      const th = currentTheme();
-      const final = ((def.dim || dimIndex) | 0) >= 20;
+      const dim = (def.dim || dimIndex) | 0;
+      const final = dim >= 20;
+      const boss = (window.SURGE_TRACKS && window.SURGE_TRACKS.bossMusic(dim)) || { bpm: 174, root: 196 };
       audio.theme.boss = true;
       audio.theme.final = final;
       audio.theme.rage = false;
-      audio.theme.bpm = final ? Math.round((th.bpm || 128) * 0.78) : 174;
-      audio.theme.root = final ? (th.root || 92.5) * 0.82 : 196;
+      audio.theme.bossTrack = boss;
+      audio.theme.bpm = boss.bpm;
+      audio.theme.root = boss.root;
       if (audio.drone && audio.ctx) {
         const base = Math.max(24, audio.theme.root * 0.35);
         try {
@@ -3518,6 +3793,16 @@
 
   function nullFloorY() {
     return world.door ? world.door.y + TILE : (world.rows - 3) * TILE;
+  }
+
+  // Aesthetic only. Boss-room fires/glow stay on the opening pad, not live door/boss.
+  function bossAmbienceFloor() {
+    if (world.bossFloor != null) return world.bossFloor;
+    return nullFloorY();
+  }
+
+  function bossAmbiencePad() {
+    return world.bossPad || world.door;
   }
 
   function nullReadyPool(b) {
@@ -4134,9 +4419,12 @@
 
   function nullEnrageMusic() {
     if (!audio.theme || audio.theme.final) return;
+    const boss = audio.theme.bossTrack
+      || (window.SURGE_TRACKS && window.SURGE_TRACKS.bossMusic(audio.theme.dim || dimIndex))
+      || { bpm: audio.theme.bpm || 174, root: audio.theme.root || 196 };
     audio.theme.rage = true;
-    audio.theme.bpm = 208;
-    audio.theme.root = 220;
+    audio.theme.bpm = Math.round(boss.bpm * 1.2);
+    audio.theme.root = boss.root * 1.122;
   }
 
   // Aesthetic only. Pink fire and blown ash sit behind the fight; they never hit.
@@ -4160,7 +4448,7 @@
     camFX.punch = Math.max(camFX.punch || 0, 10);
     world.whiteFlash = 1;
     world.flash = Math.max(world.flash || 0, 0.08);
-    const floor = world.door ? world.door.y + TILE : (world.rows || 12) * TILE;
+    const floor = bossAmbienceFloor();
     const W = (world.cols || 32) * TILE;
     for (let i = 0; i < 48; i++) {
       const life = 0.55 + Math.random() * 0.7;
@@ -4191,16 +4479,15 @@
     b.rageAge = (b.rageAge || 0) + FIXED;
     const spread = Math.min(1, b.rageAge / 1.15);
     b.rageFire = spread;
-    const floor = world.door ? world.door.y + TILE : (world.rows || 12) * TILE;
+    const floor = bossAmbienceFloor();
     const W = (world.cols || 32) * TILE;
-    // Continuous pink ash blown hard across the room. Visual only.
+    // Continuous pink ash blown hard across the room. Visual only. Stationary floor.
     const n = b.rageAge < 1.4 ? 5 : 2;
     for (let i = 0; i < n; i++) {
       const life = 0.4 + Math.random() * 0.55;
       const p = allocPart();
-      const fromBoss = Math.random() < 0.35;
-      p.x = fromBoss ? b.x + (Math.random() - 0.5) * 70 : Math.random() * W;
-      p.y = fromBoss ? b.y + (Math.random() - 0.5) * 40 : floor - Math.random() * (30 + spread * 90);
+      p.x = Math.random() * W;
+      p.y = floor - Math.random() * (30 + spread * 90);
       const dir = Math.sin(world.time * 1.7 + i) >= 0 ? 1 : -1;
       p.vx = dir * (3.2 + Math.random() * 6.8 + spread * 2.2);
       p.vy = -0.6 - Math.random() * 2.8;
@@ -4222,15 +4509,15 @@
 
   function drawNullRageAura(b) {
     if (!b || !b.hot || b.phase === "gone" || b.phase === "boom") return;
-    const floor = world.door ? world.door.y + TILE : (world.rows || 12) * TILE;
+    const floor = bossAmbienceFloor();
     const W = (world.cols || 32) * TILE;
     const t = world.time || 0;
     const spread = Math.max(0.08, b.rageFire || 0);
     const tongues = Math.max(8, Math.floor(10 + spread * 22));
     const reach = W * (0.28 + spread * 0.72);
-    const left = Math.max(0, b.x - reach / 2);
+    const left = Math.max(0, W * 0.5 - reach / 2);
     ctx.save();
-    // Floor wash that crawls outward from Null. No hitbox. No beams.
+    // Floor wash grows across the arena pad. Stationary — no hitbox, no boss track.
     ctx.globalAlpha = 0.16 + spread * 0.28;
     const wash = ctx.createLinearGradient(0, floor - 70, 0, floor + 8);
     wash.addColorStop(0, "rgba(254, 31, 111, 0)");
@@ -6016,6 +6303,7 @@
     player.dead = true;
     deaths += 1;
     world.deathReason = deathCopy(msg);
+    recordMindSample("death", msg);
     world.flash = 0.22;
     world.shake = 18;
     world.chromatic = 0.4;
@@ -6051,8 +6339,7 @@
     }
     const trailerOn = window.SURGE_TRAILER && window.SURGE_TRAILER.on;
     const trailerRoast = trailerOn && window.SURGE_TRAILER.wantsRoast;
-    const bossPreview = typeof location !== "undefined" && /#d1boss/.test(String(location.hash || ""));
-    if (testMode && !bossPreview && !trailerRoast) {
+    if (testMode && !trailerRoast) {
       if (trailerOn) deathTimer = 6;
       return;
     }
@@ -6126,6 +6413,7 @@
     const jumpCodes = (binds && binds.jump) || BIND_DEFAULTS.jump;
     for (let ji = 0; ji < jumpCodes.length; ji++) keys.delete(jumpCodes[ji]);
     player.win = true;
+    recordMindSample("clear");
     burst(player.x + 12, player.y + 10, "#f0c14b", 28, 5);
     burst(player.x + 12, player.y + 10, "#fff6d8", 12, 3);
     audio.play("win");
@@ -6229,6 +6517,7 @@
     if (player.dead || player.win) return;
     player.justLanded = false;
     if (!player.onGround) player.airTime = (player.airTime || 0) + FIXED;
+    tickRoomHabit();
 
     let ix = 0;
     let jumpDown = false;
@@ -6292,6 +6581,7 @@
       player.vy *= 0.35;
       dashCool = 0.72;
       dashT = 0.16;
+      if (roomHabit) roomHabit.dashes += 1;
       world.squash = -0.28;
       audio.play("dash");
       burst(player.x + player.w / 2, player.y + player.h / 2, "#ffe8a0", 12, 5);
@@ -8373,49 +8663,42 @@
     ctx.fillStyle = "rgba(0,0,0,0.18)";
     ctx.fillRect(16, 8, 7, 16);
 
-    // Arms and legs swing opposite each other. Jump tucks on the way up, extends on the way down.
+    // Same cubes and hooves. They just step opposite each other, and tuck or drop in the air.
     const stride = Math.min(1, speed / 3.2);
-    const swing = gait * 0.72 * (air ? 0.15 : Math.max(0.25, stride));
-    let armL = -0.55 - swing;
-    let armR = -0.55 + swing;
-    let legL = 0.18 + swing * 1.15;
-    let legR = 0.18 - swing * 1.15;
-    let legLen = 8;
-    let armLen = 7.5;
+    const step = air ? 0 : gait * 6 * Math.max(stride, stride > 0.08 ? 0.35 : 0);
+    let handL = 15 + step;
+    let handR = 15 - step;
+    let hoofL = Math.max(-4, Math.min(4, -step * 0.7));
+    let hoofR = Math.max(-4, Math.min(4, step * 0.7));
+    let shinL = Math.max(0, -step * 0.4);
+    let shinR = Math.max(0, step * 0.4);
     if (air) {
       if (vy < -1.2) {
-        armL = -1.55; armR = -1.35;
-        legL = -0.85; legR = 0.95;
-        legLen = 6.2;
+        handL = 6; handR = 8; hoofL = -5; hoofR = -4; shinL = 0; shinR = 0;
       } else if (vy > 1.4) {
-        armL = -0.25; armR = 0.55;
-        legL = 0.22; legR = -0.08;
-        legLen = 9.2;
+        handL = 13; handR = 17; hoofL = 2; hoofR = 3; shinL = 2; shinR = 1;
       } else {
-        armL = -1.05; armR = -0.7;
-        legL = -0.35; legR = 0.45;
-        legLen = 7;
+        handL = 8; handR = 10; hoofL = -3; hoofR = -2; shinL = 0; shinR = 0;
       }
     } else if (stride < 0.12) {
-      armL = -0.15; armR = 0.12;
-      legL = 0.06; legR = -0.04;
-      legLen = 7.4;
+      handL = 16; handR = 17; hoofL = 0; hoofR = 0; shinL = 0; shinR = 0;
     }
-    const limb = (hx, hy, ang, len, w, color, hoof) => {
-      ctx.save();
-      ctx.translate(hx, hy);
-      ctx.rotate(ang);
-      ctx.fillStyle = color;
-      ctx.fillRect(-w * 0.5, 0, w, len);
-      ctx.fillStyle = hoof ? "#1a100c" : "#ff5a5a";
-      if (hoof) ctx.fillRect(-w * 0.7, len - 1, w * 1.5, 3.4);
-      else ctx.fillRect(-w * 0.35, len - 2.2, w * 0.7, 2.6);
-      ctx.restore();
-    };
-    limb(3, 11, armL, armLen, 3.4, "#c41414", false);
-    limb(21, 11, armR, armLen, 3.4, "#e31b1b", false);
-    limb(7, 22, legL, legLen, 4.2, "#7a0e0e", true);
-    limb(17, 22, legR, legLen, 4.2, "#9a1010", true);
+    ctx.fillStyle = "#e31b1b";
+    ctx.fillRect(-5, handL, 6, 6);
+    ctx.fillRect(23, handR, 6, 6);
+    ctx.fillStyle = "#ff5a5a";
+    ctx.fillRect(-4, handL + 1, 2.5, 2.5);
+    ctx.fillRect(24, handR + 1, 2.5, 2.5);
+
+    ctx.fillStyle = "#7a0e0e";
+    ctx.fillRect(3, 23, 6, 6 + shinL);
+    ctx.fillRect(15, 23, 6, 6 + shinR);
+    ctx.fillStyle = "#1a100c";
+    ctx.fillRect(2, 26 + hoofL, 8, 4);
+    ctx.fillRect(14, 26 + hoofR, 8, 4);
+    ctx.fillStyle = "#e31b1b";
+    ctx.fillRect(2, 29 + hoofL, 3, 1.5);
+    ctx.fillRect(14, 29 + hoofR, 3, 1.5);
 
     // Eyes
     ctx.fillStyle = "#fff6d8";
@@ -8523,7 +8806,10 @@
     for (const l of world.lasers) {
       light(l.x + l.w / 2, l.y + l.h / 2, 110, l.fake ? 180 : 255, l.fake ? 220 : 80, l.fake ? 255 : 40, 0.28);
     }
-    if (world.door && !world.doorHidden) light(world.door.x + 16, world.door.y + 8, 70, 255, 210, 80, 0.18);
+    if (world.door && !world.doorHidden) {
+      const pad = bossAmbiencePad();
+      light(pad.x + 16, pad.y + 8, 70, 255, 210, 80, 0.18);
+    }
     // Scenery lamps / lampposts breathe with the theme accent.
     const scenery = world.scenery || [];
     for (let i = 0; i < scenery.length; i++) {
@@ -10418,8 +10704,9 @@
       ctx.fillRect(x, y, s, s);
     }
     if (view && world.door && !world.doorHidden) {
-      const x = (world.door.x + 16) * view.scale + view.ox;
-      const y = (world.door.y + 20) * view.scale + view.oy;
+      const pad = bossAmbiencePad();
+      const x = (pad.x + 16) * view.scale + view.ox;
+      const y = (pad.y + 20) * view.scale + view.oy;
       const reach = 240 * view.scale;
       const beam = ctx.createLinearGradient(x, y - reach, x, y + 10);
       beam.addColorStop(0, "rgba(255,220,160,0)");
@@ -10489,20 +10776,21 @@
       ctx.fillRect(x, y, s, s);
     }
     if (world.door && !world.doorHidden) {
-      const x = world.door.x + 16;
-      const y = world.door.y + 18;
+      const pad = bossAmbiencePad();
+      const x = pad.x + 16;
+      const y = pad.y + 18;
       const g = ctx.createLinearGradient(x, y - 220, x, y + 48);
       g.addColorStop(0, "rgba(255,220,150,0)");
       g.addColorStop(0.72, "rgba(255,210,120,0.05)");
       g.addColorStop(1, "rgba(255,210,120,0.2)");
       ctx.fillStyle = g;
       ctx.fillRect(x - 16, y - 220, 36, 268);
-      const pool = ctx.createRadialGradient(x, world.door.y + 52, 4, x, world.door.y + 52, 56);
+      const pool = ctx.createRadialGradient(x, pad.y + 52, 4, x, pad.y + 52, 56);
       pool.addColorStop(0, "rgba(255,200,90,0.28)");
       pool.addColorStop(1, "rgba(255,200,90,0)");
       ctx.fillStyle = pool;
       ctx.beginPath();
-      ctx.ellipse(x, world.door.y + 50, 50, 11, 0, 0, Math.PI * 2);
+      ctx.ellipse(x, pad.y + 50, 50, 11, 0, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -10510,8 +10798,9 @@
   function drawNullStage() {
     const b = world.boss;
     if (!b || b.dim !== 1 || !world.door || mode !== "play") return;
-    const floorY = world.door.y + TILE;
+    const floorY = bossAmbienceFloor();
     const W = world.cols * TILE;
+    const glowX = W * 0.5;
     const t = world.time || 0;
     ctx.save();
     const lip = ctx.createLinearGradient(0, floorY - 22, 0, floorY + 14);
@@ -10547,18 +10836,18 @@
       ctx.ellipse(x, y, 1.6 + (i % 3) * 0.6, 2.4 + (i % 2), 0, 0, Math.PI * 2);
       ctx.fill();
     }
-    const glow = ctx.createRadialGradient(b.x, floorY, 8, b.x, floorY, 160);
+    const glow = ctx.createRadialGradient(glowX, floorY, 8, glowX, floorY, 160);
     glow.addColorStop(0, "rgba(254, 31, 111, 0.28)");
     glow.addColorStop(1, "rgba(254, 31, 111, 0)");
     ctx.globalAlpha = 1;
     ctx.fillStyle = glow;
-    ctx.fillRect(b.x - 160, floorY - 28, 320, 40);
+    ctx.fillRect(glowX - 160, floorY - 28, 320, 40);
     ctx.restore();
   }
 
   function render() {
     clearBloom = Math.max(0, clearBloom - 0.016);
-    if (mode === "title" || mode === "levels") {
+    if (mode === "title" || mode === "levels" || ((mode === "sideshow" || mode === "settings") && !(world.tiles && world.tiles.length))) {
       drawTitleDemo();
       return;
     }
@@ -10747,7 +11036,9 @@
       }
       let dt = (ts - last) / 1000;
       last = ts;
-      if (dt > 0.05) dt = 0.05;
+      if (!(window.SURGE_GUARD && window.SURGE_GUARD.allow("step-clock", dt))) {
+        if (dt > 0.05) dt = 0.05;
+      }
       acc += dt;
       while (acc >= FIXED) {
         step();
@@ -10770,6 +11061,8 @@
     if (levelsScreen) levelsScreen.classList.add("hidden");
     const settingsScreen = document.getElementById("settings-screen");
     if (settingsScreen) settingsScreen.classList.add("hidden");
+    const sideshowScreen = document.getElementById("sideshow-screen");
+    if (sideshowScreen) sideshowScreen.classList.add("hidden");
     if (dimCard && dimIntro <= 0) dimCard.classList.add("hidden");
     hud.classList.remove("hidden");
     if (window.matchMedia("(pointer: coarse)").matches) mobile.classList.remove("hidden");
@@ -10820,6 +11113,8 @@
     if (levelsScreen) levelsScreen.classList.add("hidden");
     const settingsScreen = document.getElementById("settings-screen");
     if (settingsScreen) settingsScreen.classList.add("hidden");
+    const sideshowScreen = document.getElementById("sideshow-screen");
+    if (sideshowScreen) sideshowScreen.classList.add("hidden");
     if (dimCard) dimCard.classList.add("hidden");
     winScreen.classList.add("hidden");
     clearScreen.classList.add("hidden");
@@ -10858,8 +11153,11 @@
     }
     if (!pack.length) return false;
     creatorReturn = typeof opts.onExit === "function" ? opts.onExit : null;
-    creatorPlay = !!creatorReturn;
-    testMode = opts.testMode !== false;
+    creatorPlay = true;
+    testMode = true;
+    if (window.SURGE_GUARD && window.SURGE_GUARD.allow && !window.SURGE_GUARD.allow("custom-isolated", testMode)) {
+      return false;
+    }
     window.LEVELS = pack;
     dimIndex = Math.max(1, Math.min(20, opts.dim || 1));
     audio.unlock();
@@ -11022,6 +11320,20 @@
     quitToTitle();
   }
 
+  const playTabs = document.getElementById("play-tabs");
+  const aboutTabs = document.getElementById("about-tabs");
+  function showHub(which) {
+    if (playTabs) playTabs.classList.toggle("hidden", which !== "play");
+    if (aboutTabs) aboutTabs.classList.toggle("hidden", which !== "about");
+    const playMenu = document.getElementById("play-menu-btn");
+    const aboutMenu = document.getElementById("about-menu-btn");
+    if (playMenu) playMenu.setAttribute("aria-expanded", which === "play" ? "true" : "false");
+    if (aboutMenu) aboutMenu.setAttribute("aria-expanded", which === "about" ? "true" : "false");
+  }
+  const playMenuBtn = document.getElementById("play-menu-btn");
+  if (playMenuBtn) playMenuBtn.onclick = () => showHub(playTabs && playTabs.classList.contains("hidden") ? "play" : "");
+  const aboutMenuBtn = document.getElementById("about-menu-btn");
+  if (aboutMenuBtn) aboutMenuBtn.onclick = () => showHub(aboutTabs && aboutTabs.classList.contains("hidden") ? "about" : "");
   document.getElementById("play-btn").onclick = () => {
     const s = loadSave();
     enterDimension(s.lastDim || 1, s.lastRoom != null ? s.lastRoom : 0);
@@ -11033,8 +11345,20 @@
   if (levelsBtn) levelsBtn.onclick = showLevels;
   const settingsBtn = document.getElementById("settings-btn");
   if (settingsBtn) settingsBtn.onclick = () => showSettings("title");
+  const settingsMute = document.getElementById("settings-mute");
+  if (settingsMute) settingsMute.onclick = () => { audio.unlock(); toggleMute(); };
   const pauseSettingsBtn = document.getElementById("pause-settings-btn");
   if (pauseSettingsBtn) pauseSettingsBtn.onclick = () => showSettings("pause");
+  const sideshowBtn = document.getElementById("sideshow-btn");
+  if (sideshowBtn) sideshowBtn.onclick = () => showSideshow("title");
+  const pauseSideshowBtn = document.getElementById("pause-sideshow-btn");
+  if (pauseSideshowBtn) pauseSideshowBtn.onclick = () => showSideshow("pause");
+  const sideshowPrev = document.getElementById("sideshow-prev");
+  if (sideshowPrev) sideshowPrev.onclick = () => stepSideshow(-1);
+  const sideshowNext = document.getElementById("sideshow-next");
+  if (sideshowNext) sideshowNext.onclick = () => stepSideshow(1);
+  const sideshowClose = document.getElementById("sideshow-close");
+  if (sideshowClose) sideshowClose.onclick = closeSideshow;
   const settingsBack = document.getElementById("settings-back");
   if (settingsBack) settingsBack.onclick = closeSettings;
   const bindReset = document.getElementById("bind-reset");
@@ -11066,7 +11390,8 @@
       toggleMute();
     };
   try {
-    if (localStorage.getItem("level-surge-mute") === "1") audio.setMuted(true);
+    const muteBit = localStorage.getItem("level-surge-mute");
+    if (window.SURGE_GUARD && window.SURGE_GUARD.allow("mute-flag", muteBit) && muteBit === "1") audio.setMuted(true);
   } catch (_) { /* private mode */ }
   syncMuteButton();
 
@@ -11077,13 +11402,22 @@
   }
 
   function syncMuteButton() {
-    if (!muteBtn) return;
-    muteBtn.textContent = audio.muted ? "🔇" : "🔊";
-    muteBtn.setAttribute("aria-pressed", audio.muted ? "true" : "false");
-    muteBtn.setAttribute("aria-label", audio.muted ? "Unmute" : "Mute");
+    if (muteBtn) {
+      muteBtn.textContent = audio.muted ? "🔇" : "🔊";
+      muteBtn.setAttribute("aria-pressed", audio.muted ? "true" : "false");
+      muteBtn.setAttribute("aria-label", audio.muted ? "Unmute" : "Mute");
+    }
+    const settingsMute = document.getElementById("settings-mute");
+    if (settingsMute) {
+      settingsMute.textContent = audio.muted ? "SOUND OFF" : "SOUND ON";
+      settingsMute.setAttribute("aria-pressed", audio.muted ? "true" : "false");
+    }
   }
 
-  function setMode(m) { mode = m; }
+  function setMode(m) {
+    if (window.SURGE_GUARD && window.SURGE_GUARD.allow && !window.SURGE_GUARD.allow("mode", m)) return;
+    mode = m;
+  }
 
   function roastSkippable() {
     return !!(deathShow && deathShow.t >= 0.55 && mode === "play" && !testMode);
@@ -11126,25 +11460,24 @@
 
   function loadBinds() {
     binds = cloneBinds(BIND_DEFAULTS);
-    try {
-      const raw = JSON.parse(localStorage.getItem("level-surge-binds") || "null");
-      if (!raw || typeof raw !== "object") return;
-      const names = Object.keys(BIND_DEFAULTS);
-      for (let i = 0; i < names.length; i++) {
-        const k = names[i];
-        const list = raw[k];
-        if (!Array.isArray(list) || !list.length) continue;
-        const clean = [];
-        for (let j = 0; j < list.length && clean.length < 3; j++) {
-          if (typeof list[j] === "string" && list[j] && list[j].length < 32) clean.push(list[j]);
-        }
-        if (clean.length) binds[k] = clean;
-      }
-    } catch (_) { /* private mode */ }
+    const G = window.SURGE_GUARD;
+    if (!G || !G.openBlob) return;
+    let text = null;
+    try { text = localStorage.getItem("level-surge-binds"); } catch (_) { return; }
+    const raw = G.openBlob("binds", text);
+    if (!raw) return;
+    const names = Object.keys(BIND_DEFAULTS);
+    for (let i = 0; i < names.length; i++) {
+      const k = names[i];
+      if (Array.isArray(raw[k]) && raw[k].length) binds[k] = raw[k].slice(0, 3);
+    }
   }
 
   function saveBinds() {
-    try { localStorage.setItem("level-surge-binds", JSON.stringify(binds)); } catch (_) { /* quota */ }
+    const G = window.SURGE_GUARD;
+    if (!G || !G.packBlob) return;
+    const encoded = G.packBlob("binds", binds);
+    try { if (encoded) localStorage.setItem("level-surge-binds", encoded); } catch (_) { /* quota */ }
   }
 
   function codeLabel(code) {
@@ -11274,6 +11607,77 @@
     paintControlHint();
   }
 
+  let sideshowReturn = "title";
+  let sideshowIndex = 0;
+
+  function sideshowCards() {
+    return document.querySelectorAll("#sideshow-scroll .sideshow-platform");
+  }
+
+  function nearestSideshow() {
+    const scroller = document.getElementById("sideshow-scroll");
+    const cards = sideshowCards();
+    if (!scroller || !cards.length) return 0;
+    const mark = scroller.scrollTop + scroller.clientHeight * 0.28;
+    let best = 0;
+    let bestD = 1e9;
+    for (let i = 0; i < cards.length; i++) {
+      const d = Math.abs(cards[i].offsetTop - mark);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+  }
+
+  function paintSideshow() {
+    const cards = sideshowCards();
+    const count = document.getElementById("sideshow-count");
+    if (count) count.textContent = (cards.length ? sideshowIndex + 1 : 0) + " / " + cards.length;
+    for (let i = 0; i < cards.length; i++) cards[i].classList.toggle("is-near", i === sideshowIndex);
+  }
+
+  function showSideshow(from) {
+    sideshowReturn = from || "title";
+    sideshowIndex = 0;
+    titleScreen.classList.add("hidden");
+    if (pauseScreen) pauseScreen.classList.add("hidden");
+    const screen = document.getElementById("sideshow-screen");
+    if (screen) {
+      screen.classList.remove("hidden");
+      const scroller = document.getElementById("sideshow-scroll");
+      if (scroller) scroller.scrollTop = 0;
+    }
+    mode = "sideshow";
+    paintSideshow();
+    if (window.SURGE_SIDESHOW && window.SURGE_SIDESHOW.wake) window.SURGE_SIDESHOW.wake();
+  }
+
+  function closeSideshow() {
+    const screen = document.getElementById("sideshow-screen");
+    if (screen) screen.classList.add("hidden");
+    if (sideshowReturn === "pause") {
+      mode = "pause";
+      if (pauseScreen) pauseScreen.classList.remove("hidden");
+      return;
+    }
+    mode = "title";
+    titleScreen.classList.remove("hidden");
+  }
+
+  function stepSideshow(dir) {
+    const cards = sideshowCards();
+    sideshowIndex = nearestSideshow();
+    const next = sideshowIndex + dir;
+    if (next < 0 || next >= cards.length) return;
+    sideshowIndex = next;
+    const scroller = document.getElementById("sideshow-scroll");
+    const card = cards[sideshowIndex];
+    if (scroller && card) {
+      const top = card.offsetTop - scroller.clientHeight * 0.18;
+      scroller.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    }
+    paintSideshow();
+  }
+
   function trackKey(e, down) {
     /* Physical codes only — e.key casing breaks under Shift (A vs a) and sticks movement. */
     const code = e.code || "";
@@ -11311,6 +11715,14 @@
         return;
       }
       if (e.key === "Escape") closeSettings();
+      return;
+    }
+    if (mode === "sideshow") {
+      e.preventDefault();
+      if (e.repeat) return;
+      if (e.key === "Escape") closeSideshow();
+      else if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === "Enter") stepSideshow(1);
+      else if (e.key === "ArrowLeft" || e.key === "ArrowUp") stepSideshow(-1);
       return;
     }
     if (!e.repeat && bindHit(e, "mute")) {
@@ -11445,6 +11857,21 @@
     if (window.SURGE_WORLDS && window.SURGE_WORLDS.auditDiscovery) {
       const early = window.SURGE_WORLDS.auditDiscovery();
       assert(!early.length, "trap discovery " + early.slice(0, 3).join("; "), fails);
+    }
+    if (window.SURGE_WORLDS && window.SURGE_WORLDS.blankMind) {
+      const W = window.SURGE_WORLDS;
+      const empty = W.blankMind();
+      assert(W.mindDominant(empty) === "", "empty mind quiet", fails);
+      empty.dash = 2.2;
+      assert(W.mindDominant(empty) === "dash", "dash habit wins", fails);
+      assert(!W.mindPlan(14, empty), "mind sleeps before D15", fails);
+      assert(!!W.mindPlan(15, empty), "mind wakes at D15", fails);
+      const audit = W.auditMindCounter(empty, 15);
+      assert(audit.ok, "mind counters dash " + audit.delta + " " + audit.habit, fails);
+      const d14 = W.generate(14, empty);
+      assert(!(d14[0] && d14[0].mindHabit), "D14 ignores mind", fails);
+      const d15 = W.generate(15, empty);
+      assert(d15[0] && d15[0].mindHabit === "dash", "D15 stamps habit", fails);
     }
     assert(world.fore && world.fore.length === 0, "fore props off", fails);
     assert(isSolid("#") && isSolid("=") && isSolid("i") && isSolid("B"), "solids", fails);
@@ -11910,7 +12337,7 @@
     assert((world.shake || 0) > 0, "enrage shake", fails);
     assert((world.whiteFlash || 0) > 0, "enrage white flash", fails);
     assert(world.particles.length > 0, "enrage particles", fails);
-    assert(!audio.theme || (audio.theme.rage && audio.theme.bpm === 208), "enrage music " + (audio.theme && audio.theme.bpm), fails);
+    assert(!audio.theme || (audio.theme.rage && audio.theme.bpm > 174), "enrage music " + (audio.theme && audio.theme.bpm), fails);
 
     enterDimension(1, 16);
     hushBoss();
@@ -12592,8 +13019,11 @@
       const def = window.LEVELS[i];
       const item = { i, name: def.name, ok: true, errors: [] };
       try {
-        if (!def.events || !def.events.length) {
-          if (!(def.boss && def.dim === 1)) item.errors.push("no traps");
+        if (def.boss) {
+          if (def.events && def.events.length) item.errors.push("boss traps " + def.events.length);
+          if (/[\^v!<>oF]/.test((def.map || []).join(""))) item.errors.push("boss hazard tiles");
+        } else if (!def.events || !def.events.length) {
+          item.errors.push("no traps");
         } else {
           const want = (window.SURGE_WORLDS && (def.dim || dimIndex))
             ? (def.dim === 1 || (!def.dim && dimIndex === 1) ? def.events.length : window.SURGE_WORLDS.trapCount(def.dim || dimIndex))
@@ -12696,6 +13126,20 @@
       }
     }
     return { ix, jump };
+  }
+
+  // Trailer-only. Same route as the playtest brain, plus a dash when the gap is wide.
+  function trailerThink() {
+    const base = botThink();
+    let dash = false;
+    if (dimIndex >= 3 && base.jump && dashCool <= 0 && dashT <= 0) {
+      const px = player.x + player.w / 2;
+      const dir = base.ix || player.facing || 1;
+      const feet = player.y + player.h + 1;
+      const far = tileAt(px + dir * 64, feet);
+      if (!isSolid(far) && far !== "i") dash = true;
+    }
+    return { ix: base.ix, jump: !!base.jump, dash };
   }
 
   function playtestLevel(i, maxFrames) {
@@ -12886,18 +13330,25 @@
     const prev = localStorage.getItem(SAVE_KEY);
     const payload = "<img src=x onerror=alert(1)>";
     try {
+      if (!G.locks || G.locks.length !== 50) fails.push("lock count " + (G.locks && G.locks.length));
+      const lockFails = G.lockCheck();
+      if (lockFails.length) fails.push("locks " + lockFails.join(","));
+      if (!G.cheatQuery("#unlock") || !G.cheatQuery("?all=1") || G.cheatQuery("#play")) {
+        fails.push("cheat url miss");
+      }
       localStorage.setItem(SAVE_KEY, JSON.stringify({
         unlockedDim: 20,
         bestDeaths: 1,
         runs: 1,
       }));
       const legacy = loadSave();
-      if (legacy.unlockedDim !== 20 || legacy.bestDeaths !== 1) fails.push("legacy save was not migrated");
+      if (legacy.unlockedDim || legacy.bestDeaths || legacy.runs) fails.push("unsigned save was accepted");
       const legacySealed = localStorage.getItem(SAVE_KEY) || "";
-      if (legacySealed.indexOf('"m"') < 0) fails.push("legacy save was not resealed");
+      if (legacySealed.indexOf('"m"') < 0) fails.push("unsigned save was not replaced");
+      if (legacySealed.indexOf('"unlockedDim"') >= 0) fails.push("unsigned unlock persisted");
       if (G.openProgress(JSON.stringify({ unlockedDim: 9 })).unlockedDim) fails.push("raw unsigned open accepted");
       const merged = writeSave({
-        unlockedDim: 3,
+        unlockedDim: 20,
         lastDim: 3,
         lastRoom: 2,
         bestDeaths: 7,
@@ -12908,11 +13359,15 @@
         dimRecords: { 3: { bestDeaths: 7, bestTime: 90, shards: 1 } },
       });
       const kept = loadSave();
-      if (merged.unlockedDim !== 3 || kept.unlockedDim !== 3 || kept.lastRoom !== 2 || kept.bestDeaths !== 7) {
+      if (merged.unlockedDim !== 2 || kept.unlockedDim !== 2 || kept.lastRoom !== 2 || kept.bestDeaths !== 7) {
         fails.push("sealed save damaged");
       }
-      if (!kept.rooms || kept.rooms[1] !== 15 || kept.rooms[3] !== 2) fails.push("rooms damaged");
-      if (!kept.dimRecords || !kept.dimRecords[3] || kept.dimRecords[3].shards !== 1) fails.push("records damaged");
+      if (!kept.rooms || kept.rooms[1] !== 1 || kept.rooms[3]) fails.push("rooms jumped");
+      if (kept.runs !== 1 || kept.clears !== 1) fails.push("counters jumped");
+      if (kept.dimRecords && kept.dimRecords[3]) fails.push("locked dim record kept");
+      const stepped = writeSave({ unlockedDim: 3, rooms: { 1: 2 }, dimRecords: { 2: { bestDeaths: 7, bestTime: 90, shards: 1 } } });
+      if (stepped.unlockedDim !== 3 || !stepped.rooms || stepped.rooms[1] !== 2) fails.push("legal step blocked");
+      if (!stepped.dimRecords || !stepped.dimRecords[2] || stepped.dimRecords[2].shards !== 1) fails.push("records damaged");
       const sealed = localStorage.getItem(SAVE_KEY) || "";
       if (sealed.indexOf('"m"') < 0) fails.push("save was stored without a seal");
       localStorage.setItem(SAVE_KEY, sealed.replace('"unlockedDim":3', '"unlockedDim":20'));
@@ -12926,7 +13381,7 @@
         + "\"__proto__\":{\"polluted\":true}"
         + "}");
       const save = loadSave();
-      if (save.unlockedDim !== 4) fails.push("legacy unlock was not migrated");
+      if (save.unlockedDim) fails.push("poisoned unlock was accepted");
       if (typeof save.bestDeaths !== "undefined") fails.push("string bestDeaths kept");
       if (save.dimRecords && save.dimRecords[1] && Object.prototype.hasOwnProperty.call(save.dimRecords[1], "bestDeaths")) {
         fails.push("html deaths kept");
@@ -12936,7 +13391,7 @@
       if (stored.indexOf("<") >= 0 || stored.indexOf("onerror") >= 0 || stored.indexOf("__proto__") >= 0) {
         fails.push("poison persisted");
       }
-      if (stored.indexOf('"m"') < 0) fails.push("poisoned legacy was not resealed");
+      if (stored.indexOf('"m"') < 0) fails.push("poisoned save was not replaced");
       fillLevelGrid();
       const grid = document.getElementById("level-grid");
       const bag = [];
@@ -12964,62 +13419,23 @@
     return fails;
   }
 
-  if (window.__SURGE_TEST__) {
-    window.__GAME = {
+  const gameApi = window.__SURGE_TEST__
+    ? {
       hold, keys, player, world, loadLevel, startGame, enterDimension, step, die, winLevel,
       runAction, matchEvent, tileAt, isSolid, setTiles, parseSol, deathKind,
       unitTests, smokeAllLevels, playtestLevel, playtestAll, playSolLevel, playSolAll,
       searchSol, searchSolAll, runSelfTest, playCustom, quitToTitle, setMode, securitySelfTest,
       get mode() { return mode; },
       get creatorPlay() { return creatorPlay; },
-    };
-  } else {
-    window.__GAME = Object.freeze({ setMode: setMode, playCustom: playCustom });
+    }
+    : Object.freeze({ setMode: setMode, playCustom: playCustom });
+  try {
+    Object.defineProperty(window, "__GAME", { value: gameApi, writable: false, configurable: false });
+  } catch (_) {
+    window.__GAME = gameApi;
   }
 
-  function unlockAllLocal() {
-    const rooms = {};
-    for (let d = 1; d <= 20; d++) {
-      const n = window.SURGE_WORLDS && window.SURGE_WORLDS.roomCount
-        ? window.SURGE_WORLDS.roomCount(d)
-        : 15 + d + (d === 1 ? 1 : 0);
-      rooms[d] = n - 1;
-    }
-    writeSave({ unlockedDim: 20, unlocked: 40, rooms, lastDim: 1, lastRoom: 0 });
-    refreshRecords();
-    // Only rebuild the worlds list if it's on screen. Reloading #unlock used to
-    // thrash the DOM and leave extra game tabs spinning at 60fps.
-    if (mode === "levels" && levelsScreen && !levelsScreen.classList.contains("hidden")) {
-      fillLevelGrid();
-    }
-    if (typeof history !== "undefined" && history.replaceState && /#unlock\b/.test(String(location.hash || ""))) {
-      try {
-        history.replaceState(null, "", location.pathname + location.search);
-      } catch (_) { /* ignore */ }
-    }
-  }
-
-  function unlockFirstBossLocal() {
-    const n = window.SURGE_WORLDS && window.SURGE_WORLDS.roomCount
-      ? window.SURGE_WORLDS.roomCount(1)
-      : 17;
-    const boss = Math.max(0, n - 1);
-    writeSave({
-      unlockedDim: 1,
-      unlocked: boss,
-      rooms: { 1: boss },
-      lastDim: 1,
-      lastRoom: boss,
-    });
-    refreshRecords();
-    if (mode === "levels" && levelsScreen && !levelsScreen.classList.contains("hidden")) {
-      fillLevelGrid();
-    }
-  }
-
-  window.SURGE_PLAY = {
-    unlockAll() { unlockAllLocal(); return true; },
-    unlockFirstBoss() { unlockFirstBossLocal(); return true; },
+  const playApi = Object.freeze({
     audioOn() { audio.unlock(); },
     audioLive() { return !!(audio.ctx && audio.ctx.state === "running"); },
     hush(quiet) {
@@ -13093,6 +13509,9 @@
       botJump = !!jump;
       hold.dash = !!dash;
     },
+    brain() {
+      return trailerThink();
+    },
     still() {
       useBot = false;
       botIx = 0;
@@ -13132,20 +13551,19 @@
       audio.restartMusic();
       quitToTitle();
     },
-  };
+  });
+  try {
+    Object.defineProperty(window, "SURGE_PLAY", { value: playApi, writable: false, configurable: false });
+  } catch (_) {
+    window.SURGE_PLAY = playApi;
+  }
 
   refreshRecords();
   if (typeof location !== "undefined") {
     const qh = String(location.search || "") + String(location.hash || "");
-    const wantUnlock = /(?:\?|&|#)(?:unlock|all)=?1?\b/.test(qh) || /#unlock\b/.test(String(location.hash || ""));
-    const wantBoss1 = /(?:\?|&|#)(?:boss1|d1bossunlock)\b/.test(qh);
-    if (wantBoss1) unlockFirstBossLocal();
-    else if (wantUnlock) unlockAllLocal();
-    if (/#d1boss\b/.test(String(location.hash || "")) && !wantBoss1) {
-      setTimeout(() => enterDimension(1, 16), 40);
-    }
-    if ((wantBoss1 || wantUnlock) && typeof history !== "undefined" && history.replaceState) {
-      try { history.replaceState(null, "", location.pathname + location.search.replace(/[?&](?:unlock|all|boss1|d1bossunlock)=?1?\b/g, "").replace(/^&/, "?").replace(/\?$/, "")); } catch (_) { /* ignore */ }
+    const G = window.SURGE_GUARD;
+    if (G && G.cheatQuery && G.cheatQuery(qh) && typeof history !== "undefined" && history.replaceState) {
+      try { history.replaceState(null, "", location.pathname); } catch (_) { /* ignore */ }
     }
   }
   requestAnimationFrame(loop);

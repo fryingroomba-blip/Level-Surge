@@ -481,9 +481,11 @@
     throw new Error("sha256");
   }
 
-  function pageMayPersist() {
-    let loc = null;
-    try { loc = root.location; } catch (_) { return true; }
+  function pageMayPersist(passed) {
+    let loc = passed;
+    if (loc === undefined) {
+      try { loc = root.location; } catch (_) { return true; }
+    }
     if (!loc || loc.pathname == null || loc.pathname === "") return true;
     const p = String(loc.pathname);
     const host = loc.hostname != null ? String(loc.hostname) : "";
@@ -545,45 +547,350 @@
     return data.rooms || [];
   }
 
-  /* Game read path: valid seal wins; else one-time migrate pre-guard JSON.
-     Tampered seals are never treated as legacy. */
+  const CHEAT_URL = /(?:^|[?&#])(?:unlock|all|boss1|d1bossunlock|preview|d1boss)(?:=|[&#]|$)/i;
+  const MODES = { title: 1, levels: 1, play: 1, pause: 1, creator: 1, clear: 1, win: 1, settings: 1, sideshow: 1 };
+  const DANGER_TAGS = { IFRAME: 1, FRAME: 1, OBJECT: 1, EMBED: 1, SCRIPT: 1, BASE: 1 };
+  const SHA_PIN = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+  const LOCK_IDS = [
+    "frame", "proto-key", "oversize", "save-shape", "dim-bounds",
+    "room-bounds", "death-bounds", "time-bounds", "counter-bounds", "dim-key",
+    "label-plain", "tile", "action", "if-key", "queue-depth",
+    "event-cap", "room-cap", "action-count", "number-bounds", "seal-shape",
+    "mac-match", "own-page", "no-unsigned-progress", "no-unsigned-rooms", "cheat-url",
+    "mode", "bind-code", "mind-stat", "mind-key", "mute-flag",
+    "step-clock", "dim-climb", "counter-climb", "room-climb", "danger-tag",
+    "script-inject", "base-tag", "on-attr", "js-url", "null-byte",
+    "finite", "array-save", "id-charset", "say-cap", "purpose-match",
+    "sha-pin", "hmac-len", "shard-cap", "duplicate-room", "custom-isolated",
+  ];
+
+  function allow(id, v) {
+    switch (id) {
+      case "frame": return v !== true;
+      case "proto-key": return v !== "__proto__" && v !== "prototype" && v !== "constructor";
+      case "oversize": return String(v == null ? "" : v).length <= MAX_JSON;
+      case "save-shape": return !!v && typeof v === "object" && !Array.isArray(v);
+      case "dim-bounds": return intIn(v, 1, 20) != null;
+      case "room-bounds": return intIn(v, 0, 40) != null;
+      case "death-bounds": return intIn(v, 0, 1000000) != null;
+      case "time-bounds": return intIn(v, 0, 1000000) != null;
+      case "counter-bounds": return intIn(v, 0, 10000000) != null;
+      case "dim-key": return typeof v === "string" && /^(?:[1-9]|1\d|20)$/.test(v);
+      case "label-plain":
+        return typeof v === "string" && v.indexOf("<") < 0 && v.indexOf(">") < 0 && plainLabel(v, 80) === v;
+      case "tile": return TILES.has(v);
+      case "action": return ACTIONS.has(v);
+      case "if-key": return IF_KEYS.has(v);
+      case "queue-depth": return typeof v === "number" && v < MAX_DEPTH;
+      case "event-cap": return typeof v === "number" && v <= MAX_EVENTS;
+      case "room-cap": return typeof v === "number" && v <= MAX_ROOMS;
+      case "action-count": return typeof v === "number" && v <= MAX_ACTIONS;
+      case "number-bounds": return numIn(v, -8, 96) != null;
+      case "seal-shape": return !!(v && v.v === 1 && typeof v.m === "string" && v.d && typeof v.d === "object");
+      case "mac-match": return !!(v && macEqual(v.a, v.b));
+      case "own-page": return pageMayPersist(v);
+      case "no-unsigned-progress":
+      case "no-unsigned-rooms": {
+        if (v == null || v === "") return true;
+        const raw = parseStore(v);
+        return !!(raw && raw.v === 1 && typeof raw.m === "string" && raw.d && typeof raw.d === "object");
+      }
+      case "cheat-url": return !CHEAT_URL.test(String(v || ""));
+      case "mode": return MODES[v] === 1;
+      case "bind-code": return typeof v === "string" && /^[A-Za-z0-9]{1,24}$/.test(v);
+      case "mind-stat": return numIn(v, 0, 8) != null;
+      case "mind-key": return typeof v === "string" && /^[a-z0-9-]{1,16}$/.test(v);
+      case "mute-flag": return v === "0" || v === "1";
+      case "step-clock": return typeof v === "number" && v > 0 && v <= 0.05;
+      case "dim-climb":
+      case "counter-climb":
+      case "room-climb":
+        return !!v && typeof v.prev === "number" && typeof v.next === "number"
+          && v.next >= v.prev && v.next <= v.prev + 1;
+      case "danger-tag": return !DANGER_TAGS[v];
+      case "script-inject": return v !== "SCRIPT";
+      case "base-tag": return v !== "BASE";
+      case "on-attr": return typeof v === "string" && v.slice(0, 2).toLowerCase() !== "on";
+      case "js-url": return typeof v !== "string" || !/^javascript:/i.test(v.trim());
+      case "null-byte": return String(v == null ? "" : v).indexOf("\u0000") < 0;
+      case "finite": return typeof v === "number" && Number.isFinite(v);
+      case "array-save": return !!v && typeof v === "object" && !Array.isArray(v);
+      case "id-charset": return typeof v === "string" && /^[a-zA-Z0-9_-]{1,40}$/.test(v);
+      case "say-cap": return typeof v === "string" && v.length <= 48;
+      case "purpose-match": return !!(v && v.want === v.got && (v.want === "progress" || v.want === "rooms" || v.want === "mind" || v.want === "binds"));
+      case "sha-pin": return v === SHA_PIN;
+      case "hmac-len": return typeof v === "string" && /^[0-9a-f]{64}$/.test(v);
+      case "shard-cap": return intIn(v, 0, 1000000) != null;
+      case "duplicate-room": {
+        if (!Array.isArray(v)) return false;
+        const seen = {};
+        for (let i = 0; i < v.length; i++) {
+          if (seen[v[i]]) return false;
+          seen[v[i]] = 1;
+        }
+        return true;
+      }
+      case "custom-isolated": return v === true;
+      default: return false;
+    }
+  }
+
+  function lockCheck() {
+    const samples = {
+      frame: [false, true],
+      "proto-key": ["unlockedDim", "__proto__"],
+      oversize: ["{}", "x".repeat(MAX_JSON + 1)],
+      "save-shape": [{ unlockedDim: 1 }, ["unlockedDim"]],
+      "dim-bounds": [2, 21],
+      "room-bounds": [3, 41],
+      "death-bounds": [4, -1],
+      "time-bounds": [9, 1000001],
+      "counter-bounds": [1, Infinity],
+      "dim-key": ["20", "21"],
+      "label-plain": ["DON'T STOP", "<img src=x>"],
+      tile: ["#", "Z"],
+      action: ["shake", "eval"],
+      "if-key": ["x", "hack"],
+      "queue-depth": [2, 3],
+      "event-cap": [64, 65],
+      "room-cap": [40, 41],
+      "action-count": [8, 9],
+      "number-bounds": [4, 97],
+      "seal-shape": [{ v: 1, m: "ab", d: { a: 1 } }, { unlockedDim: 20 }],
+      "mac-match": [{ a: "aa", b: "aa" }, { a: "aa", b: "ab" }],
+      "own-page": [
+        { hostname: "127.0.0.1", pathname: "/", protocol: "http:" },
+        { hostname: "evil.example", pathname: "/other/index.html", protocol: "https:" },
+      ],
+      "no-unsigned-progress": ['{"v":1,"d":{"unlockedDim":1},"m":"ab"}', '{"unlockedDim":20}'],
+      "no-unsigned-rooms": ['{"v":1,"d":{"rooms":[]},"m":"ab"}', '{"rooms":[{"name":"X"}]}'],
+      "cheat-url": ["#play", "#unlock"],
+      mode: ["play", "god"],
+      "bind-code": ["KeyA", "Key<script>"],
+      "mind-stat": [1.5, 9],
+      "mind-key": ["saw", "__proto__"],
+      "mute-flag": ["1", "true"],
+      "step-clock": [0.016, 2],
+      "dim-climb": [{ prev: 1, next: 2 }, { prev: 1, next: 20 }],
+      "counter-climb": [{ prev: 3, next: 4 }, { prev: 3, next: 9 }],
+      "room-climb": [{ prev: 4, next: 5 }, { prev: 4, next: 16 }],
+      "danger-tag": ["DIV", "IFRAME"],
+      "script-inject": ["CANVAS", "SCRIPT"],
+      "base-tag": ["LINK", "BASE"],
+      "on-attr": ["class", "onclick"],
+      "js-url": ["/index.html", "javascript:alert(1)"],
+      "null-byte": ["room", "a\u0000b"],
+      finite: [1, Infinity],
+      "array-save": [{ a: 1 }, []],
+      "id-charset": ["room-1", "<id>"],
+      "say-cap": ["hello", "x".repeat(49)],
+      "purpose-match": [{ want: "progress", got: "progress" }, { want: "progress", got: "rooms" }],
+      "sha-pin": [SHA_PIN, "00"],
+      "hmac-len": [SHA_PIN, "abcd"],
+      "shard-cap": [2, 1000001],
+      "duplicate-room": [["a", "b"], ["a", "a"]],
+      "custom-isolated": [true, false],
+    };
+    const bad = [];
+    if (LOCK_IDS.length !== 50) bad.push("count");
+    for (let i = 0; i < LOCK_IDS.length; i++) {
+      const id = LOCK_IDS[i];
+      const pair = samples[id];
+      if (!pair || !allow(id, pair[0]) || allow(id, pair[1])) bad.push(id);
+    }
+    return bad;
+  }
+
+  function climbTo(prev, next) {
+    const was = prev || 0;
+    let n = next == null ? was : next;
+    if (n > was + 1) n = was + 1;
+    if (n < was) n = was;
+    return n;
+  }
+
+  function capProgress(prevRaw, nextRaw) {
+    const prev = sanitizeSave(prevRaw || {});
+    const next = sanitizeSave(nextRaw || {});
+    const prevDim = prev.unlockedDim || 1;
+    let dim = next.unlockedDim == null ? prevDim : next.unlockedDim;
+    if (!allow("dim-climb", { prev: prevDim, next: dim })) {
+      note("climb");
+      if (dim > prevDim + 1) dim = prevDim + 1;
+      if (dim < prevDim) dim = prevDim;
+    }
+    const out = { unlockedDim: dim };
+    if (next.lastDim != null) out.lastDim = Math.max(1, Math.min(dim, next.lastDim));
+    else if (prev.lastDim != null) out.lastDim = Math.min(dim, prev.lastDim);
+    if (next.lastRoom != null) out.lastRoom = next.lastRoom;
+    else if (prev.lastRoom != null) out.lastRoom = prev.lastRoom;
+    ["runs", "clears", "unlocked"].forEach(function (key) {
+      const was = prev[key] || 0;
+      const asked = next[key] == null ? was : next[key];
+      if (!allow("counter-climb", { prev: was, next: asked })) note("climb");
+      const n = climbTo(was, asked);
+      if (n || key === "unlocked") out[key] = n;
+    });
+    if (next.bestDeaths != null) {
+      out.bestDeaths = prev.bestDeaths == null ? next.bestDeaths : Math.min(prev.bestDeaths, next.bestDeaths);
+    } else if (prev.bestDeaths != null) out.bestDeaths = prev.bestDeaths;
+    if (next.bestTime != null) {
+      out.bestTime = prev.bestTime == null ? next.bestTime : Math.min(prev.bestTime, next.bestTime);
+    } else if (prev.bestTime != null) out.bestTime = prev.bestTime;
+    const rooms = {};
+    const roomKeys = {};
+    Object.keys(prev.rooms || {}).forEach(function (k) { roomKeys[k] = 1; });
+    Object.keys(next.rooms || {}).forEach(function (k) { roomKeys[k] = 1; });
+    Object.keys(roomKeys).forEach(function (k) {
+      if (!allow("dim-key", k) || +k > dim) return;
+      const was = (prev.rooms && prev.rooms[k]) || 0;
+      const asked = next.rooms && next.rooms[k] != null ? next.rooms[k] : was;
+      if (!allow("room-climb", { prev: was, next: asked })) note("climb");
+      rooms[k] = climbTo(was, asked);
+    });
+    out.rooms = rooms;
+    const rec = {};
+    const recKeys = {};
+    Object.keys(prev.dimRecords || {}).forEach(function (k) { recKeys[k] = 1; });
+    Object.keys(next.dimRecords || {}).forEach(function (k) { recKeys[k] = 1; });
+    Object.keys(recKeys).forEach(function (k) {
+      if (!allow("dim-key", k) || +k > dim) return;
+      const a = (prev.dimRecords && prev.dimRecords[k]) || {};
+      const b = (next.dimRecords && next.dimRecords[k]) || {};
+      const item = {};
+      const bd = b.bestDeaths != null ? b.bestDeaths : a.bestDeaths;
+      const bt = b.bestTime != null ? b.bestTime : a.bestTime;
+      const sh = b.shards != null ? b.shards : a.shards;
+      if (bd != null) item.bestDeaths = a.bestDeaths == null ? bd : Math.min(a.bestDeaths, bd);
+      if (bt != null) item.bestTime = a.bestTime == null ? bt : Math.min(a.bestTime, bt);
+      if (sh != null) item.shards = a.shards == null ? sh : Math.max(a.shards, sh);
+      if (!allow("shard-cap", item.shards == null ? 0 : item.shards)) return;
+      if (item.bestDeaths != null || item.bestTime != null || item.shards != null) rec[k] = item;
+    });
+    out.dimRecords = rec;
+    return sanitizeSave(out);
+  }
+
+  function sanitizeMind(raw) {
+    const out = { dash: 0, jump: 0, rush: 0, camp: 0, ground: 0, deaths: {} };
+    if (!allow("save-shape", raw)) return out;
+    ["dash", "jump", "rush", "camp", "ground"].forEach(function (k) {
+      const n = Number(raw[k]);
+      if (!allow("mind-stat", n)) note("mind-drop");
+      else out[k] = n;
+    });
+    if (raw.deaths && typeof raw.deaths === "object" && !Array.isArray(raw.deaths)) {
+      Object.keys(raw.deaths).forEach(function (k) {
+        if (!allow("mind-key", k)) {
+          note("mind-drop");
+          return;
+        }
+        const n = intIn(Number(raw.deaths[k]), 1, 40);
+        if (n == null) note("mind-drop");
+        else out.deaths[k] = n;
+      });
+    }
+    return out;
+  }
+
+  function sanitizeBinds(raw) {
+    const out = {};
+    if (!allow("save-shape", raw)) return out;
+    Object.keys(raw).forEach(function (k) {
+      if (!allow("mind-key", k) && !/^[a-z]{1,16}$/.test(k)) return;
+      const list = raw[k];
+      if (!Array.isArray(list)) return;
+      const clean = [];
+      for (let i = 0; i < list.length && clean.length < 3; i++) {
+        if (allow("bind-code", list[i])) clean.push(list[i]);
+        else note("bind-drop");
+      }
+      if (clean.length) out[k] = clean;
+    });
+    return out;
+  }
+
+  function packBlob(purpose, body) {
+    if (!allow("purpose-match", { want: purpose, got: purpose })) return null;
+    if (purpose !== "mind" && purpose !== "binds") return null;
+    return packSealed(purpose, purpose === "mind" ? sanitizeMind(body) : sanitizeBinds(body));
+  }
+
+  function openBlob(purpose, text) {
+    if (purpose !== "mind" && purpose !== "binds") return null;
+    if (text == null || text === "") return purpose === "mind" ? sanitizeMind(null) : sanitizeBinds(null);
+    return openSealed(text, purpose, purpose === "mind" ? sanitizeMind : sanitizeBinds);
+  }
+
   function readProgress(text) {
     if (text == null || text === "") {
       return { data: {}, encoded: packProgress({}), legacy: false, ok: true };
     }
+    if (!allow("no-unsigned-progress", text)) {
+      note("seal");
+      return { data: {}, encoded: packProgress({}), legacy: false, ok: false };
+    }
     const sealed = openProgress(text);
-    if (sealed && typeof sealed === "object" && Object.keys(sealed).length) {
-      return { data: sealed, encoded: packProgress(sealed), legacy: false, ok: true };
-    }
-    const raw = parseStore(text);
-    if (isLegacyEnvelope(raw)) {
-      const data = sanitizeSave(raw);
-      return { data: data, encoded: packProgress(data), legacy: true, ok: true };
-    }
-    return { data: {}, encoded: packProgress({}), legacy: false, ok: false };
+    return { data: sealed || {}, encoded: packProgress(sealed || {}), legacy: false, ok: true };
   }
 
   function readRooms(text) {
     if (text == null || text === "") {
       return { rooms: [], encoded: packRooms([]), legacy: false, ok: true };
     }
-    const sealed = openRooms(text);
-    if (sealed && sealed.length) {
-      return { rooms: sealed, encoded: packRooms(sealed), legacy: false, ok: true };
+    if (!allow("no-unsigned-rooms", text)) {
+      note("seal");
+      return { rooms: [], encoded: packRooms([]), legacy: false, ok: false };
     }
-    const raw = parseStore(text);
-    if (isLegacyEnvelope(raw)) {
-      const rooms = sanitizeRooms(raw.rooms);
-      return { rooms: rooms, encoded: packRooms(rooms), legacy: true, ok: true };
-    }
-    if (Array.isArray(raw)) {
-      const rooms = sanitizeRooms(raw);
-      return { rooms: rooms, encoded: packRooms(rooms), legacy: true, ok: true };
-    }
-    return { rooms: [], encoded: packRooms([]), legacy: false, ok: false };
+    const rooms = openRooms(text);
+    return { rooms: rooms || [], encoded: packRooms(rooms || []), legacy: false, ok: true };
   }
 
-  root.SURGE_GUARD = {
+  function scrubNode(node) {
+    if (!node || node.nodeType !== 1) return;
+    const tag = String(node.tagName || "");
+    if (!allow("danger-tag", tag) || !allow("script-inject", tag) || !allow("base-tag", tag)) {
+      note("inject");
+      if (node.parentNode) node.parentNode.removeChild(node);
+      return;
+    }
+    const attrs = node.attributes;
+    if (!attrs) return;
+    for (let i = attrs.length - 1; i >= 0; i--) {
+      const attr = attrs[i];
+      const name = attr && attr.name ? String(attr.name) : "";
+      const value = attr && attr.value ? String(attr.value) : "";
+      if (!allow("on-attr", name) || !allow("js-url", value)) {
+        note("inject");
+        node.removeAttribute(name);
+      }
+    }
+  }
+
+  function bootWatch() {
+    let doc = null;
+    try { doc = root.document; } catch (_) { return; }
+    if (!doc || !doc.documentElement || typeof root.MutationObserver !== "function") return;
+    let watch = null;
+    // Arm after the page's own scripts have run. Starting during parse
+    // removes those script tags before the browser fetches them.
+    const arm = function () {
+      if (watch) return;
+      try {
+        watch = new root.MutationObserver(function (records) {
+          for (let i = 0; i < records.length; i++) {
+            const added = records[i].addedNodes || [];
+            for (let n = 0; n < added.length; n++) scrubNode(added[n]);
+          }
+        });
+        watch.observe(doc.documentElement, { childList: true, subtree: true, attributes: true });
+      } catch (_) { /* observer unsupported */ }
+    };
+    if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", arm);
+    else arm();
+  }
+
+  const api = Object.freeze({
     parseStore: parseStore,
     sanitizeSave: sanitizeSave,
     sanitizeRoom: sanitizeRoom,
@@ -595,7 +902,23 @@
     openRooms: openRooms,
     readProgress: readProgress,
     readRooms: readRooms,
+    allow: allow,
+    locks: LOCK_IDS.slice(),
+    lockCheck: lockCheck,
+    capProgress: capProgress,
+    sanitizeMind: sanitizeMind,
+    sanitizeBinds: sanitizeBinds,
+    packBlob: packBlob,
+    openBlob: openBlob,
+    cheatQuery: function (s) { return !allow("cheat-url", s); },
+    scrubNode: scrubNode,
     auditLog: function () { return audit.map(function (e) { return { code: e.code, t: e.t }; }); },
     clearAudit: function () { audit.length = 0; },
-  };
+  });
+  try {
+    Object.defineProperty(root, "SURGE_GUARD", { value: api, writable: false, configurable: false });
+  } catch (_) {
+    root.SURGE_GUARD = api;
+  }
+  bootWatch();
 })(typeof window !== "undefined" ? window : globalThis);

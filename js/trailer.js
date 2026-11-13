@@ -8,28 +8,29 @@
   const canvas = document.getElementById("game");
   if (!PLAY || !lineEl || !skipEl || !cardEl || !canvas) return;
 
-  const DASH = "I should have given you dash in world 1.";
-
-  // Cold open → betrayals → worlds → Null → title. Smash cuts, not a full run.
+  // Real rooms. Lines are me talking about the game — not leftover room taunts.
   const shots = [
-    { id: "cold", dim: 1, room: 0, sol: "R70 JR14 R90", dur: 3.4, min: 1.4, hold: 0.48, voice: "taunt", roast: true, lineAt: 0.28 },
-    { id: "blink1", card: "black", dur: 0.22, hush: true },
-    { id: "open", dim: 1, room: 0, lock: true, dur: 2.6, min: 1.8, quiet: true, voice: "line", line: "I learned your name. Sorry.", lineAt: 0.55 },
-    { id: "blink2", card: "black", dur: 0.18, hush: true },
-    { id: "knock", dim: 1, room: 2, sol: "R55 JR16 R48 JR16 R160", dur: 4.6, min: 2.6, until: "fake", hold: 0.55, voice: "taunt", roast: true },
-    { id: "yeet", dim: 1, room: 8, sol: "R110", dur: 1.55, min: 0.9, hold: 0.4, voice: "taunt", roast: true },
-    { id: "up", dim: 1, room: 9, sol: "R36 JR20 R130", dur: 2.5, min: 1.5, hold: 0.42, voice: "taunt" },
-    { id: "back", dim: 1, room: 5, sol: "R36 JR14 R100", dur: 2.4, min: 1.5, hold: 0.42, voice: "taunt" },
-    { id: "fall", dim: 1, room: 11, sol: "W28 R170", dur: 3.2, min: 1.3, winHold: 0.32, voice: "taunt" },
-    { id: "blink3", card: "black", dur: 0.2, hush: true },
-    { id: "ash", dim: 2, room: 0, sol: "W18 R85", dur: 1.7, min: 1.05, hold: 0.32, voice: "lore", lineAt: 0.2 },
-    { id: "frost", dim: 3, room: 0, sol: "W12 R18 D1 R70", dur: 2.0, min: 1.35, hold: 0.32, voice: "dash", lineAt: 0.18 },
-    { id: "hunger", dim: 12, room: 0, sol: "W16 R80", dur: 1.55, min: 1.0, hold: 0.28, voice: "lore", lineAt: 0.18 },
-    { id: "last", dim: 20, room: 0, sol: "R100", dur: 1.55, min: 0.95, hold: 0.28, voice: "lore", lineAt: 0.16 },
-    { id: "cut", card: "black", dur: 0.38, hush: true },
-    { id: "boss", dim: 1, room: 16, sol: "W40 R30 W90 L20 W70", dur: 6.2, min: 4.0, quiet: true, intro: 0, hold: 0.55, voice: "line", line: "I made the floor lie.", lineAt: 1.1 },
-    { id: "out", card: "black", dur: 0.32, hush: true },
-    { id: "title", card: "title", dur: 4.2, min: 1.6, hush: true },
+    { id: "in", card: "black", dur: 0.45, hush: true },
+    { id: "trust", dim: 1, room: 0, bot: true, dur: 7, min: 1.3, hold: 1.25, voice: "line", line: "I made the floor lie.", lineAt: 0.4 },
+    { id: "jump", dim: 1, room: 1, bot: true, dur: 7, min: 1.2, hold: 1.2, voice: "line", line: "Every jump is a dare.", lineAt: 0.35 },
+    { id: "wait", dim: 1, room: 3, bot: true, dur: 12, min: 2.2, winHold: 1.55, voice: "line", line: "Waiting is how I get you.", lineAt: 0.45, winLine: "You waited. I hate that." },
+    { id: "knock", dim: 1, room: 2, bot: true, dur: 7, min: 1.2, hold: 1.35, voice: "line", line: "I made the door lie too.", lineAt: 0.3 },
+    { id: "shiny", dim: 1, room: 4, bot: true, dur: 9, min: 2, winHold: 1.45, voice: "line", line: "Pretty things are bait.", lineAt: 0.35, winLine: "The shiny ones were a rumor." },
+    { id: "yeet", dim: 1, room: 8, bot: true, dur: 7, min: 1.15, hold: 1.2, voice: "line", line: "Physics works for me.", lineAt: 0.3 },
+    { id: "back", dim: 1, room: 5, bot: true, dur: 7, min: 1.2, hold: 1.2, voice: "line", line: "Left is a rumor now.", lineAt: 0.3 },
+    { id: "gap1", card: "black", dur: 0.28, hush: true },
+    { id: "ash", dim: 2, room: 0, bot: true, dur: 8, min: 1.4, hold: 1.2, voice: "line", line: "Twenty dimensions. They get meaner.", lineAt: 0.35 },
+    { id: "frost", dim: 3, room: 2, bot: true, dur: 8, min: 1.35, hold: 1.2, voice: "line", line: "Dash starts in world 3. Sorry.", lineAt: 0.28 },
+    { id: "come", dim: 1, room: 10, bot: true, dur: 9, min: 1.8, winHold: 1.45, voice: "line", line: "World 1 I built by hand.", lineAt: 0.35, winLine: "You came back." },
+    { id: "through", dim: 1, room: 14, bot: true, dur: 9, min: 1.8, winHold: 1.45, voice: "line", line: "Walls are optional. I checked.", lineAt: 0.35, winLine: "The wall was paint." },
+    { id: "gap2", card: "black", dur: 0.28, hush: true },
+    { id: "hunger", dim: 12, room: 0, bot: true, dur: 7, min: 1.2, hold: 1.15, voice: "line", line: "Later worlds stack traps on traps.", lineAt: 0.25 },
+    { id: "last", dim: 20, room: 0, bot: true, dur: 6, min: 1.05, hold: 1.15, voice: "line", line: "Last Light. I'm a little scared too.", lineAt: 0.22 },
+    { id: "stop", dim: 1, room: 12, bot: true, dur: 9, min: 1.8, winHold: 1.5, voice: "line", line: "Standing still is dying.", lineAt: 0.35, winLine: "You didn't stop." },
+    { id: "gap3", card: "black", dur: 0.34, hush: true },
+    { id: "boss", dim: 1, room: 16, bot: true, dur: 18, min: 5, intro: 0, hold: 1.45, voice: "line", line: "Then the boss steals your door.", lineAt: 0.8 },
+    { id: "out", card: "black", dur: 0.4, hush: true },
+    { id: "title", card: "title", dur: 5.4, min: 2.2, hush: true },
   ];
 
   let on = false;
@@ -226,12 +227,9 @@
     begin(next);
   }
 
-  function caption(shot, st) {
+  function caption(shot) {
     if (shot.voice === "line") return shot.line || "";
-    if (shot.voice === "taunt") return st.taunt || "";
-    if (shot.voice === "lore") return st.lore || "";
-    if (shot.voice === "dash") return DASH;
-    return "";
+    return shot.line || "";
   }
 
   function tick(dt) {
@@ -250,7 +248,10 @@
       return true;
     }
     if (shot.lock) PLAY.still();
-    else {
+    else if (shot.bot) {
+      const d = PLAY.brain();
+      PLAY.poke(d.ix, d.jump, d.dash);
+    } else {
       const d = drive();
       PLAY.poke(d.ix, d.jump, d.dash);
     }
@@ -270,9 +271,10 @@
     }
     const lineAt = shot.lineAt != null ? shot.lineAt : 0.32;
     const lineReady = shot.until === "fake" ? !!st.fake : elapsed >= lineAt;
-    if (shot.voice === "taunt" && st.dead && st.insult) show(st.insult, "insult");
+    if (st.win && shot.winLine) show(shot.winLine, "lore");
+    else if (st.dead && st.insult) show(st.insult, "insult");
     else if (!shot.voice || !lineReady) show("", "");
-    else show(caption(shot, st), shot.voice === "taunt" ? "taunt" : "lore");
+    else show(caption(shot), "lore");
     return false;
   }
 

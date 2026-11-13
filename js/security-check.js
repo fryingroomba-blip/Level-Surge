@@ -55,6 +55,9 @@ vm.createContext(sandbox);
 vm.runInContext(read("js/guard.js"), sandbox, { filename: "guard.js" });
 const G = sandbox.SURGE_GUARD;
 assert(G, "guard did not install");
+assert(G.locks && G.locks.length === 50, "expected 50 locks, got " + (G.locks && G.locks.length));
+assert(G.lockCheck().length === 0, "lockCheck failed: " + G.lockCheck().join(","));
+assert(G.cheatQuery("#unlock") && G.cheatQuery("?boss1=1") && !G.cheatQuery(""), "cheat urls were not classified");
 
 G.clearAudit();
 const parsed = G.parseStore('{"__proto__":{"polluted":true},"constructor":{"prototype":{"polluted":true}},"unlockedDim":5,"bestDeaths":"<img src=x onerror=alert(1)>"}');
@@ -171,8 +174,9 @@ assert(!G.openProgress('{"unlockedDim":20,"bestDeaths":1}').unlockedDim, "unsign
 const flipped = sealed.replace('"unlockedDim":2', '"unlockedDim":20');
 assert(!G.openProgress(flipped).unlockedDim, "edited seal was accepted");
 const migrated = G.readProgress('{"unlockedDim":5,"bestDeaths":2,"runs":1}');
-assert(migrated.legacy && migrated.data.unlockedDim === 5 && migrated.data.bestDeaths === 2, "legacy progress was not migrated");
-assert(migrated.encoded && migrated.encoded.indexOf('"m"') >= 0, "legacy progress was not resealed");
+assert(!migrated.ok && !migrated.legacy && !migrated.data.unlockedDim, "unsigned progress was accepted");
+assert(migrated.encoded && migrated.encoded.indexOf('"m"') >= 0, "unsigned progress was not replaced");
+assert(migrated.encoded.indexOf('"unlockedDim"') < 0, "unsigned unlock persisted");
 const tamperRead = G.readProgress(flipped);
 assert(!tamperRead.data.unlockedDim && !tamperRead.legacy, "tampered seal was migrated as legacy");
 const roomPack = G.packRooms([{ id: "ok", name: "DOOR", map: ["S"], events: [{ if: { x: 1 }, once: true, do: [["shake", 1]] }] }]);
@@ -280,10 +284,10 @@ assert(dom.__CREATOR && dom.__CREATOR.open, "creator did not boot");
 dom.__CREATOR.open();
 const library = els["creator-library"];
 let buttons = (library.children || []).filter(function (el) { return el.tagName === "BUTTON"; });
-assert(buttons.length === 1, "legacy creator room was not migrated");
+assert(buttons.length === 0, "unsigned creator room was shown");
 const storedUnsigned = store["level-surge-creator-v1"] || "";
 assert(storedUnsigned.indexOf("<") < 0, "poison markup persisted in creator storage");
-assert(storedUnsigned.indexOf('"m"') >= 0, "legacy creator room was not resealed");
+assert(storedUnsigned.indexOf('"m"') >= 0, "unsigned creator room was not replaced");
 buttons.forEach(function (btn) {
   assert(String(btn.innerHTML).indexOf("<") < 0, "migrated library button innerHTML contains markup");
 });

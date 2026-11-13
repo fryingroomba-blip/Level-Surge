@@ -757,9 +757,10 @@
 
   // One staircase the route cannot skip. Steps are one tile, treads are two,
   // which is the hop the physics already clears. Traps are kept off this span.
-  function shaftTerrain(d, room, r, kind) {
+  function shaftTerrain(d, room, r, kind, mind) {
     roomW = stageWidth(d);
     const W = roomW;
+    const adapt = mindPlan(d, mind);
     const bandLo = 8;
     const bandHi = W - 7;
     const band = bandHi - bandLo + 1;
@@ -792,7 +793,8 @@
     surface.roomH = low + 3;
     surface.shaft = kind;
 
-    if (r() < 0.55) {
+    const wantGap = adapt ? (adapt.counter.pit > 0 ? 0.72 : (adapt.habit === "jump" ? 0.35 : 0.55)) : 0.55;
+    if (r() < wantGap) {
       let runA = -1;
       let bestA = -1;
       let bestB = -1;
@@ -815,8 +817,9 @@
           runA = -1;
         }
       }
-      if (bestLen >= 8 && bestY >= 0) {
-        const gap = 2;
+      const needLen = adapt && adapt.counter.pad < 1 ? 6 : 8;
+      if (bestLen >= needLen && bestY >= 0) {
+        const gap = adapt && adapt.habit === "dash" ? 2 : 2;
         let at = bestA + 2 + ((r() * Math.max(1, bestLen - 4 - gap)) | 0);
         if (at + gap - 1 > bestB - 2) at = bestB - 1 - gap;
         const before = surface[at - 1];
@@ -844,13 +847,15 @@
     return surface;
   }
 
-  function terrain(d, room, r) {
+  function terrain(d, room, r, mind) {
     roomW = stageWidth(d);
     roomH = 12;
     const W = roomW;
     const surface = new Array(W);
     let y = 7 + (room % 3);
-    const pitChance = 0.06 + (room % 5) * 0.012 + (d >= 14 ? 0.04 : d >= 7 ? 0.02 : 0);
+    const adapt = mindPlan(d, mind);
+    let pitChance = 0.06 + (room % 5) * 0.012 + (d >= 14 ? 0.04 : d >= 7 ? 0.02 : 0);
+    if (adapt) pitChance += adapt.counter.pit || 0;
     for (let x = 0; x < W; x++) {
       if (x > 4 && x < W - 5 && r() < pitChance) {
         surface[x] = -1;
@@ -906,7 +911,9 @@
     }
     let runway = 8;
     for (let x = 7; x < 14; x++) if (surface[x] >= 0) { runway = surface[x]; break; }
-    for (let x = 0; x <= 6; x++) surface[x] = runway;
+    // Dash habit: shorter safe runway so a blind dash eats the first teeth.
+    const padEnd = adapt && adapt.counter.pad < 1 ? Math.max(4, Math.floor(6 * adapt.counter.pad)) : 6;
+    for (let x = 0; x <= padEnd; x++) surface[x] = runway;
     for (let x = 1; x < W - 1; x++) {
       if (surface[x] >= 0 || surface[x - 1] < 0) continue;
       let end = x;
@@ -1113,13 +1120,117 @@
     return out;
   }
 
-  function buildEvents(d, surface, boss, room) {
+  // Player habit profile. D15+ generation counters the strongest habit.
+  function blankMind() {
+    return { dash: 0, jump: 0, rush: 0, camp: 0, ground: 0, deaths: {} };
+  }
+
+  function mindDominant(mind) {
+    if (!mind || typeof mind !== "object") return "";
+    const keys = ["dash", "jump", "rush", "camp", "ground"];
+    let best = "";
+    let score = 0.42;
+    for (let i = 0; i < keys.length; i++) {
+      const v = +mind[keys[i]] || 0;
+      if (v > score) { score = v; best = keys[i]; }
+    }
+    return best;
+  }
+
+  function mindSalt(mind) {
+    const dom = mindDominant(mind);
+    if (!dom) return 0;
+    let h = 2166136261;
+    for (let i = 0; i < dom.length; i++) h = Math.imul(h ^ dom.charCodeAt(i), 16777619);
+    h ^= Math.floor((+mind[dom] || 0) * 997) >>> 0;
+    return h >>> 0;
+  }
+
+  // Families / rares that punish a habit. Caps still respect familyIntroDim.
+  const MIND_COUNTER = {
+    dash: { families: ["lock", "saw", "gate"], rares: ["sticky", "jumpCut", "clamp"], entities: ["crushBot", "sentry"], pit: 0.035, pad: 0.7, bounce: false, crumble: false },
+    jump: { families: ["ceiling", "gravity", "side"], rares: ["clamp", "heavy", "jumpCut"], entities: ["drone", "swarm"], pit: 0, pad: 1.15, bounce: false, crumble: false },
+    rush: { families: ["gate", "hole", "saw"], rares: ["echo", "blink", "rift"], entities: ["stalker", "huntLight"], pit: 0.02, pad: 1, bounce: true, crumble: false },
+    camp: { families: ["ceiling", "drop", "laser"], rares: ["echo", "magnet", "sticky"], entities: ["stalker", "watcher", "phantom"], pit: 0, pad: 0.85, bounce: false, crumble: true },
+    ground: { families: ["hole", "side", "push"], rares: ["slip", "rift", "magnet"], entities: ["drone", "rocket"], pit: 0.05, pad: 0.9, bounce: true, crumble: false },
+  };
+
+  function mindPlan(d, mind) {
+    if (d < 15) return null;
+    const dom = mindDominant(mind);
+    if (!dom || !MIND_COUNTER[dom]) return null;
+    return { habit: dom, salt: mindSalt(mind), counter: MIND_COUNTER[dom] };
+  }
+
+  function preferList(base, prefer) {
+    if (!prefer || !prefer.length) return base.slice();
+    const out = [];
+    const seen = {};
+    for (let i = 0; i < prefer.length; i++) {
+      if (base.indexOf(prefer[i]) < 0 || seen[prefer[i]]) continue;
+      seen[prefer[i]] = 1;
+      out.push(prefer[i]);
+    }
+    for (let i = 0; i < base.length; i++) {
+      if (seen[base[i]]) continue;
+      out.push(base[i]);
+    }
+    return out;
+  }
+
+  function countEventFamily(events, family) {
+    let n = 0;
+    for (let i = 0; i < (events || []).length; i++) {
+      if (events[i].sig && family === "sig") n += 1;
+      const acts = events[i].do || [];
+      for (let a = 0; a < acts.length; a++) {
+        const kind = acts[a] && acts[a][0];
+        if (kind === family) n += 1;
+        // Gates paint spikes / fill tiles rather than a "gate" action name.
+        if (family === "gate" && (kind === "fill" || kind === "spikes")) n += 0.35;
+      }
+    }
+    return n;
+  }
+
+  function auditMindCounter(mind, d) {
+    d = d || 15;
+    const plan = mindPlan(d, mind);
+    if (!plan) return { ok: true, habit: "", delta: 0 };
+    // Same surface both ways so salt does not rewrite the floor under the test.
+    const r = rng((d * 7919 + 13) >>> 0);
+    const surface = terrain(d, 0, r, null);
+    const withMind = buildEvents(d, surface, false, 0, mind);
+    const plain = buildEvents(d, surface, false, 0, blankMind());
+    let scored = 0;
+    let base = 0;
+    const fams = plan.counter.families || [];
+    for (let f = 0; f < fams.length; f++) {
+      scored += countEventFamily(withMind, fams[f]);
+      base += countEventFamily(plain, fams[f]);
+    }
+    for (let ri = 0; ri < (plan.counter.rares || []).length; ri++) {
+      scored += countEventFamily(withMind, plan.counter.rares[ri]);
+      base += countEventFamily(plain, plan.counter.rares[ri]);
+    }
+    const d14 = mindPlan(14, mind);
+    return {
+      ok: scored >= base && !d14,
+      habit: plan.habit,
+      delta: scored - base,
+      scored: scored,
+      base: base,
+    };
+  }
+
+  function buildEvents(d, surface, boss, room, mind) {
     roomW = surface.length;
     const n = boss ? bossTrapCount(d) : trapCount(d);
     const events = [];
     const realAt = [];
     const late = d >= 12;
     const mid = d >= 6;
+    const adapt = !boss && mindPlan(d, mind);
     // Tight packing: short threats can sit nearly adjacent; long ones keep a small buffer.
     const gapLong = late ? 2 : 3;
     const gapShort = late ? 1 : 2;
@@ -1148,14 +1259,29 @@
       entity: d >= 10 ? 2 : (d >= 5 ? 1 : 0),
       sig: d >= 3 && !boss ? 4 : 2,
     };
+    if (adapt) {
+      const boost = adapt.counter.families || [];
+      for (let bi = 0; bi < boost.length; bi++) {
+        const fam = boost[bi];
+        if (d < familyIntroDim(fam)) continue;
+        caps[fam] = (caps[fam] || 0) + 2;
+      }
+      const rareBoost = (adapt.counter.rares || []).length;
+      caps.rare = Math.max(caps.rare || 0, 2) + Math.min(3, rareBoost);
+      if (adapt.habit === "camp") caps.entity = Math.max(caps.entity || 0, 2) + 1;
+    }
     const used = {
       gate: 0, hole: 0, laser: 0, saw: 0, reverse: 0, push: 0,
       drop: 0, lock: 0, wind: 0, side: 0, ceiling: 0, gravity: 0, teleport: 0, rare: 0, entity: 0, sig: 0,
     };
     // blackout is not in the rare rotation — it rolls separately at 1-in-10 from D3+.
-    const RARE = ["slip", "jumpCut", "magnet", "blink", "clamp", "echo", "sticky", "rift", "heavy"];
+    let RARE = ["slip", "jumpCut", "magnet", "blink", "clamp", "echo", "sticky", "rift", "heavy"];
     const ENTITY_ALL = ["stalker", "drone", "rocket", "voidFog", "watcher", "sentry", "swarm", "phantom", "huntLight", "crushBot"];
-    const ENTITY = ENTITY_ALL.filter((t) => actionAllowedInDim(t, d));
+    let ENTITY = ENTITY_ALL.filter((t) => actionAllowedInDim(t, d));
+    if (adapt) {
+      RARE = preferList(RARE, adapt.counter.rares);
+      ENTITY = preferList(ENTITY, adapt.counter.entities).filter((t) => actionAllowedInDim(t, d));
+    }
     const roster = [
       ["gate", "hole", "saw", "gate", "hole", "reverse", "push"],
       ["hole", "gate", "saw", "hole", "gate", "laser", "push"],
@@ -1164,9 +1290,14 @@
       ["hole", "saw", "gate", "hole", "saw", "gate", "laser"],
       ["gate", "hole", "push", "gate", "saw", "hole", "reverse"],
     ];
-    const order = roster[(room + d) % roster.length];
-    const bounceX = (room + d) % 4 === 1 ? landmarkX(room * 3 + d, roomW, 8, 14) : -1;
-    const crumbleX = (room + d) % 5 === 2 ? landmarkX(room * 2 + d, roomW, 6, 12) : -1;
+    let order = roster[(room + d) % roster.length];
+    if (adapt && adapt.counter.families && adapt.counter.families.length) {
+      order = preferList(order, adapt.counter.families);
+    }
+    const bounceOn = adapt ? !!adapt.counter.bounce : true;
+    const crumbleOn = adapt ? !!adapt.counter.crumble : ((room + d) % 5 === 2);
+    const bounceX = bounceOn && (room + d) % 4 === 1 ? landmarkX(room * 3 + d, roomW, 8, 14) : -1;
+    const crumbleX = crumbleOn ? landmarkX(room * 2 + d, roomW, 6, 12) : -1;
     const LONG = { hole: 1, laser: 1, saw: 1, drop: 1, ceiling: 1, side: 1, teleport: 1, blink: 1, clamp: 1, rift: 1, echo: 1, stalker: 1, drone: 1, rocket: 1, swarm: 1, crushBot: 1, huntLight: 1, reaper: 1, salvo: 1, pincer: 1, guillotine: 1, abyss: 1, eclipse: 1, snare: 1, orbitSaw: 1, crossfire: 1, leech: 1, shardRain: 1, wraith: 1, mineLine: 1, gravLock: 1, seeker: 1, collapse: 1, barbedWind: 1, mirrorBolt: 1, pitBeast: 1, judgment: 1 };
 
     function span(x, dir) {
@@ -1701,6 +1832,32 @@
     // so a cramped room still gets its gimmick.
     const rareUsed = new Set();
     const entUsed = new Set();
+    // Forward declare adapt planting so gimmick helpers exist first.
+    function plantMindCounters() {
+      if (!adapt) return;
+      const punish = adapt.counter.families || [];
+      for (let pi = 0; pi < punish.length && events.length < n; pi++) {
+        const type = punish[pi];
+        if (d < familyIntroDim(type)) continue;
+        let hits = 0;
+        const want = type === "saw" || type === "gate" || type === "hole" ? 3 : 2;
+        for (let hi = 0; hi < hot.length && hits < want && events.length < n; hi++) {
+          if (commit(hot[hi], type)) hits += 1;
+        }
+        for (let c = 8; c <= roomW - 7 && hits < want && events.length < n; c++) {
+          if (commit(c, type)) hits += 1;
+        }
+      }
+      const rares = adapt.counter.rares || [];
+      for (let ri = 0; ri < rares.length && events.length < n; ri++) {
+        const type = rares[ri];
+        if (rareUsed.has(type)) continue;
+        let placed = false;
+        for (let hi = 0; hi < hot.length && !placed; hi++) placed = commitRare(hot[hi], type, false);
+        for (let c = 11; c <= roomW - 8 && !placed; c++) placed = commitRare(c, type, true);
+        if (placed) rareUsed.add(type);
+      }
+    }
     function placeGimmick(kind, loose) {
       const list = kind === "rare" ? RARE : ENTITY;
       const seen = kind === "rare" ? rareUsed : entUsed;
@@ -1730,6 +1887,7 @@
         if (used[kind] === before) break;
       }
     }
+    plantMindCounters();
     if ((caps.rare || 0) > 0) {
       fillGimmick("rare", 1);
       fillGimmick("rare", caps.rare || 0);
@@ -1862,6 +2020,25 @@
       }
     }
 
+    // Landmark bounce / crumble. Mind can turn bounce off or force crumble.
+    if (bounceX > 0 && surface[bounceX] >= 0 && events.length < n && !busy(bounceX, "push")) {
+      const by = surface[bounceX];
+      events.push({
+        if: { x: +bounceX.toFixed(2) }, once: true,
+        do: [["push", 0, -1.35], ["sfx", "jump"], ["shake", 2]],
+      });
+      realAt.push({ x: bounceX, t: "push" });
+      used.push = (used.push || 0) + 1;
+    }
+    if (crumbleX > 0 && surface[crumbleX] >= 0 && events.length < n && !busy(crumbleX, "drop")) {
+      const cy = surface[crumbleX];
+      events.push({
+        if: { x: +(crumbleX - 0.8).toFixed(2) }, once: true,
+        do: [["drop", crumbleX, Math.max(1, cy - 5)], ["sfx", "crumble"], ["shake", 5]],
+      });
+      realAt.push({ x: crumbleX, t: "drop" });
+      used.drop = (used.drop || 0) + 1;
+    }
     // Fake tells ride the same route so bait sits where the player already looks.
     const tells = [];
     const seenTell = new Set();
@@ -1872,6 +2049,15 @@
     }
     for (let i = 0; i < realAt.length; i++) pushTell(realAt[i].x - 1);
     const bait = hot.slice().sort((a, b) => heat[b] - heat[a]);
+    if (adapt && adapt.habit === "rush" && events.length < n) {
+      const early = bait[0] != null ? bait[0] : hot[0];
+      if (early != null && surface[early] >= 0) {
+        events.unshift({
+          if: { x: +(early - 0.4).toFixed(2) }, once: true, quiet: true,
+          do: [["lie", "SAFE"], ["glow", Math.max(1, early - 1), Math.max(2, surface[early] - 3), 2, 0.14]],
+        });
+      }
+    }
     for (let i = 0; i < bait.length; i++) pushTell(bait[i]);
     for (let x = 5; x <= roomW - 4; x++) pushTell(x);
     if (!tells.length) tells.push(8);
@@ -2056,14 +2242,14 @@
     });
   }
 
-  function generate(d) {
+  function generate(d, mind) {
     const dim = DIMS[d - 1] || DIMS[0];
     const count = roomCount(d);
     if (d === 1 && root.HAND_LEVELS && root.HAND_LEVELS.length) {
       const hand = root.HAND_LEVELS.map((lvl, i) =>
         applyTrapRules(Object.assign({}, lvl, { dim: 1, boss: false }), 1, i, false)
       );
-      const boss = generateOne(1, hand.length, true);
+      const boss = generateOne(1, hand.length, true, null);
       boss.name = "BOSS STAGE 1";
       // Room 17 is the door fight. Level 16 keeps its own traps.
       boss.events = [];
@@ -2071,29 +2257,43 @@
       return hand;
     }
     const levels = [];
-    for (let i = 0; i < count; i++) levels.push(generateOne(d, i, i === count - 1));
+    for (let i = 0; i < count; i++) levels.push(generateOne(d, i, i === count - 1, mind));
     return levels;
   }
 
-  function generateOne(d, i, boss) {
-    const r = rng((d * 7919 + i * 104729 + 13) >>> 0);
+  function generateOne(d, i, boss, mind) {
+    const adapt = !boss && mindPlan(d, mind);
+    const salt = adapt ? adapt.salt : 0;
+    const r = rng((d * 7919 + i * 104729 + 13 + salt) >>> 0);
     const dim = DIMS[d - 1] || DIMS[0];
     const shaft = shaftKind(d, i, boss);
-    const surface = boss ? flatBossSurface(d) : (shaft ? shaftTerrain(d, i, r, shaft) : terrain(d, i, r));
+    const surface = boss ? flatBossSurface(d) : (shaft ? shaftTerrain(d, i, r, shaft, mind) : terrain(d, i, r, mind));
     const map = paintRoom(surface, d, i, r, boss);
-    const layout = shaft === "ascend" ? "ASCENT" : shaft === "descend" ? "DESCENT" : LAYOUTS[(d + i) % LAYOUTS.length];
+    const layout = shaft === "ascend" ? "ASCENT" : shaft === "descend" ? "DESCENT" : LAYOUTS[(d + i + (salt & 7)) % LAYOUTS.length];
+    let taunt = pick(r, TAUNTS);
+    if (adapt && i === 0) {
+      const sting = {
+        dash: "I LEARNED YOUR DASH",
+        jump: "STOP HOPPING",
+        rush: "SLOWER. I MEAN IT.",
+        camp: "WAITING IS A TRAP",
+        ground: "THE FLOOR IS NOT SAFE",
+      };
+      taunt = sting[adapt.habit] || taunt;
+    }
     return applyTrapRules({
       name: dim.name + " " + layout + " " + (i + 1),
-      taunt: pick(r, TAUNTS),
+      taunt: taunt,
       map,
-      events: boss ? [] : buildEvents(d, surface, false, i),
+      events: boss ? [] : buildEvents(d, surface, false, i, mind),
       explodeCoins: false,
-      crumbleIfStill: 0,
+      crumbleIfStill: adapt && adapt.counter.crumble ? (0.55 + Math.min(0.35, (d - 15) * 0.04)) : 0,
       dim: d,
       boss: !!boss,
       layout,
       surface,
       shaft: shaft || "",
+      mindHabit: adapt ? adapt.habit : "",
     }, d, i, boss);
   }
 
@@ -2116,6 +2316,7 @@
     DIMS, roomCount, trapCount, bossMult, bossTrapCount, bossDoorMoves, bossAttackIds, stageWidth, activationCap, bossFakeX, signatureTraps, qteAction,
     generate, theme, chordsFor, reachable, pathHeat, surfaceFromMap, applyTrapRules, shaftKind, count: 20,
     familyIntroDim, sigIntroDim, discoveredSigs, auditDiscovery,
+    blankMind, mindDominant, mindSalt, mindPlan, auditMindCounter, MIND_COUNTER,
   };
   root.LEVELS = generate(1);
 })(typeof window !== "undefined" ? window : globalThis);

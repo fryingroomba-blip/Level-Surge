@@ -200,14 +200,18 @@ function bossRouteBad(lvl) {
   var hasS = false;
   var hasE = false;
   var hasF = false;
+  var hasTrapTile = false;
+  var trapTile = /[\^v!<>oF]/;
   (lvl.map || []).forEach(function (row) {
     var s = String(row);
     if (s.indexOf("S") >= 0) hasS = true;
     if (s.indexOf("E") >= 0) hasE = true;
     if (s.indexOf("F") >= 0) hasF = true;
+    if (trapTile.test(s)) hasTrapTile = true;
   });
+  if ((lvl.events || []).length) return "traps " + lvl.events.length;
   if (!hasS || !hasE) return "missing spawn or door";
-  if (hasF) return "fake door";
+  if (hasF || hasTrapTile) return "hazard tiles";
   var moved = false;
   (lvl.events || []).forEach(function (ev) {
     (ev.do || []).forEach(function (a) {

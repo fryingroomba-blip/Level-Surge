@@ -187,7 +187,16 @@ if (SURGE_TRACKS) {
     if (!tr.prog || tr.prog.length < 3) fail("track " + tr.id + " bad prog");
     if (!tr.motif || !tr.scale) fail("track " + tr.id + " incomplete");
   });
-  out("Soundtrack pack: OK (" + SURGE_TRACKS.count + " unique styles)");
+  if (!SURGE_TRACKS.BOSSES || SURGE_TRACKS.BOSSES.length !== 20) fail("need 20 boss themes");
+  var bossPrint = {};
+  SURGE_TRACKS.BOSSES.forEach(function (b, i) {
+    if (!b.bed) fail("boss " + (i + 1) + " missing bed");
+    if (!b.bpm || !b.root) fail("boss " + (i + 1) + " incomplete");
+    var key = b.bed + "|" + b.bpm + "|" + b.root;
+    if (bossPrint[key]) fail("duplicate boss print " + key);
+    bossPrint[key] = 1;
+  });
+  out("Soundtrack pack: OK (" + SURGE_TRACKS.count + " unique styles, " + SURGE_TRACKS.BOSSES.length + " boss beds)");
 }
 
 function bossRouteBad(lvl) {

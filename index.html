@@ -7,8 +7,8 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; worker-src 'none'; frame-src 'none'; frame-ancestors 'none'" />
   <title>LEVEL SURGE</title>
   <link rel="icon" type="image/svg+xml" href="img/logo-g.svg" />
-  <link rel="stylesheet" href="css/fonts.css?v=n13" />
-  <link rel="stylesheet" href="css/style.css?v=n13" />
+  <link rel="stylesheet" href="css/fonts.css?v=n22" />
+  <link rel="stylesheet" href="css/style.css?v=n22" />
 </head>
 <body>
   <div id="app">
@@ -26,37 +26,27 @@
       </div>
       <div class="hud-right">
         <span id="trap-count">????</span>
-        <span id="shard-hud" class="hidden">✦ 0</span>
+        <span id="shard-hud" class="hidden">SHARDS 0</span>
         <span id="timer">0.0</span>
-        <span id="deaths">☠ 0</span>
+        <span id="deaths">DEAD 0</span>
         <span id="combo-hud" class="hidden">SURGE x1</span>
-        <button id="pause-btn" type="button" aria-label="Pause" aria-pressed="false">Ⅱ</button>
-        <button id="mute-btn" type="button" aria-label="Mute">🔊</button>
+        <button id="pause-btn" type="button" aria-label="Pause" aria-pressed="false">II</button>
+        <button id="mute-btn" type="button" aria-label="Mute">SOUND</button>
       </div>
     </div>
 
     <div id="toast"></div>
 
     <div id="title-screen" class="screen">
-      <div class="title-dust" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
       <div class="title-tape">WARNING · THE FLOOR IS LYING · WARNING · THE DOOR IS LYING</div>
       <div class="title-frame">
-        <div class="title-ornament left" aria-hidden="true"></div>
-        <div class="title-ornament right" aria-hidden="true"></div>
-        <div class="title-mark">NOT A TROLL GAME.</div>
         <h1 class="logo" aria-label="Level Surge">
           <span class="logo-level">LEVEL</span>
           <span class="logo-surge">
             <span>SUR</span><span class="logo-g" aria-hidden="true"><img src="img/logo-g.svg" alt="" /></span><span>E</span>
           </span>
         </h1>
-        <p class="tagline">I made the floor lie. I made the door lie.<br />If you get mad, good — that means it's working.</p>
-        <ul class="title-facts">
-          <li>20 dimensions</li>
-          <li>Rooms grow each world</li>
-          <li>Traps stack +12 / +13 · rooms +5 wide · 2 signatures / world</li>
-        </ul>
-        <p id="records" class="records"></p>
+        <p id="records" class="records hidden" aria-hidden="true"></p>
         <div class="title-actions">
           <button id="play-menu-btn" type="button" class="big-btn" aria-expanded="false" aria-controls="play-tabs">PLAY</button>
           <button id="about-menu-btn" type="button" class="ghost-btn" aria-expanded="false" aria-controls="about-tabs">ABOUT</button>
@@ -72,13 +62,12 @@
           <button id="trailer-btn" type="button" class="ghost-btn">TRAILER</button>
           <a class="ghost-btn" href="about.html">PAGE</a>
         </div>
-        <p id="title-hint" class="hint">ARROWS / WASD to move · SPACE to jump · SHIFT to dash · R to retry · ESC to pause</p>
       </div>
     </div>
 
     <div id="levels-screen" class="screen hidden">
       <div class="stamp small" id="levels-stamp">WORLDS</div>
-      <p class="hint" id="levels-hint">Clear a dimension to wake the next. Pick a world, then a room.</p>
+      <p class="hint" id="levels-hint">Clear a world and the next one wakes up. Then you can pick a room.</p>
       <div id="level-grid"></div>
       <button id="levels-back" type="button" class="ghost-btn">BACK</button>
     </div>
@@ -92,134 +81,134 @@
       </div>
       <div id="sideshow-scroll" class="sideshow-scroll">
         <header class="sideshow-platform" id="side-open">
-          <p class="sideshow-kicker">WALK THE LESSON</p>
+          <p class="sideshow-kicker">OK SO</p>
           <div class="stamp small">HOW A RUN WORKS</div>
-          <h2>The floor is the teacher.</h2>
-          <p>Scroll through the rooms. A shard flares when your hand sits on it. Each platform is a rule I will use on you.</p>
+          <h2>Walk these rooms first.</h2>
+          <p>Scroll through. A shard lights up when your hand is on it. Each one is a rule I'm going to use on you later, so you might as well see it now.</p>
         </header>
         <article class="sideshow-platform" id="side-job">
           <h2>The job</h2>
-          <p>Touch the door with the gold roof. That room is over. Everything else is me trying to stop that.</p>
+          <p>Touch the door with the gold roof and that room is over. Everything else is me getting in the way of that.</p>
           <ul>
-            <li>A death puts you back in the same room. The skull count stays for the whole world.</li>
-            <li>Clear the last room and the next dimension opens. You walk them in order.</li>
-            <li>This browser remembers the world, the room, the deaths, and the time. Wipe the site data and I forget you.</li>
+            <li>You die, you come back in the same room. The skull count sticks for the whole world. I don't reset it. Mean.</li>
+            <li>Clear the last room and the next world opens. You have to walk them in order. No skipping, I tried that and it felt cheap.</li>
+            <li>This browser remembers the world, the room, the deaths, and the time. Wipe the site data and I forget you. Sorry. Not really.</li>
           </ul>
         </article>
         <article class="sideshow-platform" id="side-door">
           <h2>Two doors</h2>
-          <p>They are the same shape on purpose. The roof is the tell.</p>
+          <p>Same shape on purpose. Look at the roof, that's the tell. I got tired of explaining this to people and then they still picked the dull one.</p>
           <ul>
-            <li>Real: bright gold roof, red door. That one ends the room.</li>
-            <li>Fake: duller gold. Knock Knock puts it on the right, because that is where people run.</li>
-            <li>Touching the fake one can spring the room. Psych makes you walk all the way back to the real one.</li>
-            <li>The boss door opens after his moves are spent.</li>
+            <li>Real one: bright gold roof, red door. Touch it and you leave.</li>
+            <li>Fake one: duller gold. In Knock Knock I put it on the right because that's where everybody runs.</li>
+            <li>Touch the fake and the room can spring. Psych makes you walk all the way back. I still laugh at that one.</li>
+            <li>Boss door stays shut until his moves are used up.</li>
           </ul>
         </article>
         <article class="sideshow-platform" id="side-watch">
           <h2>What a trap waits for</h2>
-          <p>A trap is a watch, then an answer. Sometimes the answer is late, so you think you are safe.</p>
+          <p>A trap waits for something you do, then it answers. Sometimes it answers late, so you think you're fine. You're not fine.</p>
           <ul>
-            <li>Walk: you pass a column. This is most of them.</li>
-            <li>Jump: you leave the ground near the spawn. Hope is a trigger.</li>
-            <li>Still: Don't Stop. Stand for 0.4 seconds and the floor drops.</li>
-            <li>Time: Wait For It holds the ceiling, then bricks you at 1.9 seconds.</li>
-            <li>Been past: the trap arms after you clear a mark. It fires on the way back.</li>
-            <li>Most fire once. A few arm again after a pause.</li>
+            <li>Walk past a column. That's most of them. I got lazy and also it works.</li>
+            <li>Jump near the start. Hope is a trigger. I know how that sounds.</li>
+            <li>Don't Stop: stand still for 0.4 seconds and the floor drops. Four tenths. I timed it.</li>
+            <li>Wait For It holds the ceiling, then drops a brick on you at 1.9 seconds.</li>
+            <li>Some of them arm after you pass a mark, then fire when you come back. Psych is the mean version of this.</li>
+            <li>Most of them fire once. A few wake back up after a pause.</li>
           </ul>
         </article>
         <article class="sideshow-platform" id="side-answer">
           <h2>What it does to you</h2>
-          <p>Dust and a glow are whispers. The trap count waits for a real hit.</p>
+          <p>Dust and a glow are me whispering. They don't count. The number in the bar waits for something that can actually hit you.</p>
           <ul>
-            <li>Gate, hole, side teeth, ceiling teeth, and a falling brick take the floor or the air.</li>
-            <li>Saws chase. Lasers cross the lane. A push, a lock, wind, reverse, and gravity take the controls.</li>
-            <li>The trap count in the bar stays ???? until a real one fires. A tell leaves it alone.</li>
+            <li>A gate, a hole, side teeth, ceiling teeth, a brick. Those take the floor or the air you were using.</li>
+            <li>Saws chase. Lasers cross. A push, a lock, wind, flipped controls, flipped gravity. Those take your hands for a second.</li>
+            <li>The bar stays ???? until a real one fires. A tell leaves it alone. I like the little dread.</li>
           </ul>
         </article>
         <article class="sideshow-platform" id="side-bar">
           <h2>The bar</h2>
-          <p>Left to right, that row tells the run. It lies until a trap is real.</p>
+          <p>That row across the top is the run. It lies about the trap count until something real fires. I did that on purpose.</p>
           <ul>
-            <li>Dimension, room number, name, and pips. The lit pip is where you are. Red pips are rooms you already lived through.</li>
-            <li>SURGE stacks when you survive real traps inside 2.4 seconds. A death clears it. At ten it prints a joke number.</li>
-            <li>The diamond is shards from coins. In Shiny and Last Laugh those coins blow up. Everywhere else they are safe.</li>
-            <li>A cleared world scores 79,437,924 × (90 − deaths) × (260 − seconds). Each factor stays at least 1.</li>
+            <li>World, room number, name, little pips. Lit pip is you. Red pips are rooms you already lived through. Wear them.</li>
+            <li>SURGE stacks if you live through real traps inside 2.4 seconds. Die and it's gone. Hit ten and it prints a stupid huge number. I think it's funny.</li>
+            <li>The diamond is shards from coins. Shiny and Last Laugh, those coins blow up. Everywhere else they're safe and I still grab them.</li>
+            <li>Clear a world and the score is 79,437,924 × (90 − deaths) × (260 − seconds). Neither bit goes under 1. I wanted a huge number. Sue me.</li>
           </ul>
         </article>
         <article class="sideshow-platform" id="side-hands">
           <h2>Hands</h2>
-          <p>The keyboard and the phone buttons are the same jobs. I was stubborn about one of them.</p>
+          <p>Keyboard and the phone buttons do the same jobs. I was stubborn about dash and people got stuck, so now you know.</p>
           <ul>
             <li>Move with arrows or A and D. Jump with Space, W, or Up.</li>
-            <li>Dash is Shift. It arrives in Frostbite, world 3. People got stuck on ledges. That was me.</li>
-            <li>Dash keeps its speed and fires once per press. Shift plus A or D keeps the walk clean.</li>
-            <li>R retries the room. Esc pauses. The speaker mutes.</li>
+            <li>Dash is Shift. It shows up in Frostbite, world 3. I should have given it to you in world 1. Ledges. My fault.</li>
+            <li>Dash keeps its speed and only fires once per press. Shift plus A or D still walks. I had to fix that twice.</li>
+            <li>R retries the room. Esc pauses. The speaker is the mute.</li>
           </ul>
         </article>
         <article class="sideshow-platform" id="side-handmade">
           <h2>World 1, by hand</h2>
-          <p>Sixteen rooms, then the boss. I placed every trap. Learn these and the later seeds make more sense.</p>
+          <p>Sixteen rooms, then the boss. I placed every trap myself. If these make sense, the later seeded rooms make more sense. Kind of.</p>
           <ul>
-            <li>Trust Me: dust, then the floor leaves.</li>
-            <li>Keep Jumping: the landing is already a hole.</li>
-            <li>Knock Knock: the right door is fake.</li>
-            <li>Wait For It: ceiling spikes, floor returns at 1.9 seconds.</li>
-            <li>Shiny: three coins over spikes. They explode.</li>
-            <li>Backwards: left and right swap.</li>
-            <li>Checkered: some bricks are only paint.</li>
-            <li>Buzz: the saw by the door starts chasing.</li>
-            <li>Yeet: the pad throws you, then gravity gets light.</li>
-            <li>Up Is Down: the door is on the ceiling.</li>
-            <li>Come Back: the door slides away while you walk.</li>
-            <li>Fall In: the door is down in the hole.</li>
-            <li>Don't Stop: 0.4 seconds of standing drops the floor.</li>
-            <li>Psych: fake door, then the long walk back.</li>
-            <li>Through: the middle wall is paint.</li>
-            <li>Last Laugh: the coins still explode, the right door is fake, and the real one is waiting when you return.</li>
+            <li>Trust Me. Dust, then the floor leaves. I named it that so you'd trust it.</li>
+            <li>Keep Jumping. The landing is already a hole.</li>
+            <li>Knock Knock. Right door is fake. People run right.</li>
+            <li>Wait For It. Ceiling spikes, floor comes back at 1.9 seconds.</li>
+            <li>Shiny. Three coins over spikes. They blow up. I still grab them.</li>
+            <li>Backwards. Left and right swap for a second. I still mess this up.</li>
+            <li>Checkered. Some of the bricks are paint.</li>
+            <li>Buzz. The saw by the door starts following you.</li>
+            <li>Yeet. The pad throws you, then gravity gets light and my stomach drops.</li>
+            <li>Up Is Down. Door's on the ceiling. I almost softlocked myself building it.</li>
+            <li>Come Back. The door slides away while you walk.</li>
+            <li>Fall In. The door is down in the hole. Jump anyway.</li>
+            <li>Don't Stop. 0.4 seconds of standing and the floor drops.</li>
+            <li>Psych. Fake door, then the long walk back.</li>
+            <li>Through. The middle wall is paint. Walk into it and feel stupid with me.</li>
+            <li>Last Laugh. Coins still blow up, right door is fake, real one is waiting when you come back.</li>
           </ul>
         </article>
         <article class="sideshow-platform" id="side-growth">
           <h2>How a world grows</h2>
-          <p>Same seed, same pain. Clear one dimension and the next one wakes up.</p>
+          <p>Same seed, same pain. Clear one and the next one wakes up. I didn't want it random every time you died.</p>
           <ul>
-            <li>Seeded worlds have 15 rooms plus the dimension number. World 1 is the exception: 16 handmade rooms, then boss stage 1. World 20 has 35 rooms.</li>
-            <li>Floors widen by 5 blocks every world. Later traps get the extra room.</li>
-            <li>From world 4, about a quarter of the rooms are shafts. You climb to the door, or you drop to it. The steps stay clean. The traps wait on the flat.</li>
-            <li>The trap budget starts at 10. Each world adds the old climb plus 10 more. The boss room doubles that, triples it from world 8, and quadruples it from world 18.</li>
-            <li>Every world keeps two signature traps of its own. They are stamped first, so you can tell which world bit you.</li>
+            <li>Seeded worlds are 15 rooms plus the world number. World 1 is the weird one: 16 handmade rooms, then boss stage 1. World 20 has 35. Yeah.</li>
+            <li>Floors get 5 blocks wider every world. The later traps needed the room. They were piled on the old 32-wide map and it looked dumb.</li>
+            <li>From world 4, about a quarter of the rooms are shafts. You climb to the door or you drop to it. I kept the steps clean. Traps on stairs felt cheap, so they wait on the flat.</li>
+            <li>Trap count starts at 10. Each world adds the old climb plus 10 more. Boss room doubles that, triples it from world 8, quadruples it from 18. I had a spreadsheet. I lost the spreadsheet. The code remembers.</li>
+            <li>Every world gets two signature traps. They go in first, so you can tell which world bit you.</li>
           </ul>
         </article>
         <article class="sideshow-platform" id="side-tiers">
-          <h2>The cruel tiers</h2>
-          <p>They arrive on a schedule. Horror waits until world 5.</p>
+          <h2>The cruel stuff</h2>
+          <p>They show up on a schedule. I didn't want the horror guys in world 1. World 1 is already rude.</p>
           <ul>
-            <li>Rare movement tricks start in world 2. One per room, two from world 10. Blackout is world 3 and later, about one room in ten, and it holds in the dark.</li>
-            <li>Horror entities start in world 5. The fog needs world 9. The hunt light needs world 10.</li>
-            <li>Apex traps are sparse from world 8 and common from world 10. They get meaner again from world 15.</li>
-            <li>Quick-time presses start in world 3, about one room in ten. Miss the key, or wait too long, and you die. The window shrinks as the worlds go up. Presses go from 1 to 6.</li>
+            <li>Weird movement tricks start in world 2. One a room, two from world 10. Blackout is world 3 and later, about one room in ten, and it just holds you in the dark for a bit.</li>
+            <li>The horror things start in world 5. Fog needs world 9. The moving safe light needs world 10. I gated them because early on they were just noise.</li>
+            <li>The really cruel traps are rare from world 8 and common from world 10. They get nastier again from world 15. I kept turning the knobs.</li>
+            <li>Button prompts start in world 3, about one room in ten. Miss the key, or wait too long, and you die. The window shrinks as you go up. Presses go from 1 to 6. My hands hate world 19.</li>
           </ul>
         </article>
         <article class="sideshow-platform" id="side-boss">
           <h2>The last room</h2>
-          <p>The floor is flat. I got tired of the stairs. The boss is the room.</p>
+          <p>The floor is flat. I got tired of the stairs. The boss is the room, basically.</p>
           <ul>
-            <li>The door waits until you walk up to it. After 30 seconds the boss gets bored and drops it somewhere else.</li>
-            <li>Null keeps the long fight: his own look, his own music, and a separate cooldown on each heavy move. He throws the door 7 times.</li>
-            <li>From Ashwell on, the count starts at 9 and adds 2 each world. Those bosses fight like their world. Later phases bring new attacks.</li>
-            <li>A mark shows before a shot. If the shot gets you, the boss talks in its own color. Die to a room trap and you still get the old line.</li>
-            <li>When the moves are gone the face goes tired, it falls, and it blows up. The blast kills. After that, the door is open. Grab it on the way down.</li>
+            <li>The door sits there until you walk up. After 30 seconds the boss gets bored and drops it somewhere you aren't standing.</li>
+            <li>Null keeps the long fight. His own look, his own music, and he doesn't reuse the same heavy move until it's ready. He throws the door 7 times.</li>
+            <li>From Ashwell on, that count starts at 9 and adds 2 each world. Those bosses fight like their world. Later on they pull out different attacks. A second set, then a last set.</li>
+            <li>A mark shows before a shot so you get a beat. If the shot gets you, that boss talks in their own color. Die to a normal room trap and you still get the old line.</li>
+            <li>When the moves run out the face goes tired, they fall, and they blow up. The blast kills. Door's open after that. Grab it on the way down if you're stubborn.</li>
           </ul>
         </article>
         <article class="sideshow-platform" id="side-sound">
           <h2>What you hear</h2>
-          <p>Each dimension has its own music engine. The about page keeps the old shared mix.</p>
+          <p>Every dimension has its own unique soundtrack for each dimension, making the game more creative. The about page still plays the old shared mix, the one from before I got obsessed.</p>
           <ul>
-            <li>Boss rooms put their own drums under that world's song. The last world is slower and heavier.</li>
-            <li>Moving hazards get louder as they get closer.</li>
-            <li>Tap once if the browser is holding the sound. The speaker in the bar is the mute.</li>
+            <li>Boss rooms put their own drums under that world's song. Last Light is slower and heavier. I get a little nervous about it.</li>
+            <li>Moving hazards get louder when they get close. A saw across the room is quiet. A saw on you is not.</li>
+            <li>Tap once if the browser is holding the sound. Speaker in the bar is the mute. Same button, less panic.</li>
           </ul>
-          <p>Left and right step between platforms. Esc leaves. A shard shines when you are close.</p>
+          <p>Left and right step between these platforms. Esc leaves. A shard shines when you're close.</p>
         </article>
       </div>
       <div class="sideshow-dock">
@@ -246,7 +235,7 @@
 
     <div id="settings-screen" class="screen hidden">
       <div class="stamp small">SETTINGS</div>
-      <p class="hint">Click a binding, then press the new key. That key leaves every other action.</p>
+      <p class="hint">Click a binding, then hit the new key. It gets taken off whatever else was using it.</p>
       <div id="bind-list" class="bind-list"></div>
       <div class="title-actions">
         <button id="settings-mute" type="button" class="ghost-btn" aria-pressed="false">SOUND ON</button>
@@ -259,7 +248,7 @@
       <div class="creator-shell">
         <header class="creator-top">
           <div class="stamp small">CREATOR</div>
-          <p class="hint creator-tag">Paint the lie. Place the teeth. Test it on yourself.</p>
+          <p class="hint creator-tag">Paint the lie, drop the teeth, then test it on yourself. You'll hate it. Good.</p>
           <div class="creator-meta">
             <label>NAME <input id="creator-name" type="text" maxlength="24" value="UNNAMED" spellcheck="false" /></label>
             <label>TAUNT <input id="creator-taunt" type="text" maxlength="32" value="YOU BUILT THIS" spellcheck="false" /></label>
@@ -271,7 +260,7 @@
             <div id="creator-brushes" class="creator-brushes"></div>
             <div class="creator-label">TRAPS</div>
             <div id="creator-trap-kinds" class="creator-trap-kinds"></div>
-            <p class="creator-tip">Click a column on the map to drop the selected trap. Click a trap in the list to remove it.</p>
+            <p class="creator-tip">Click a column on the map and the trap drops there. Click one in the list if you want it gone.</p>
             <div class="creator-label">ROOMS</div>
             <div id="creator-library" class="creator-library"></div>
           </aside>
@@ -329,22 +318,20 @@
     <div id="dim-card" class="hidden">
       <div id="dim-card-num">DIMENSION 1</div>
       <div id="dim-card-name">NULLSCAPE</div>
-      <p id="dim-card-lore">I learned your name. Sorry.</p>
+      <p id="dim-card-lore">I learned your name. Sorry about that.</p>
     </div>
 
     <div id="trailer-bars" aria-hidden="true"></div>
     <div id="trailer-flash" class="hidden" aria-hidden="true"></div>
     <div id="trailer-card" class="hidden">
       <div class="trailer-slate">
-        <div class="title-mark trailer-beat">NOT A TROLL GAME.</div>
         <h1 class="logo trailer-beat" aria-label="Level Surge">
           <span class="logo-level">LEVEL</span>
           <span class="logo-surge">
             <span>SUR</span><span class="logo-g" aria-hidden="true"><img src="img/logo-g.svg" alt="" /></span><span>E</span>
           </span>
         </h1>
-        <p class="tagline trailer-beat">I made the floor lie. I made the door lie.</p>
-        <p class="cut-mark trailer-beat">OUT NOW</p>
+        <p class="cut-mark trailer-beat">GO PLAY.</p>
       </div>
     </div>
     <p id="trailer-line" class="hidden"></p>
@@ -358,19 +345,19 @@
     </div>
   </div>
 
-  <script src="js/guard.js?v=n13"></script>
-  <script src="js/levels.js?v=n13"></script>
-  <script src="js/tracks.js?v=n13"></script>
-  <script src="js/worlds.js?v=n13"></script>
-  <script src="js/void-sky.js?v=n13"></script>
-  <script src="js/roast.js?v=n13"></script>
-  <script src="js/boss-voice.js?v=n13"></script>
-  <script src="js/boss-kits.js?v=n13"></script>
-  <script src="js/boss-forms.js?v=n13"></script>
-  <script src="js/finish.js?v=n13"></script>
-  <script src="js/game.js?v=n13"></script>
-  <script src="js/sideshow-world.js?v=n13"></script>
-  <script src="js/trailer.js?v=n13"></script>
-  <script src="js/creator.js?v=n13"></script>
+  <script src="js/guard.js?v=n22"></script>
+  <script src="js/levels.js?v=n22"></script>
+  <script src="js/tracks.js?v=n22"></script>
+  <script src="js/worlds.js?v=n22"></script>
+  <script src="js/void-sky.js?v=n22"></script>
+  <script src="js/roast.js?v=n22"></script>
+  <script src="js/boss-voice.js?v=n22"></script>
+  <script src="js/boss-kits.js?v=n22"></script>
+  <script src="js/boss-forms.js?v=n22"></script>
+  <script src="js/finish.js?v=n22"></script>
+  <script src="js/game.js?v=n22"></script>
+  <script src="js/sideshow-world.js?v=n22"></script>
+  <script src="js/trailer.js?v=n22"></script>
+  <script src="js/creator.js?v=n22"></script>
 </body>
 </html>

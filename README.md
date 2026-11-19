@@ -1,8 +1,8 @@
 # Level Surge
 
-A troll platformer. Get to the door. The room will lie.
+A troll platformer. Get to the door. The room lies about the floor the whole way.
 
-The G in **SURGE** is a skull. That is not a metaphor.
+The G in **SURGE** is a skull. I drew the teeth in it.
 
 ## Play
 
@@ -31,19 +31,19 @@ On a phone, on-screen buttons appear. Dash shows up once you reach Dimension 3.
 
 ## How a run works
 
-You are a small red thing. The exit is a gold-and-red door. Touch it and the room is cleared.
+You're a small red thing. The exit is a gold-and-red door. Touch it and the room's over.
 
-That is the whole honest rule. Everything else is a delay.
+That's the honest rule. Everything else is me getting in the way.
 
-Rooms watch what you do: walk far enough, jump too soon, stand still, sprint, touch a fake door. When a condition matches, a **trap** fires. The floor can open. Spikes can grow. A saw can arrive late. Controls can flip for a beat. Some tells are fake (dust, a glow that is not a laser). Some tells are real and still kill you.
+Rooms watch what you do. Walk far enough, jump too soon, stand still, sprint, touch a fake door. When that matches, a **trap** fires. The floor can open. Spikes can grow. A saw can show up late. Controls can flip for a beat. Some tells are fake (dust, a glow). Some tells are real and they still kill you.
 
-Survive the traps, reach the real door, go to the next room. Clear every room in a dimension to unlock the next world.
+Live through the traps, hit the real door, next room. Clear a world and the next one opens.
 
-Dying plays a roast, then respawns you in the same room. The death counter does not reset until you start a new run.
+Dying plays a roast, then puts you back in the same room. The death counter sticks until you start a new run. I don't reset it. Mean.
 
 ## Dimensions
 
-There are **20 worlds**. Each one is bigger and meaner than the last.
+There are **20 worlds**. Each one is bigger, and I got meaner as I went.
 
 | | Rooms | Traps per room |
 | --- | --- | --- |
@@ -68,7 +68,7 @@ Clearing a dimension unlocks the next. WORLDS on the title screen is the map. Pr
 - **SURGE xN** — combo of traps you survived in a short window
 - **✦** — shards from coins that did not explode
 
-After a full world clear you get a **SURGE RATING**. It is a large number. It is not a real score. It is the game being theatrical.
+Clear a world and the bar prints a **SURGE RATING**: 79,437,924 × (90 − deaths) × (260 − seconds). Neither bit goes under 1. I wanted a huge number. Sue me.
 
 ## Files
 

@@ -264,13 +264,14 @@
   }
 
   function glow(ctx, x, y, r, inner, outer) {
-    // Two flat discs — same read as a soft radial, without allocating a gradient each paint.
+    // Tight hard halo. Big soft discs read like generated gloss.
+    const rr = Math.max(4, r * 0.48);
     ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.arc(x, y, rr, 0, Math.PI * 2);
     ctx.fillStyle = outer;
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(x, y, Math.max(1, r * 0.42), 0, Math.PI * 2);
+    ctx.arc(x, y, Math.max(1, rr * 0.4), 0, Math.PI * 2);
     ctx.fillStyle = inner;
     ctx.fill();
   }

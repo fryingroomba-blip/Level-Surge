@@ -106,7 +106,7 @@
   root.HAND_LEVELS = [
     {
       name: "TRUST ME",
-      taunt: "THE FLOOR SAID BYE",
+      taunt: "FLOOR SAID BYE",
       sol: "R50 JR14 R40 JR14 R40 JR14 R60",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(), sky(), sky(),
@@ -139,7 +139,7 @@
     },
     {
       name: "KEEP JUMPING",
-      taunt: "LANDING IS OPTIONAL",
+      taunt: "LANDING'S A HOLE",
       sol: "R18 JR14 R30 JR22 R30",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(), sky(), sky(),
@@ -169,7 +169,7 @@
     },
     {
       name: "KNOCK KNOCK",
-      taunt: "WRONG DOOR",
+      taunt: "WRONG DOOR, COME ON",
       sol: "R55 JR18 R50 JR18 R80 W40 L170 JL16 L50",
       map: [
         sky(), sky(), sky(), sky(), sky(),
@@ -217,7 +217,7 @@
     },
     {
       name: "WAIT FOR IT",
-      taunt: "PATIENCE, DEMON",
+      taunt: "YOU WAITED",
       sol: "W120 R60 JR18 R50 JR16 R60",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(), sky(),
@@ -247,7 +247,7 @@
     },
     {
       name: "SHINY",
-      taunt: "GREED IS A PIT",
+      taunt: "THOSE COINS BLOW",
       explodeCoins: true,
       sol: "R110 R40 JR14 R40 JR14 R50",
       map: [
@@ -276,7 +276,7 @@
     },
     {
       name: "BACKWARDS",
-      taunt: "LEFT IS RIGHT NOW",
+      taunt: "LEFT GOT WEIRD",
       sol: "R28 JR14 R21 JR18 R50 JR18 R60",
       map: [
         sky(),
@@ -306,7 +306,7 @@
     },
     {
       name: "CHECKERED",
-      taunt: "LOOKS SOLID",
+      taunt: "THAT'S PAINT",
       sol: "R26 JR14 R26 JR14 R26 JR14 R26 JR14 R26 JR14 R26 JR14 R26 JR14 R80",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(), sky(), sky(),
@@ -334,7 +334,7 @@
     },
     {
       name: "BUZZ",
-      taunt: "IT LIKES YOU",
+      taunt: "SAW LIKES YOU",
       sol: "R45 JR16 R20 R80 JR18 R30",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(), sky(), sky(),
@@ -362,7 +362,7 @@
     },
     {
       name: "YEET",
-      taunt: "TOO MUCH BOUNCE",
+      taunt: "TOO MUCH YEET",
       sol: "R80 JR18 R40 JR16 R40 JR16 R50",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(), sky(), sky(),
@@ -392,7 +392,7 @@
     },
     {
       name: "UP IS DOWN",
-      taunt: "GRAVITY QUIT",
+      taunt: "GRAVITY QUIT ON ME",
       sol: "R48 JR22 R100 JR8 R90",
       map: [
         pad("################################"),
@@ -430,7 +430,7 @@
     },
     {
       name: "COME BACK",
-      taunt: "KEEP WALKING",
+      taunt: "DOOR'S LEAVING",
       sol: "W120 R50 JR18 R50 JR16 R60",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(), sky(), sky(),
@@ -460,7 +460,7 @@
     },
     {
       name: "FALL IN",
-      taunt: "THE HOLE IS KIND",
+      taunt: "JUMP IN THE HOLE",
       sol: "R70 R40 R60",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(),
@@ -494,7 +494,7 @@
     },
     {
       name: "DON'T STOP",
-      taunt: "STANDING IS DYING",
+      taunt: "YOU STOOD STILL",
       crumbleIfStill: 0.4,
       sol: "R45 JR16 R20 R80 JR18 R30",
       map: [
@@ -524,7 +524,7 @@
     },
     {
       name: "PSYCH",
-      taunt: "THE LONG WAY BACK",
+      taunt: "LONG WALK BACK",
       sol: "W30 R70 JR12 R50 JR12 R60",
       map: [
         pad("vvvvvv......................"),
@@ -575,7 +575,7 @@
     },
     {
       name: "THROUGH",
-      taunt: "WALLS ARE A RUMOR",
+      taunt: "WALL IS PAINT",
       sol: "R100 R40 JR12 R40 JR12 R50",
       map: [
         sky(), sky(), sky(), sky(), sky(), sky(), sky(), sky(),
@@ -602,7 +602,7 @@
     },
     {
       name: "LAST LAUGH",
-      taunt: "THE LEVEL WINS",
+      taunt: "OK YOU GOT GOT",
       explodeCoins: true,
       sol: "R55 JR18 R50 JR18 R80 W40 L160 W55 L30",
       map: [

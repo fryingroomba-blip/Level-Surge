@@ -224,8 +224,8 @@
         this.tone(f * 2, t, dur, "sine", v * 0.34, land(f * 2), 0.07);
         this.tone(f * 3, t, dur, "sine", v * 0.12, land(f * 3), 0.08);
       } else if (kind === "bass") {
-        this.tone(f, t, Math.max(dur, 0.28), "sine", v, 0, 0.015);
-        this.tone(f * 2, t, Math.max(dur, 0.28) * 0.6, "triangle", v * 0.18, 0, 0.02);
+        this.tone(f, t, dur, "sine", v, 0, 0.015);
+        this.tone(f * 2, t, dur * 0.6, "triangle", v * 0.18, 0, 0.02);
       } else if (kind === "pluck") {
         this.voice(f, t, dur * 0.35, "triangle", v);
         this.voice(f * 2, t, dur * 0.16, "sine", v * 0.16);
@@ -252,7 +252,7 @@
       const o = this.ctx.createOscillator();
       const g = this.ctx.createGain();
       const peak = Math.max(0.0002, vol || 0.05);
-      const span = Math.max(0.02, dur || 0);
+      const span = this.gridDur(Math.max(0.02, dur || 0));
       const atk = Math.min(span * 0.45, Math.max(0.004, attack || 0.02));
       const holdAt = t + atk + (span - atk) * 0.55;
       const end = t + span;
@@ -273,7 +273,7 @@
       const o = this.ctx.createOscillator();
       const g = this.ctx.createGain();
       o.type = type || "sine";
-      const end = t + Math.max(0.02, dur || 0);
+      const end = t + this.gridDur(Math.max(0.02, dur || 0));
       o.frequency.setValueAtTime(Math.max(20, freq), t);
       if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(20, slide), end);
       g.gain.setValueAtTime(0.0001, t);
@@ -323,6 +323,8 @@
       }
     },
     restartMusic() {
+      // Keep the running clock so a new world or boss stays on the same pulse.
+      if (this._musicOn && this.musicId) return;
       if (this.musicId) clearTimeout(this.musicId);
       this._musicOn = false;
       this._step = 0;
@@ -331,6 +333,37 @@
     },
     hzFrom(rootHz, semitone) {
       return rootHz * Math.pow(2, semitone / 12);
+    },
+    // Note length in seconds, snapped so the release lands on a beat.
+    gridDur(dur) {
+      const bpm = (this.theme && this.theme.bpm) || 128;
+      const six = this._six || (60 / bpm / 4);
+      if (!(dur > 0)) return six * 0.9;
+      const steps = dur / six;
+      if (steps <= 2.25) return Math.min(dur, six * 1.85);
+      let beats = Math.round(steps / 4);
+      if (beats < 1) beats = 1;
+      if (beats > 4) beats = 4;
+      return beats * 4 * six * 0.92;
+    },
+    // Walk the mode so a phrase stays in key instead of jumping by raw semitones.
+    scaleWalk(semi, steps, scale) {
+      const pcs = (scale && scale.length) ? scale : [0, 2, 3, 5, 7];
+      const norm = [];
+      for (let k = 0; k < pcs.length; k++) norm.push(((pcs[k] % 12) + 12) % 12);
+      const rounded = Math.round(semi);
+      const pc = ((rounded % 12) + 12) % 12;
+      let idx = 0;
+      let best = 99;
+      for (let k = 0; k < norm.length; k++) {
+        const d = Math.min(Math.abs(norm[k] - pc), 12 - Math.abs(norm[k] - pc));
+        if (d < best) { best = d; idx = k; }
+      }
+      const dest = norm[(idx + (steps | 0) + norm.length * 8) % norm.length];
+      let out = Math.floor(rounded / 12) * 12 + dest;
+      while (out - rounded > 6) out -= 12;
+      while (rounded - out > 6) out += 12;
+      return out;
     },
     // Keep each chord tone near where that voice already was.
     leadVoices(ch) {
@@ -408,6 +441,7 @@
       }
     },
     playStep(step, t) {
+      this._six = 60 / (((this.theme && this.theme.bpm) || 128)) / 4;
       const rootHz = (this.theme && this.theme.root) || 92.5;
       const dim = (this.theme && this.theme.dim) || 1;
       const track = (this.theme && this.theme.track)
@@ -427,38 +461,31 @@
       ch = this.leadVoices(ch);
       this._suspend = bar % 8 === 7;
       const rawMotif = track.motif || [0, 2, 4, 5];
-      const motif = new Proxy(rawMotif, {
-        get(obj, prop) {
-          if (prop === "length") return obj.length;
-          const i = +prop;
-          if (obj.length && i === i) {
-            const ph = ((bar % 8) + 8) % 8;
-            const shift = ph < 2 ? 0 : ph < 4 ? 1 : ph < 6 ? 3 : 5;
-            const base = obj[(i + shift) % obj.length];
-            let seq = 0;
-            if (base <= 18) {
-              if (ph >= 4 && ph < 6) seq = 5;
-              else if (ph === 6) seq = 3;
-            }
-            return base + seq;
-          }
-          return obj[prop];
-        },
-      });
+      const ph = ((bar % 8) + 8) % 8;
+      const walk = ph < 2 ? 0 : ph < 4 ? 1 : ph < 6 ? 2 : -1;
+      const motif = [];
+      for (let mi = 0; mi < rawMotif.length; mi++) {
+        const src = rawMotif[(mi + (ph >= 4 ? 1 : 0)) % rawMotif.length];
+        motif.push(this.scaleWalk(src, walk, track.scale));
+      }
       const ctx = { step, t, bar, s, rootHz, ch, track, heat, scale: track.scale || [0, 2, 3, 5, 7], motif };
-      if (this.theme && this.theme.boss && !this.theme.final) {
+      if (this.theme && this.theme.boss) {
         ctx.boss = this.theme.bossTrack
           || (window.SURGE_TRACKS && window.SURGE_TRACKS.bossMusic(dim))
           || null;
         const bossRoot = (ctx.boss && ctx.boss.root) || rootHz;
         if (s === 0) this.pedal(bossRoot, t, bar);
-        if (this.theme.rage) this._trk.bossRage.call(this, ctx);
-        else this._trk.bossRush.call(this, ctx);
-        this.weave(ctx, bossRoot, (ctx.boss && ctx.boss.lead) || motif, null);
+        if (this.theme.rage) {
+          this._trk.bossRage.call(this, ctx);
+        } else {
+          const bed = (ctx.boss && ctx.boss.bed) || "rush";
+          const bedFn = this._trk["boss_" + bed] || this._trk.boss_rush || this._trk.bossRush;
+          bedFn.call(this, ctx);
+        }
+        // No world-motif weave — that made every fight sound like the same room.
         return;
       }
       if (s === 0) this.pedal(rootHz, t, bar);
-      if (this.theme && this.theme.boss) this.playBossBed(ctx);
       const fn = this._trk[style] || this._trk.voidAmbient;
       fn.call(this, ctx);
       if (!(track.style === "needle" && s === 15)) this.weave(ctx, rootHz, motif, ctx.scale);
@@ -484,8 +511,8 @@
     },
     // Each style is a different piece of music — not shared drum/pad skeletons.
     _trk: {
-      // Boss fights. Fast four-on-the-floor, saw bass, short square stabs.
-      bossRush(c) {
+      // Null / rush bosses: four-on-the-floor, chip lead.
+      boss_rush(c) {
         const t = c.t;
         const s = c.s;
         const bar = c.bar;
@@ -526,7 +553,188 @@
           this.inst(f, t, 0.12, "glass", 0.016);
         }
       },
-      // Same boss theme, pushed: denser kicks, lead up an octave.
+      bossRush(c) { this._trk.boss_rush.call(this, c); },
+      // Sparse, slow, long tones.
+      boss_crawl(c) {
+        const t = c.t, s = c.s, bar = c.bar, b = c.boss || {};
+        const root = b.root || 82;
+        const lead = b.lead || [0, -2, 3, 5];
+        if (s === 0 || s === 8) {
+          this.voice(Math.max(32, root * 0.4), t, 0.28, "sine", 0.42, 18);
+          this.noiseHit(t, 0.12, 0.08, 180);
+        }
+        if (s === 0) {
+          this.inst(root * 0.5, t, 3.2, "choir", 0.05);
+          this.inst(root, t, 2.8, "pad", 0.03);
+        }
+        if (s === 4 || s === 12) {
+          const f = this.hzFrom(root, lead[(bar + (s === 12 ? 2 : 0)) % lead.length]);
+          this.inst(f, t, 1.4, "organ", 0.035);
+        }
+        if (s === 10 && bar % 2 === 1) this.inst(this.hzFrom(root, lead[bar % lead.length] + 12), t, 0.9, "bell", 0.02);
+      },
+      // Heavy offbeat stomps, brass hits.
+      boss_stomp(c) {
+        const t = c.t, s = c.s, bar = c.bar, b = c.boss || {};
+        const root = b.root || 110;
+        const kicks = b.kick || [0, 6, 8, 14];
+        const lead = b.lead || [0, 1, 6, 1];
+        if (kicks.indexOf(s) >= 0) {
+          this.voice(Math.max(36, root * 0.35), t, 0.16, "sine", 0.55, 26);
+          this.noiseHit(t, 0.1, 0.18, 320);
+        }
+        if (s === 4 || s === 12) this.noiseHit(t, 0.08, 0.12, 1400);
+        if (s % 4 === 0) {
+          const f = this.hzFrom(root, (b.bass || [0, 0, 5, 7])[(s / 4 + bar) % 4] - 12);
+          this.inst(f, t, 0.22, "bass", 0.14);
+        }
+        if (s === 2 || s === 10) {
+          this.inst(this.hzFrom(root, lead[(bar + s) % lead.length] + 7), t, 0.2, "brass", 0.05);
+        }
+        if (s === 0) this.inst(root * 0.5, t, 1.2, "pad", 0.025);
+      },
+      // Syncopated pulse, triangle plucks.
+      boss_pulse(c) {
+        const t = c.t, s = c.s, bar = c.bar, b = c.boss || {};
+        const root = b.root || 246;
+        const lead = b.lead || [12, 7, 15, 10];
+        const kicks = b.kick || [2, 6, 10, 14];
+        if (kicks.indexOf(s) >= 0) {
+          this.voice(Math.max(40, root * 0.42), t, 0.06, "sine", 0.4, 50);
+          this.noiseHit(t, 0.025, 0.06, 900);
+        }
+        if (s % 2 === 0) {
+          const f = this.hzFrom(root, (b.bass || [7, 0, 7, 3])[(s / 2 + bar) % 4] - 12);
+          this.inst(f, t, 0.08, "bass", 0.09);
+        }
+        if (s % 2 === 0) {
+          this.inst(this.hzFrom(root, lead[((s / 2) + bar) % lead.length]), t, 0.14, "pluck", 0.04);
+        }
+        if (s === 1 && bar % 4 === 3) this.inst(this.hzFrom(root, lead[0] + 19), t, 0.35, "glass", 0.02);
+      },
+      // Cold bells, almost no kick.
+      boss_glass(c) {
+        const t = c.t, s = c.s, bar = c.bar, b = c.boss || {};
+        const root = b.root || 233;
+        const lead = b.lead || [12, 14, 15, 19];
+        if (s === 0) {
+          this.inst(root * 0.5, t, 3.4, "pad", 0.04);
+          this.inst(root, t, 2.6, "choir", 0.028);
+        }
+        if (s === 0 || s === 8) this.noiseHit(t, 0.06, 0.04, 240);
+        if (s === 0 || s === 6 || s === 10) {
+          this.inst(this.hzFrom(root, lead[(bar + s) % lead.length]), t, 1.1, "bell", 0.045);
+        }
+        if (s === 12) this.inst(this.hzFrom(root, lead[bar % lead.length] + 7), t, 0.8, "glass", 0.03);
+        if (s === 4 && bar % 2 === 0) this.inst(root * 0.75, t, 1.6, "organ", 0.018);
+      },
+      // Train / rail: off-grid hats, saw grit.
+      boss_rail(c) {
+        const t = c.t, s = c.s, bar = c.bar, b = c.boss || {};
+        const root = b.root || 98;
+        const lead = b.lead || [0, 5, 7, 12];
+        const kicks = b.kick || [0, 3, 4, 8, 11, 12];
+        if (kicks.indexOf(s) >= 0) {
+          this.voice(Math.max(40, root * 0.48), t, 0.08, "sine", 0.48, 38);
+          this.noiseHit(t, 0.035, 0.09, 500);
+        }
+        if (s % 2 === 1) this.noiseHit(t, 0.015, 0.035, 6500);
+        if (s % 2 === 0) {
+          const f = this.hzFrom(root, (b.bass || [0, 0, 5, 7])[(s / 2 + bar) % 4] - 12);
+          this.inst(f, t, 0.1, "bass", 0.12);
+        }
+        if (s % 4 === 0) this.inst(this.hzFrom(root, lead[((s / 4) + bar) % lead.length] + 12), t, 0.18, "brass", 0.04);
+        if (s === 7 || s === 15) this.inst(this.hzFrom(root, lead[bar % lead.length] + 19), t, 0.1, "chip", 0.02);
+      },
+      // Static / needle: thin ticks, high square.
+      boss_needle(c) {
+        const t = c.t, s = c.s, bar = c.bar, b = c.boss || {};
+        const root = b.root || 261;
+        const lead = b.lead || [12, 13, 18, 13];
+        if (s === 0 || s === 8) this.voice(Math.max(48, root * 0.35), t, 0.12, "sine", 0.32, 60);
+        if (s % 2 === 1) this.noiseHit(t, 0.012, 0.03, 8000);
+        if (s % 2 === 0) {
+          const f = this.hzFrom(root, (b.bass || [0, 1, 0, 6])[(s / 2 + bar) % 4] - 12);
+          this.inst(f, t, 0.06, "bass", 0.08);
+          this.inst(this.hzFrom(root, lead[((s / 2) + bar) % lead.length] + 12), t, 0.08, "chip", 0.035);
+        }
+        if (s === 5 || s === 13) this.inst(this.hzFrom(root, lead[0] + 24), t, 0.05, "glass", 0.018);
+      },
+      // Choir / hymn: pads and fifths.
+      boss_choir(c) {
+        const t = c.t, s = c.s, bar = c.bar, b = c.boss || {};
+        const root = b.root || 65;
+        const lead = b.lead || [0, 3, 7, 12];
+        if (s === 0) {
+          this.inst(root * 0.5, t, 3.8, "choir", 0.06);
+          this.inst(root * 0.75, t, 3.4, "pad", 0.04);
+          this.inst(root, t, 3.0, "organ", 0.025);
+        }
+        if (s === 0 || s === 8) {
+          this.voice(Math.max(30, root * 0.4), t, 0.35, "sine", 0.38, 14);
+          this.noiseHit(t, 0.1, 0.06, 160);
+        }
+        if (s === 4 || s === 12) {
+          this.inst(this.hzFrom(root, lead[(bar + (s === 12 ? 2 : 0)) % lead.length] + 12), t, 1.5, "bell", 0.03);
+        }
+        if (s === 10 && bar % 4 === 2) this.inst(this.hzFrom(root, 19), t, 1.1, "glass", 0.018);
+      },
+      // Grind / industrial grit.
+      boss_grind(c) {
+        const t = c.t, s = c.s, bar = c.bar, b = c.boss || {};
+        const root = b.root || 110;
+        const lead = b.lead || [0, 1, 6, 1];
+        const kicks = b.kick || [0, 2, 4, 6, 8, 10, 12, 14];
+        if (kicks.indexOf(s) >= 0) {
+          this.voice(Math.max(36, root * 0.4), t, 0.07, "sine", 0.5, 48);
+          this.noiseHit(t, 0.04, 0.12, 280);
+        }
+        if (s % 2 === 0) {
+          const f = this.hzFrom(root, (b.bass || [0, 0, 1, 0])[(s / 2 + bar) % 4] - 12);
+          this.inst(f, t, 0.09, "bass", 0.13);
+        }
+        if (s % 4 === 0) this.inst(this.hzFrom(root, lead[((s / 4) + bar) % lead.length] + 7), t, 0.16, "brass", 0.045);
+        if (s === 3 || s === 11) this.noiseHit(t, 0.06, 0.1, 1800);
+        if (s === 0) this.inst(root * 0.5, t, 1.0, "pad", 0.02);
+      },
+      // Drip / spore: soft kicks, falling intervals.
+      boss_drip(c) {
+        const t = c.t, s = c.s, bar = c.bar, b = c.boss || {};
+        const root = b.root || 87;
+        const lead = b.lead || [0, 2, -1, 5];
+        if (s === 0 || s === 8) {
+          this.voice(Math.max(34, root * 0.42), t, 0.2, "sine", 0.4, 22);
+          this.noiseHit(t, 0.08, 0.06, 220);
+        }
+        if (s === 0) this.inst(root * 0.5, t, 3.0, "pad", 0.035);
+        const drops = [2, 6, 10, 14];
+        if (drops.indexOf(s) >= 0) {
+          const i = drops.indexOf(s);
+          this.inst(this.hzFrom(root, lead[(bar + i) % lead.length] + 12 - i * 2), t, 0.55, "bell", 0.035);
+        }
+        if (s === 11) this.inst(this.hzFrom(root, lead[0] + 7), t, 0.9, "glass", 0.02);
+      },
+      // Last Light: slow, heavy, final.
+      boss_final(c) {
+        const t = c.t, s = c.s, bar = c.bar, b = c.boss || {};
+        const root = b.root || 49;
+        const lead = b.lead || [0, 7, 12, 16];
+        if (s === 0 || s === 8) {
+          this.voice(Math.max(28, root * 0.45), t, 0.4, "sine", 0.52, 16);
+          this.noiseHit(t, 0.14, 0.1, 140);
+        }
+        if (s === 0) {
+          this.inst(root * 0.5, t, 3.6, "choir", 0.07);
+          this.inst(root, t, 3.2, "pad", 0.045);
+          this.inst(root * 1.5, t, 2.4, "organ", 0.022);
+        }
+        if (s === 4 || s === 12) {
+          this.inst(this.hzFrom(root, lead[(bar + (s === 12 ? 1 : 0)) % lead.length] + 12), t, 1.6, "bell", 0.035);
+        }
+        if (bar % 4 === 3 && s === 8) this.inst(this.hzFrom(root, 24), t, 1.2, "glass", 0.025);
+        if (s === 6 || s === 14) this.noiseHit(t, 0.05, 0.08, 900);
+      },
+      // Null enrage: denser kicks, lead up an octave.
       bossRage(c) {
         const t = c.t;
         const s = c.s;
@@ -1573,7 +1781,7 @@
       world.events = world.events || [];
       world.events.unshift({
         if: { time: 0.55 }, once: true, quiet: true, fired: false,
-        do: [["lie", def.taunt || "I LEARNED YOU"]],
+        do: [["lie", def.taunt || "nice try"]],
       });
     }
     world.boss = null;
@@ -1669,7 +1877,7 @@
       }
     }
     updatePips();
-    if (deathsEl) deathsEl.textContent = `☠ ${deaths}`;
+    if (deathsEl) deathsEl.textContent = `DEAD ${deaths}`;
     introT = testMode ? 0 : (dimIntro > 0.5 ? dimIntro + 0.9 : 1.05);
     roomFade = testMode ? 0 : 0.72;
     clearBloom = 0;
@@ -1703,11 +1911,11 @@
       }
     }
     if (dashBtn && dimIndex >= 3) dashBtn.classList.toggle("cooling", dashCool > 0);
-    if (deathsEl) deathsEl.textContent = `☠ ${deaths}`;
+    if (deathsEl) deathsEl.textContent = `DEAD ${deaths}`;
     if (shardHud) {
       if (shardsGot > 0) {
         shardHud.classList.remove("hidden");
-        shardHud.textContent = `✦ ${shardsGot}`;
+        shardHud.textContent = `SHARDS ${shardsGot}`;
       } else {
         shardHud.classList.add("hidden");
       }
@@ -2036,165 +2244,165 @@
 
   const INSULTS = {
     spike: [
-      "YOU SAW THE SPIKES",
-      "THOSE WERE NOT DECORATION",
-      "YOU WALKED ON PURPOSE",
-      "FEET 1  ·  BRAIN 0",
-      "SKILL ISSUE: THE FLOOR",
+      "the spikes aren't here for decoration you know.",
+      "you saw them. you walked on them anyway.",
+      "those points were the whole joke.",
+      "feet went first. brain showed up late.",
+      "i put those there. you found them with your shoes.",
     ],
     ceiling: [
-      "THAT JUMP WAS OPTIONAL",
-      "THE CEILING WAS A HINT",
-      "YOU JUMPED INTO THAT",
-      "GRAVITY WAS HELPING",
-      "UP WAS A BAD IDEA",
+      "that jump was optional. the ceiling wasn't.",
+      "the spikes up there were a hint, you know.",
+      "you jumped into that on purpose.",
+      "gravity was already doing the work.",
+      "up was a bad idea and i watched you do it.",
     ],
     jumpspike: [
-      "YOU AIMED AT THE SPIKES",
-      "THAT LANDING. WOW.",
-      "THE FLOOR WAS SPIKES",
-      "PARKOUR GRADE: SEE ME",
+      "you aimed at the spikes. i'm not even mad.",
+      "that landing. wow. truly a choice.",
+      "the floor was spikes and you still picked it.",
+      "parkour grade: see me after class.",
     ],
     saw: [
-      "IT WAS SPINNING AT YOU",
-      "THE SAW WAS NOT A HUG",
-      "YOU WALKED INTO A BLADE",
-      "IT SPINS. YOU DON'T.",
-      "ROUND. SHARP. OBVIOUS.",
+      "it was spinning at you the whole time.",
+      "you hugged the blade. bold.",
+      "you walked into a saw. a saw.",
+      "the teeth kept going. you didn't.",
+      "round, sharp, loud. you still tried.",
     ],
     laser: [
-      "THE RED LINE WAS A HINT",
-      "GLOWING MEANS DON'T",
-      "YOU TOUCHED THE OBVIOUS",
-      "LASERS ARE NOT A DARE",
+      "the red line was the hint.",
+      "if it's glowing, that's usually a don't.",
+      "you touched the obvious one.",
+      "the beam cut you. that's the job.",
     ],
     hole: [
-      "THERE WAS NO FLOOR",
-      "YOU FELL IN THE OBVIOUS",
-      "AIR IS NOT A PLATFORM",
-      "THE GAP WAS THE HINT",
-      "HOLES GO DOWN. YOU TOO.",
+      "there was no floor. you checked.",
+      "you fell in the obvious hole.",
+      "you stood where the floor used to be.",
+      "the gap was right there. you took it.",
+      "holes go down. so did you.",
     ],
     jumpfall: [
-      "YOU JUMPED INTO NOTHING",
-      "THAT JUMP HAD NO LANDING",
-      "THE GAP WAS A GAP",
-      "AIR TIME IS NOT A PLAN",
+      "you jumped into nothing. impressive.",
+      "that jump had no landing. i checked.",
+      "the gap was a gap. sorry.",
+      "no floor under that one. you looked.",
     ],
     teeth: [
-      "YOU TRUSTED THE FAKE FLOOR",
-      "IT LOOKED SOLID. IT LIED.",
-      "YOU FOUND THE TEETH",
-      "THE FLOOR FOOLED YOU",
+      "you trusted the fake floor. classic.",
+      "it looked solid. i lied.",
+      "you found the teeth. congrats.",
+      "the floor got you. that one's a little on me.",
     ],
     greed: [
-      "YOU TOOK THE BAIT",
-      "SHINY WON. YOU DIDN'T.",
-      "THE COINS WERE THE TRAP",
-      "GREED SPEEDRUN: SUCCESS",
+      "you took the bait. the shiny one.",
+      "shiny won. you didn't. fair.",
+      "those coins were the trap. i still grab them too.",
+      "greed speedrun. you got the time.",
     ],
     brick: [
-      "A BRICK OUTPLAYED YOU",
-      "HEAD VS BRICK. BRICK.",
-      "YOU STOOD UNDER THAT",
-      "THE BRICK HAD TIMING",
+      "a brick beat you. a brick.",
+      "head versus brick. brick again.",
+      "you stood under that. i would have moved.",
+      "the brick had better timing than you.",
     ],
     fake: [
-      "YOU BELIEVED THE FAKE",
-      "WRONG DOOR. COME ON.",
-      "THE OTHER ONE WAS REAL",
-      "THAT DOOR WAS LYING",
+      "you believed the fake door. come on.",
+      "wrong door. the other one was right there.",
+      "that door was lying. i made it that way.",
+      "people run right, so i put the joke there.",
     ],
     reverse: [
-      "LEFT WAS RIGHT. MISS THAT?",
-      "YOU DIDN'T NOTICE THE FLIP",
-      "YOU WALKED THE WRONG WAY",
-      "BACKWARDS. STILL WRONG.",
+      "left was right for a second. you missed it.",
+      "you didn't notice the flip. i did.",
+      "you walked the wrong way with confidence.",
+      "backwards, and still the wrong backwards.",
     ],
     still: [
-      "STANDING IS NOT A PLAN",
-      "THE LEVEL ASKED YOU TO MOVE",
-      "AFK WAS THE TRAP",
-      "MOSS ON YOUR SKILL",
+      "you stood there. the floor left.",
+      "don't stop means move. you didn't.",
+      "standing still was the trap. you nailed it.",
+      "moss on your skill. i'm kidding. mostly.",
     ],
     jump: [
-      "YOU DIDN'T NEED TO JUMP",
-      "WALKING WAS LEGAL",
-      "THAT JUMP WAS THE TRAP",
-      "THE GROUND WAS RIGHT THERE",
+      "you didn't need to jump. the ground was fine.",
+      "you could've just walked.",
+      "that jump was the trap. you paid it.",
+      "the ground was right there. you left it.",
     ],
     stalker: [
-      "IT FOLLOWED YOU HOME",
-      "DON'T LOOK BACK",
-      "THE SHADOW CAUGHT UP",
-      "YOU WERE THE PREY",
+      "it followed you. you kept going straight.",
+      "it caught up. it had time.",
+      "you were the thing it wanted.",
+      "don't look back. you kind of did.",
     ],
     drone: [
-      "TARGET LOCKED",
-      "THE DRONE SAW YOU",
-      "ROBOTS DON'T MISS",
-      "RED LIGHT MEANS RUN",
+      "the drone had you. red light and everything.",
+      "it saw you. robots are rude like that.",
+      "that shot doesn't miss. i tested it.",
+      "red light means run. you admired it.",
     ],
     rocket: [
-      "INCOMING",
-      "YOU CAN'T OUTRUN A ROCKET",
-      "THAT WAS A MISSILE",
-      "JUMP THE EXPLOSION NEXT TIME",
+      "that was a missile. you can tell by the boom.",
+      "you can't outrun that one. i tried.",
+      "incoming was the whole warning.",
+      "jump the boom next time. or don't.",
     ],
     fog: [
-      "THE DARK BITES",
-      "FOG DOESN'T CARE",
-      "YOU STOOD IN THE VOID",
-      "THE FLOOR WASN'T THE DANGER",
+      "the dark bites. you stood in it.",
+      "the fog doesn't care how careful you felt.",
+      "you stood in it and it came up.",
+      "the fog hit your feet. the floor was fine.",
     ],
     watcher: [
-      "SEEN",
-      "IT WAS WATCHING",
-      "DON'T FREEZE",
-      "THE EYE WON",
+      "it saw you. freezing was a choice.",
+      "the eye was on you the whole time.",
+      "you froze. it liked that.",
+      "the eye won. it usually does.",
     ],
     sentry: [
-      "DEFENSE ONLINE",
-      "TURRET SAYS NO",
-      "YOU ENTERED THE ARC",
-      "WALLS HAVE GUNS NOW",
+      "the turret said no.",
+      "you walked into the arc.",
+      "the wall has a gun now. sorry.",
+      "it was on. you were the target.",
     ],
     swarm: [
-      "THEY FOUND YOU",
-      "TOO MANY TEETH",
-      "THE AIR BIT BACK",
-      "SWARM 1  ·  YOU 0",
+      "they found you. there were a lot of them.",
+      "too many teeth. i got carried away.",
+      "the air bit back.",
+      "swarm one, you zero.",
     ],
     phantom: [
-      "THAT'S NOT YOU",
-      "YOUR GHOST WON",
-      "MIRROR MATCH: LOSS",
-      "IT WORE YOUR FACE",
+      "that one had your face and better timing.",
+      "your ghost won the fight.",
+      "you lost to you. rough.",
+      "it wore your face. rude of me.",
     ],
     light: [
-      "STAY IN THE LIGHT",
-      "THE DARK WAS HUNGRY",
-      "SPOTLIGHT OR DIE",
-      "YOU LEFT THE SAFE CIRCLE",
+      "the light moved. you didn't.",
+      "you stepped out and the dark was waiting.",
+      "the safe circle left. you stayed.",
+      "you left the circle. it noticed.",
     ],
     crush: [
-      "STOMP",
-      "THE ROBOT SAID SIT",
-      "HEAVY METAL",
-      "YOU WERE UNDER THAT",
+      "the robot said sit.",
+      "you were under that. bad spot.",
+      "heavy. literally.",
+      "stomp. that was the whole move.",
     ],
     qte: [
-      "TOO SLOW",
-      "THAT LETTER WAS THE TRAP",
-      "THE PROMPT WON",
-      "YOU MISSED THE KEY",
+      "too slow on the letter.",
+      "that key was the trap.",
+      "the prompt won. you blinked.",
+      "you missed the key. it was right there.",
     ],
     generic: [
-      "THAT WAS ON YOU",
-      "SKILL ISSUE",
-      "THE LEVEL ISN'T THE PROBLEM",
-      "YES. THAT. AGAIN.",
-      "TRY LOOKING NEXT TIME",
+      "that was on you.",
+      "skill issue. i'm not sorry.",
+      "you did that.",
+      "yes. that. again.",
+      "try looking next time. or don't.",
     ],
   };
 
@@ -3178,6 +3386,8 @@
   function bossTalk(kind, force) {
     const b = world.boss;
     if (!b) return;
+    // Dim 2+ bosses stay silent. Null keeps the talk.
+    if ((b.dim || 1) >= 2) return;
     const pack = window.SURGE_BOSS_VOICE;
     if (!pack) return;
     const v = pack.voice(b.dim || 1);
@@ -3289,8 +3499,9 @@
     const id = String(cause || "").replace(/^BOSS\s+/, "").toLowerCase();
     const d = (world.boss && world.boss.dim) || dimIndex || 1;
     const pack = window.SURGE_BOSS_VOICE;
-    if (id === "boom") return "I fell on you.";
+    if (id === "boom") return d >= 2 ? "it blew." : "I fell on you.";
     const kits = window.SURGE_BOSS_KITS;
+    // Dim 2+ still use short cause labels (not dialogue). No first-person talk.
     if (kits && kits.line) {
       const kitLine = kits.line(d, id, true);
       if (kitLine) return kitLine.length <= 22 ? kitLine : kitLine.slice(0, 22);
@@ -3299,6 +3510,7 @@
       const text = nullPick(NULL_DEAD[id]);
       return text.length <= 22 ? text : text.slice(0, 22);
     }
+    if (d >= 2) return "the boss got you.";
     if (pack && pack.line) {
       const text = pack.line(d, id, true);
       if (text) return text.length <= 22 ? text : text.slice(0, 22);
@@ -4083,6 +4295,7 @@
   };
 
   function sceneSay(b, text, life) {
+    if (!b || (b.dim || 1) >= 2) return;
     const pack = window.SURGE_BOSS_VOICE;
     const v = pack && pack.voice ? pack.voice(b.dim || 1) : null;
     if (!v || !text) return;
@@ -5794,8 +6007,8 @@
         ctx.fill();
         ctx.globalAlpha = 1;
         ctx.fillStyle = "#fe1f6f";
-        ctx.shadowColor = "#fe92b8";
-        ctx.shadowBlur = s.kind === "spin" ? 18 : 10;
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
         ctx.beginPath();
         ctx.ellipse(0, 0, rw, rh, 0, 0, Math.PI * 2);
         ctx.fill();
@@ -5967,8 +6180,8 @@
       ctx.translate(world.magnet.x, world.magnet.y);
       ctx.rotate(world.time * 3);
       ctx.fillStyle = "#fe1f6f";
-      ctx.shadowColor = "#fe92b8";
-      ctx.shadowBlur = 14;
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
       ctx.beginPath();
       ctx.ellipse(0, 0, 11, 8, 0, 0, Math.PI * 2);
       ctx.fill();
@@ -6114,8 +6327,8 @@
       ctx.fillText(say.name || "NULL", x + 16, y + 18);
       ctx.font = say._fitFont || ("800 " + size + "px Bungee, sans-serif");
       ctx.fillStyle = say.ink || "#fff0f6";
-      ctx.shadowColor = "#fe1f6f";
-      ctx.shadowBlur = 18;
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
       ctx.fillText(text, x + 16, y + 18 + size);
       ctx.shadowBlur = 0;
       ctx.restore();
@@ -6381,13 +6594,13 @@
       facing: player.facing,
       squash: world.squash,
       insult: world.deathReason,
-      bossReply: (kind === "boss" && world.boss && window.SURGE_BOSS_VOICE)
+      bossReply: (kind === "boss" && world.boss && (world.boss.dim || 1) < 2 && window.SURGE_BOSS_VOICE)
         ? ((window.SURGE_BOSS_VOICE.voice(world.boss.dim || 1) || {}).back || "")
         : "",
-      bossInk: (kind === "boss" && world.boss && window.SURGE_BOSS_VOICE)
+      bossInk: (kind === "boss" && world.boss && (world.boss.dim || 1) < 2 && window.SURGE_BOSS_VOICE)
         ? ((window.SURGE_BOSS_VOICE.voice(world.boss.dim || 1) || {}).ink || "")
         : "",
-      bossColor: (kind === "boss" && world.boss && window.SURGE_BOSS_VOICE)
+      bossColor: (kind === "boss" && world.boss && (world.boss.dim || 1) < 2 && window.SURGE_BOSS_VOICE)
         ? ((window.SURGE_BOSS_VOICE.voice(world.boss.dim || 1) || {}).color || "")
         : "",
       levelName: world.name,
@@ -6439,7 +6652,7 @@
     document.getElementById("clear-name").textContent = world.name;
     const clearStats = document.getElementById("clear-stats");
     if (clearStats) {
-      clearStats.textContent = `${world.time.toFixed(1)}s · ☠ ${deaths} · SURGE x${Math.max(1, combo)}`;
+      clearStats.textContent = `${world.time.toFixed(1)}s · DEAD ${deaths} · SURGE x${Math.max(1, combo)}`;
     }
     clearScreen.classList.remove("hidden");
   }
@@ -8053,8 +8266,8 @@
       ctx.arc(cx + 8, cy - 22, 5, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = "#ff2a2a";
-      ctx.shadowColor = "#ff2020";
-      ctx.shadowBlur = 8;
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
       ctx.beginPath();
       ctx.arc(cx - 2, cy - 2, 2.2, 0, Math.PI * 2);
       ctx.arc(cx + 5, cy - 2, 2.2, 0, Math.PI * 2);
@@ -8085,8 +8298,8 @@
       ctx.fillStyle = "#6a40c8";
       ctx.fillRect(-10, -4, 20, 4);
       ctx.fillStyle = "#ff40e0";
-      ctx.shadowColor = "#ff40e0";
-      ctx.shadowBlur = 10;
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
       ctx.beginPath();
       ctx.arc(0, 1, 3.2, 0, Math.PI * 2);
       ctx.fill();
@@ -8102,8 +8315,8 @@
     if (e.kind === "sweep") {
       ctx.save();
       ctx.fillStyle = "rgba(255,40,40,0.85)";
-      ctx.shadowColor = "#ff3030";
-      ctx.shadowBlur = 12;
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
       ctx.fillRect(e.x, e.y, e.w, e.h);
       ctx.shadowBlur = 0;
       ctx.fillStyle = "#fff1a8";
@@ -8145,8 +8358,8 @@
         // Eyes
         const eyePulse = 2.2 + Math.sin(world.time * 14) * 0.4;
         ctx.fillStyle = "#ff2a2a";
-        ctx.shadowColor = "#ff2020";
-        ctx.shadowBlur = 8;
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
         ctx.beginPath();
         ctx.arc(cx - 4, cy - 2, eyePulse, 0, Math.PI * 2);
         ctx.arc(cx + 5, cy - 2, eyePulse, 0, Math.PI * 2);
@@ -8185,8 +8398,8 @@
         ctx.arc(0, 2, 4.2, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = "#ff3030";
-        ctx.shadowColor = "#ff4040";
-        ctx.shadowBlur = 10;
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
         ctx.beginPath();
         ctx.arc(0, 2, 2.6, 0, Math.PI * 2);
         ctx.fill();
@@ -8260,8 +8473,8 @@
         ctx.stroke();
         // Globe
         ctx.fillStyle = mad ? "#ff3a3a" : "#f4ead8";
-        ctx.shadowColor = mad ? "#ff2020" : "transparent";
-        ctx.shadowBlur = mad ? 12 : 0;
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
         ctx.beginPath();
         ctx.ellipse(0, 0, 6, 4.5 * open, 0, 0, Math.PI * 2);
         ctx.fill();
@@ -8292,8 +8505,8 @@
         ctx.fillStyle = "#1a1e24";
         ctx.fillRect(e.x + 3, e.y + 5, 12, 8);
         ctx.fillStyle = "#ff3030";
-        ctx.shadowColor = "#ff4040";
-        ctx.shadowBlur = 8;
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
         ctx.beginPath();
         ctx.arc(e.x + 9, e.y + 9, 2.4, 0, Math.PI * 2);
         ctx.fill();
@@ -8316,8 +8529,8 @@
         ctx.fillStyle = "rgba(255,60,60,0.25)";
         ctx.fillRect(e.x - 2, e.y - 3, e.w + 4, e.h + 6);
         ctx.fillStyle = "#ff6a6a";
-        ctx.shadowColor = "#ff4040";
-        ctx.shadowBlur = 12;
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
         ctx.fillRect(e.x, e.y, e.w, e.h);
         ctx.shadowBlur = 0;
         ctx.fillStyle = "#fff2f2";
@@ -8380,8 +8593,8 @@
         ctx.fillRect(e.x + 3, e.y + 3, e.w - 6, 3);
         // Eyes
         ctx.fillStyle = "#e31b1b";
-        ctx.shadowColor = "#ff3030";
-        ctx.shadowBlur = 8;
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
         ctx.fillRect(e.x + 7, e.y + 12, 7, 5);
         ctx.fillRect(e.x + e.w - 14, e.y + 12, 7, 5);
         ctx.shadowBlur = 0;
@@ -11091,7 +11304,7 @@
     const pauseTaunt = document.getElementById("pause-taunt");
     if (pauseTaunt) pauseTaunt.textContent = world.taunt || "";
     const pauseDeaths = document.getElementById("pause-deaths");
-    if (pauseDeaths) pauseDeaths.textContent = "☠ " + deaths;
+    if (pauseDeaths) pauseDeaths.textContent = "DEAD " + deaths;
     if (pauseBtn) pauseBtn.setAttribute("aria-pressed", "true");
     audio.play("pause");
   }
@@ -11224,7 +11437,7 @@
       const traps = window.SURGE_WORLDS.trapCount(d);
       const reached = progress[d] != null ? progress[d] : (locked ? -1 : 0);
       const deathsN = rec[d] && typeof rec[d].bestDeaths === "number" ? rec[d].bestDeaths : null;
-      const recLine = deathsN == null ? "" : " · " + deathsN + "☠";
+      const recLine = deathsN == null ? "" : " · " + deathsN + " DEAD";
       const num = document.createElement("span");
       num.className = "n";
       num.textContent = "D" + String(d).padStart(2, "0");
@@ -11403,7 +11616,7 @@
 
   function syncMuteButton() {
     if (muteBtn) {
-      muteBtn.textContent = audio.muted ? "🔇" : "🔊";
+      muteBtn.textContent = audio.muted ? "MUTED" : "SOUND";
       muteBtn.setAttribute("aria-pressed", audio.muted ? "true" : "false");
       muteBtn.setAttribute("aria-label", audio.muted ? "Unmute" : "Mute");
     }
@@ -11539,11 +11752,7 @@
   }
 
   function paintControlHint() {
-    const el = document.getElementById("title-hint");
-    if (!el || !binds) return;
-    el.textContent = codeLabel(binds.left[0]) + " / " + codeLabel(binds.right[0])
-      + " MOVE · " + codeLabel(binds.jump[0]) + " JUMP · " + codeLabel(binds.dash[0])
-      + " DASH · " + codeLabel(binds.retry[0]) + " RETRY · " + codeLabel(binds.pause[0]) + " PAUSE";
+    // Title keeps brand + buttons only. Bindings live under SETTINGS.
   }
 
   function paintBinds() {
@@ -12611,19 +12820,14 @@
     hold.right = false;
     hold.jump = false;
     let ashSpoke = false;
-    let ashQuiet = false;
     for (let f = 0; f < 60 * 14; f++) {
       const wasIntro = world.boss.phase === "intro";
       step();
-      if (wasIntro && world.boss.say && world.boss.say.text) ashSpoke = true;
-      if (wasIntro && world.boss.phase === "fight") {
-        ashQuiet = !world.boss.say;
-        break;
-      }
+      if (world.boss.say && world.boss.say.text) ashSpoke = true;
+      if (wasIntro && world.boss.phase === "fight") break;
     }
-    assert(ashSpoke, "ash talks in cutscene", fails);
+    assert(!ashSpoke, "ash stays silent", fails);
     assert(world.boss.phase === "fight", "ash intro ends " + world.boss.phase, fails);
-    assert(ashQuiet, "ash stays quiet after intro", fails);
     assert((world.boss.moves || 0) === 0, "ash intro keeps the door", fails);
 
     enterDimension(2, window.SURGE_WORLDS.roomCount(2) - 1);
@@ -12642,7 +12846,7 @@
     const ashDoor = world.door.x;
     step();
     assert(world.boss.saidBored, "ash failsafe arms", fails);
-    assert(world.boss.say && world.boss.say.text, "ash failsafe talks", fails);
+    assert(!world.boss.say, "ash failsafe stays silent", fails);
     assert(!world.boss.dropping, "ash failsafe waits before drop", fails);
     assert(world.door.x === ashDoor, "ash door waits on warn", fails);
     assert((world.boss.doorCd || 0) > 0.5, "ash failsafe fuse " + world.boss.doorCd, fails);
@@ -12654,7 +12858,7 @@
     for (let f = 0; f < 120; f++) step();
     assert(world.boss.phase === "intro", "last still in cutscene", fails);
     assert(Math.abs(world.boss.x - player.x) < 520, "last stays in frame " + Math.round(world.boss.x), fails);
-    assert(world.boss.say && world.boss.say.text, "last talks " + (world.boss.say && world.boss.say.text), fails);
+    assert(!world.boss.say, "last stays silent", fails);
 
     for (let d = 2; d <= 20; d++) {
       enterDimension(d, window.SURGE_WORLDS.roomCount(d) - 1);
@@ -13476,7 +13680,7 @@
       deathTimer = 0;
       if (dimCard) dimCard.classList.add("hidden");
       if (mobile) mobile.classList.add("hidden");
-      if (deathsEl) deathsEl.textContent = "☠ " + deaths;
+      if (deathsEl) deathsEl.textContent = "DEAD " + deaths;
       if (opts.lock) {
         useBot = false;
         botIx = 0;

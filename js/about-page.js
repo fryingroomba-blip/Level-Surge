@@ -56,22 +56,22 @@
   });
 
   const NOTES = {
-    "TRUST ME": "Dust, then the floor leaves.",
-    "KEEP JUMPING": "The landing is already a hole.",
-    "KNOCK KNOCK": "The door on the right is fake.",
-    "WAIT FOR IT": "Ceiling spikes. The floor comes back at 1.9 seconds.",
-    "SHINY": "Three coins over spikes. They blow up.",
-    "BACKWARDS": "Left and right swap for a second.",
-    "CHECKERED": "Some of the bricks are just paint.",
-    "BUZZ": "The saw by the door starts following you.",
-    "YEET": "The pad throws you, then gravity gets light.",
-    "UP IS DOWN": "The door is on the ceiling.",
-    "COME BACK": "The door slides away while you walk.",
-    "FALL IN": "The door is down in the hole.",
-    "DON'T STOP": "Stand still for 0.4 seconds and the floor drops.",
-    "PSYCH": "Fake door. Then you walk back.",
-    "THROUGH": "The wall in the middle is paint.",
-    "LAST LAUGH": "The coins still blow up. The door on the right is fake. The real one is waiting when you come back."
+    "TRUST ME": "Dust first, then the floor leaves. I named it that so you'd trust it.",
+    "KEEP JUMPING": "The landing is already a hole. You find out by landing.",
+    "KNOCK KNOCK": "The door on the right is fake. People run right, so I put it there.",
+    "WAIT FOR IT": "Ceiling spikes. The floor comes back at 1.9 seconds. I timed it.",
+    "SHINY": "Three coins over spikes. They blow up. I still grab them.",
+    "BACKWARDS": "Left and right swap for a second. I still mess this up.",
+    "CHECKERED": "Some of the bricks are paint. You find out by walking into them.",
+    "BUZZ": "The saw by the door starts following you. I gave it a personality. Mistake.",
+    "YEET": "The pad throws you, then gravity gets light. My stomach drops every time.",
+    "UP IS DOWN": "The door is on the ceiling. I almost softlocked myself building this.",
+    "COME BACK": "The door slides away while you walk. Keep going, it comes back meaner.",
+    "FALL IN": "The door is down in the hole. It feels wrong. Jump anyway.",
+    "DON'T STOP": "Stand still for 0.4 seconds and the floor drops. Four tenths. I checked.",
+    "PSYCH": "Fake door. Then you walk all the way back. I still laugh.",
+    "THROUGH": "The wall in the middle is paint. Walk into it and feel stupid with me.",
+    "LAST LAUGH": "Coins still blow up. Right door is fake. The real one is waiting when you come back."
   };
 
   const rooms = document.getElementById("room-list");
@@ -125,7 +125,7 @@
       card.className = "world";
       const pip = document.createElement("i");
       pip.style.background = color;
-      pip.style.boxShadow = "0 0 8px " + color;
+      pip.style.boxShadow = "2px 2px 0 #000";
       const idx = document.createElement("span");
       idx.className = "idx";
       idx.textContent = "D" + String(d).padStart(2, "0");

@@ -64,9 +64,10 @@
     font(ctx, size, true);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.shadowColor = "#000";
-    ctx.shadowBlur = 14;
-    ctx.shadowOffsetY = 4;
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 3;
+    ctx.shadowOffsetY = 3;
     ctx.fillStyle = color || "#e31b1b";
     ctx.fillText(text, 0, 0);
     ctx.restore();
@@ -179,21 +180,21 @@
   }
 
   const LINES = {
-    spike: ["YOU SAW THE SPIKES", "THOSE WERE NOT DECORATION", "YOU WALKED ON PURPOSE", "FEET 1  ·  BRAIN 0"],
-    ceiling: ["THAT JUMP WAS OPTIONAL", "THE CEILING WAS A HINT", "YOU JUMPED INTO THAT", "GRAVITY WAS HELPING"],
-    jumpspike: ["YOU AIMED AT THE SPIKES", "THAT LANDING. WOW.", "THE FLOOR WAS SPIKES", "PARKOUR GRADE: SEE ME"],
-    saw: ["IT WAS SPINNING AT YOU", "THE SAW WAS NOT A HUG", "YOU WALKED INTO A BLADE", "IT SPINS. YOU DON'T."],
-    laser: ["THE RED LINE WAS A HINT", "GLOWING MEANS DON'T", "YOU TOUCHED THE OBVIOUS", "LASERS ARE NOT A DARE"],
-    hole: ["THERE WAS NO FLOOR", "YOU FELL IN THE OBVIOUS", "AIR IS NOT A PLATFORM", "THE GAP WAS THE HINT"],
-    jumpfall: ["YOU JUMPED INTO NOTHING", "THAT JUMP HAD NO LANDING", "THE GAP WAS A GAP", "AIR TIME IS NOT A PLAN"],
-    teeth: ["YOU TRUSTED THE FAKE FLOOR", "IT LOOKED SOLID. IT LIED.", "YOU FOUND THE TEETH", "THE FLOOR FOOLED YOU"],
-    greed: ["YOU TOOK THE BAIT", "SHINY WON. YOU DIDN'T.", "THE COINS WERE THE TRAP", "GREED SPEEDRUN: SUCCESS"],
-    brick: ["A BRICK OUTPLAYED YOU", "HEAD VS BRICK. BRICK.", "YOU STOOD UNDER THAT", "THE BRICK HAD TIMING"],
-    fake: ["YOU BELIEVED THE FAKE", "WRONG DOOR. COME ON.", "THE OTHER ONE WAS REAL", "THAT DOOR WAS LYING"],
-    reverse: ["LEFT WAS RIGHT. MISS THAT?", "YOU DIDN'T NOTICE THE FLIP", "YOU WALKED THE WRONG WAY", "BACKWARDS. STILL WRONG."],
-    still: ["STANDING IS NOT A PLAN", "THE LEVEL ASKED YOU TO MOVE", "AFK WAS THE TRAP", "MOSS ON YOUR SKILL"],
-    jump: ["YOU DIDN'T NEED TO JUMP", "WALKING WAS LEGAL", "THAT JUMP WAS THE TRAP", "THE GROUND WAS RIGHT THERE"],
-    generic: ["THAT WAS ON YOU", "SKILL ISSUE", "THE LEVEL ISN'T THE PROBLEM", "TRY LOOKING NEXT TIME"],
+    spike: ["the spikes aren't here for decoration you know.", "you saw them. you walked on them anyway.", "those points were the whole joke.", "feet went first. brain showed up late."],
+    ceiling: ["that jump was optional. the ceiling wasn't.", "the spikes up there were a hint, you know.", "you jumped into that on purpose.", "gravity was already doing the work."],
+    jumpspike: ["you aimed at the spikes. i'm not even mad.", "that landing. wow. truly a choice.", "the floor was spikes and you still picked it.", "parkour grade: see me after class."],
+    saw: ["it was spinning at you the whole time.", "you hugged the blade. bold.", "you walked into a saw. a saw.", "the teeth kept going. you didn't."],
+    laser: ["the red line was the hint.", "if it's glowing, that's usually a don't.", "you touched the obvious one.", "the beam cut you. that's the job."],
+    hole: ["there was no floor. you checked.", "you fell in the obvious hole.", "you stood where the floor used to be.", "the gap was right there. you took it."],
+    jumpfall: ["you jumped into nothing. impressive.", "that jump had no landing. i checked.", "the gap was a gap. sorry.", "no floor under that one. you looked."],
+    teeth: ["you trusted the fake floor. classic.", "it looked solid. i lied.", "you found the teeth. congrats.", "the floor got you. that one's a little on me."],
+    greed: ["you took the bait. the shiny one.", "shiny won. you didn't. fair.", "those coins were the trap. i still grab them too.", "greed speedrun. you got the time."],
+    brick: ["a brick beat you. a brick.", "head versus brick. brick again.", "you stood under that. i would have moved.", "the brick had better timing than you."],
+    fake: ["you believed the fake door. come on.", "wrong door. the other one was right there.", "that door was lying. i made it that way.", "people run right, so i put the joke there."],
+    reverse: ["left was right for a second. you missed it.", "you didn't notice the flip. i did.", "you walked the wrong way with confidence.", "backwards, and still the wrong backwards."],
+    still: ["you stood there. the floor left.", "don't stop means move. you didn't.", "standing still was the trap. you nailed it.", "moss on your skill. i'm kidding. mostly."],
+    jump: ["you didn't need to jump. the ground was fine.", "you could've just walked.", "that jump was the trap. you paid it.", "the ground was right there. you left it."],
+    generic: ["that was on you.", "skill issue. i'm not sorry.", "you did that.", "try looking next time. or don't."],
   };
 
   function impact(s, api, power) {
@@ -265,7 +266,7 @@
         s.squash = 0.4;
         s.circle = { r: lerp(48, 22, inv(0, 0.9, t)), pulse: true };
         s.caption = "HOLD IT.";
-        s.sub = "LET'S REVIEW THE FEET";
+        s.sub = "look at your feet";
       } else if (t < 2.3) {
         const u = inv(0.9, 2.3, t);
         s.y = s.y0 - easeOut(u) * 42;
@@ -283,7 +284,7 @@
         s.scaleX = lerp(1, 0.72, u);
         s.zoom = lerp(1.7, 1.35, u);
         s.caption = "SLOW KEBAB";
-        s.sub = "YOUR IDEA. THEIR SPIKES.";
+        s.sub = "you walked into those";
         if (crossed(s, 2.4)) api.audio.play("spike");
         if (crossed(s, 3.6)) puff(api, s, "#e31b1b", 14, 4);
       } else if (t < 7) {
@@ -299,7 +300,7 @@
         s.tip = inv(7, 8.7, t);
         s.menu = 1;
         s.caption = "PRO TIP";
-        s.sub = "THE SHARP ONES. REMEMBER?";
+        s.sub = "sharp end goes up";
         if (crossed(s, 7.05)) api.audio.play("laugh");
       } else {
         const u = inv(8.7, 10, t);
@@ -508,7 +509,7 @@
         s.scaleX = lerp(1, 1.7, easeIn(u));
         s.squash = 1;
         s.caption = s.insult;
-        s.sub = "AIR IS NOT A PLATFORM";
+        s.sub = "YOU STOOD ON THE GAP";
         if (crossed(s, 8.4)) { api.audio.play("die"); puff(api, s, "#c4b8a8", 24, 6); }
       }
     },
@@ -748,7 +749,7 @@
         s.moss = 1;
         s.doc = inv(6.2, 8.3, t);
         s.caption = "AFK DETECTED";
-        s.sub = "STANDING IS NOT A PLAN";
+        s.sub = "YOU STOOD. THE FLOOR LEFT.";
         if (crossed(s, 6.3)) api.audio.play("laugh");
       } else {
         const u = inv(8.3, 10, t);
@@ -1106,7 +1107,7 @@
       ctx.moveTo(W * 0.2, H * 0.72);
       ctx.lineTo(W * 0.8, H * 0.72);
       ctx.stroke();
-      const walk = fitLine(ctx, "WALKING WAS LEGAL", u(W, H, 16), false, W * 0.7);
+      const walk = fitLine(ctx, "you could've just walked", u(W, H, 16), false, W * 0.7);
       ctx.fillStyle = "#ffd24a";
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
@@ -1619,7 +1620,7 @@
             s.circle = { r: lerp(60, 18, u), pulse: true };
             s.squash = 0.25;
           }},
-          { t: 2.4, cap: "THESE ARE SPIKES", sub: "NOT FLOOR TEXTURE", sfx: "spike", go(s, api, u) {
+          { t: 2.4, cap: "THESE ARE SPIKES", sub: "they're spikes, you know", sfx: "spike", go(s, api, u) {
             s.kebab = easeIn(u);
             s.y = s.y0 + easeIn(u) * 18;
             s.squash = lerp(0.2, 0.8, u);
@@ -1918,7 +1919,7 @@
             s.hotel = u;
             s.y += 1.4;
           }},
-          { t: 8.2, cap: "", sub: "AIR IS NOT A PLATFORM", sfx: "die", go(s, api, u) {
+          { t: 8.2, cap: "", sub: "YOU STOOD ON THE GAP", sfx: "die", go(s, api, u) {
             s.caption = s.insult;
             s.scaleY = lerp(1, 0.18, easeIn(u));
             s.scaleX = lerp(1, 1.8, u);

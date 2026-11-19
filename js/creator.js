@@ -472,7 +472,7 @@
         trapKind = k.id;
         renderKinds();
         renderBrushes();
-        setStatus(`Trap: ${k.name} — click a column`);
+        setStatus(`Trap: ${k.name}. Click a column.`);
       };
       kindBox.appendChild(btn);
     });
@@ -610,7 +610,7 @@
       onExit: (info) => {
         openCreator();
         if (info && info.reason === "clear") {
-          setStatus(`Cleared in ${info.time.toFixed(1)}s · ☠ ${info.deaths}`);
+          setStatus(`Cleared in ${info.time.toFixed(1)}s · DEAD ${info.deaths}`);
         } else {
           setStatus("Back in creator");
         }
@@ -633,7 +633,7 @@
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(
         () => setStatus("JSON copied"),
-        () => setStatus("Copy failed — check console")
+        () => setStatus("Copy failed. Check the console.")
       );
     } else {
       console.log(text);

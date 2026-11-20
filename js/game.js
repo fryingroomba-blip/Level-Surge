@@ -1439,7 +1439,7 @@
   let dashDir = 1;
   let dashHeld = false;
   let nearFlare = 0;
-  const camFX = { punch: 0, phase: 0 };
+  const camFX = { punch: 0, punchV: 0, phase: 0 };
   const SAVE_KEY = "level-surge-v3";
 
   function loadSave() {
@@ -1655,7 +1655,7 @@
     vx: 0, vy: 0, onGround: false, facing: 1,
     dead: false, win: false, coyote: 0, buffer: 0,
     jumpHeld: false, anim: 0, bounceLock: 0, justLanded: false,
-    lean: 0, visSq: 0, bob: 0, ghostT: 0,
+    lean: 0, visSq: 0, sqV: 0, bob: 0, ghostT: 0,
   };
 
   function padRow(s, cols) {
@@ -1970,6 +1970,7 @@
     player.lean = 0;
     player.bob = 0;
     player.visSq = 0;
+    player.sqV = 0;
     resetRoomHabit();
     player.anim = 0;
     player.airTime = 0;
@@ -6818,8 +6819,8 @@
     else player.coyote -= FIXED;
     player.buffer -= FIXED;
     player.bounceLock -= FIXED;
-    if (world.squash > 0) world.squash = Math.max(0, world.squash - FIXED * 1.35);
-    else if (world.squash < 0) world.squash = Math.min(0, world.squash + FIXED * 2.1);
+    world.squash *= 0.84;
+    if (Math.abs(world.squash) < 0.01) world.squash = 0;
 
     const gSign = Math.sign(world.gravity) || 1;
     if (player.buffer > 0 && player.coyote > 0) {
@@ -6902,12 +6903,18 @@
     player.lean += (leanTarget - player.lean) * 0.28;
     const airSq = player.onGround
       ? 0
-      : (player.vy < -1 ? -0.16 : Math.min(0.2, player.vy * 0.018));
-    player.visSq += ((world.squash || 0) + airSq - player.visSq) * 0.42;
+      : (player.vy < -1 ? -0.22 : Math.min(0.26, player.vy * 0.022));
+    const sqTarget = (world.squash || 0) + airSq;
+    player.sqV += (sqTarget - player.visSq) * 0.5;
+    player.sqV *= 0.62;
+    player.visSq += player.sqV;
+    if (player.visSq > 0.78) player.visSq = 0.78;
+    if (player.visSq < -0.58) player.visSq = -0.58;
     const stride = Math.min(1, Math.abs(player.vx) / 3.4);
+    const idle = player.onGround && stride < 0.08 ? Math.sin(world.time * 2.3) * -0.85 : 0;
     const bobTarget = player.onGround
-      ? Math.abs(Math.sin(player.anim)) * -2.1 * stride
-      : (player.vy < 0 ? -1.4 : 0.4);
+      ? Math.abs(Math.sin(player.anim)) * -2.6 * stride + idle
+      : (player.vy < 0 ? -1.8 : 0.7);
     player.bob += (bobTarget - player.bob) * 0.4;
 
     player.stepCool = Math.max(0, (player.stepCool || 0) - FIXED);
@@ -7414,7 +7421,13 @@
       }
     }
     camFX.phase += 0.72;
-    camFX.punch *= 0.9;
+    camFX.punchV += (0 - camFX.punch) * 0.22;
+    camFX.punchV *= 0.74;
+    camFX.punch += camFX.punchV;
+    if (Math.abs(camFX.punch) < 0.04 && Math.abs(camFX.punchV) < 0.04) {
+      camFX.punch = 0;
+      camFX.punchV = 0;
+    }
     const shake = world.shake || 0;
     const sx = shake ? Math.sin(camFX.phase * 1.15) * shake * 0.55 : 0;
     const sy = shake ? Math.cos(camFX.phase * 1.55) * shake * 0.38 : 0;
@@ -7550,9 +7563,15 @@
 
   function drawSpikeOne(bx, by, dir, pulse) {
     ctx.save();
-    ctx.translate(bx + 8, by + 16);
-    ctx.scale(pulse, pulse);
-    ctx.translate(-8, -16);
+    let ox = bx + 8;
+    let oy = by + 16;
+    if (dir === "up") oy = by + TILE;
+    else if (dir === "down") oy = by;
+    else if (dir === "left") ox = bx + TILE;
+    else ox = bx;
+    ctx.translate(ox, oy);
+    ctx.scale(1 + (pulse - 1) * 0.35, pulse);
+    ctx.translate(-ox, -oy);
     // Shadow body
     ctx.fillStyle = "#120c0a";
     ctx.beginPath();
@@ -7594,7 +7613,7 @@
   }
 
   function drawSpikePair(px, py, dir) {
-    const pulse = 1 + Math.sin(world.time * 10 + px * 0.2) * 0.035;
+    const pulse = 1 + Math.sin(world.time * 6.5 + px * 0.17) * 0.08;
     drawSpikeOne(px, py, dir, pulse);
     drawSpikeOne(px + 16, py, dir, pulse);
   }
@@ -8230,7 +8249,11 @@
       flyX = 0.82;
       flyY = 1.28;
     }
-    ctx.translate(ax, ay);
+    const hoverT = mode === "play" ? world.time : performance.now() / 1000;
+    const hover = Math.sin(hoverT * 2.3 + (d.x || 0) * 0.03) * (d.fake ? 1.3 : 2.6);
+    ctx.translate(ax, ay + hover);
+    if (d.fake) ctx.rotate(Math.sin(hoverT * 1.6 + (d.x || 0)) * 0.035);
+    else ctx.rotate(Math.sin(hoverT * 1.4) * 0.012);
     ctx.scale(pop * flyX, pop * flyY);
     ctx.translate(-ax, -ay);
     drawDoorShell(d.x - 2, d.y - 18, d.fake);
@@ -8766,8 +8789,7 @@
     ctx.beginPath();
     ctx.arc(0, 0, 24 + chasePulse, 0, Math.PI * 2);
     ctx.fill();
-    ctx.rotate(saw.spin);
-    // Teeth
+    const paintTeeth = () => {
     for (let i = 0; i < 16; i++) {
       ctx.rotate((Math.PI * 2) / 16);
       ctx.fillStyle = i % 2 ? "#f2ebe3" : "#d8d0c6";
@@ -8784,6 +8806,14 @@
       ctx.lineTo(-1.6, 18.5);
       ctx.fill();
     }
+    };
+    ctx.save();
+    ctx.globalAlpha = 0.2;
+    ctx.rotate((saw.spin || 0) - 0.48);
+    paintTeeth();
+    ctx.restore();
+    ctx.rotate(saw.spin);
+    paintTeeth();
     // Hub
     ctx.fillStyle = "#3a3632";
     ctx.beginPath();
@@ -8894,7 +8924,14 @@
         handL = 8; handR = 10; hoofL = -3; hoofR = -2; shinL = 0; shinR = 0;
       }
     } else if (stride < 0.12) {
-      handL = 16; handR = 17; hoofL = 0; hoofR = 0; shinL = 0; shinR = 0;
+      const breath = Math.sin(world.time * 2.4) * 1.15;
+      handL = 15 + breath; handR = 16 - breath * 0.55;
+      hoofL = breath * 0.15; hoofR = -breath * 0.1;
+      shinL = 0; shinR = 0;
+    }
+    if ((opts.stretch || 0) > 0.22) {
+      handL += 5; handR += 6;
+      hoofL = -3; hoofR = 2;
     }
     ctx.fillStyle = "#e31b1b";
     ctx.fillRect(-5, handL, 6, 6);
@@ -8924,11 +8961,12 @@
       ctx.fillRect(5.5, 13.5, 7, 1.6);
       ctx.fillRect(13.2, 13.5, 7, 1.6);
     } else {
-      const look = facing > 0 ? 0.7 : -0.3;
+      const look = (facing > 0 ? 0.45 : -0.2) + Math.max(0, Math.min(0.7, speed * 0.1));
+      const eyeY = 14.5 + (air ? (vy > 1.2 ? 0.9 : vy < -1.2 ? -0.8 : 0) : 0);
       ctx.fillStyle = "#140808";
       ctx.beginPath();
-      ctx.ellipse(10 + look, 14.5, 1.6, 2.1, 0, 0, Math.PI * 2);
-      ctx.ellipse(17.5 + look, 14.5, 1.6, 2.1, 0, 0, Math.PI * 2);
+      ctx.ellipse(10 + look, eyeY, 1.6, 2.1, 0, 0, Math.PI * 2);
+      ctx.ellipse(17.5 + look, eyeY, 1.6, 2.1, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = "#e31b1b";
       ctx.fillRect(9.5, 13.3, 1.2, 1.2);
@@ -9181,8 +9219,19 @@
       ctx.fillRect(l.x, l.y, l.w, l.h);
       ctx.globalAlpha = 0.7 * a;
       ctx.fillStyle = "#fff";
-      if (l.w >= l.h) ctx.fillRect(l.x + 1, l.y + Math.max(0, l.h / 2 - 1), Math.max(1, l.w - 2), 2);
-      else ctx.fillRect(l.x + Math.max(0, l.w / 2 - 1), l.y + 1, 2, Math.max(1, l.h - 2));
+      if (l.w >= l.h) {
+        ctx.fillRect(l.x + 1, l.y + Math.max(0, l.h / 2 - 1), Math.max(1, l.w - 2), 2);
+        const span = Math.max(8, l.w);
+        const glide = ((world.time * 220 + l.x) % span);
+        ctx.globalAlpha = 0.9 * a;
+        ctx.fillRect(l.x + glide, l.y, Math.min(12, l.w), l.h);
+      } else {
+        ctx.fillRect(l.x + Math.max(0, l.w / 2 - 1), l.y + 1, 2, Math.max(1, l.h - 2));
+        const span = Math.max(8, l.h);
+        const glide = ((world.time * 220 + l.y) % span);
+        ctx.globalAlpha = 0.9 * a;
+        ctx.fillRect(l.x, l.y + glide, l.w, Math.min(12, l.h));
+      }
     }
     ctx.globalAlpha = 1;
   }
@@ -11101,8 +11150,9 @@
     drawDoor(world.fakeDoor);
     for (const coin of world.coins) {
       if (coin.dead) continue;
-      const cy = coin.y + Math.sin(world.time * 6 + coin.x) * 2.4;
-      const spin = world.time * 3 + coin.x * 0.1;
+      const wave = Math.sin(world.time * 5.2 + coin.x);
+      const cy = coin.y + wave * 3.4;
+      const spin = world.time * 3.4 + coin.x * 0.1;
       const boom = !!world.rules.explodeCoins;
       const col = boom ? "#ff7a3a" : "#ffd24a";
       const glow = boom ? "rgba(255,100,40,0.35)" : "rgba(255,210,74,0.32)";
@@ -11112,7 +11162,8 @@
       ctx.fill();
       ctx.save();
       ctx.translate(coin.x, cy);
-      ctx.rotate(Math.sin(spin) * 0.25);
+      ctx.rotate(Math.sin(spin) * 0.38);
+      ctx.scale(1 + wave * 0.08, 1 - wave * 0.1);
       // Crystal shard
       ctx.fillStyle = col;
       ctx.beginPath();

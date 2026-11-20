@@ -242,8 +242,10 @@
 
   function enterForm(ctx, t, look, p) {
     ctx.save();
-    ctx.translate(p.shake, Math.sin(t * 2) * (3.4 - p.tired * 1.8) + p.tired * 7);
-    ctx.rotate((p.face === "tired" ? 0.08 : 0) + Math.sin(t * 1.25) * 0.025);
+    ctx.translate(p.shake, Math.sin(t * 2) * (4.2 - p.tired * 2.1) + p.tired * 7);
+    ctx.rotate((p.face === "tired" ? 0.08 : 0) + Math.sin(t * 1.25) * 0.04);
+    const breath = Math.sin(t * 2.15);
+    ctx.scale(1 + breath * 0.02, 1 - breath * 0.015);
     if (look < 0) ctx.scale(-1, 1);
   }
 
